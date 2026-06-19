@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Convocation par e-mail</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      background: #f8f9fa;
+      color: #212529;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #1a56db;
+      color: #fff;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 15px; font-weight: 600; }
+
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 14px;
+    }
+    .card-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #6c757d;
+      margin-bottom: 10px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 14px;
+    }
+    .field { display: flex; flex-direction: column; gap: 2px; }
+    .field label { font-size: 11px; color: #6c757d; }
+    .field span {
+      font-weight: 500;
+      color: #212529;
+      word-break: break-word;
+    }
+    .field span.empty { color: #adb5bd; font-style: italic; }
+
+    textarea {
+      width: 100%;
+      min-height: 200px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      padding: 10px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+    textarea:focus { outline: 2px solid #1a56db; border-color: transparent; }
+
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 5px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button:hover:not(:disabled) { opacity: .85; }
+
+    .btn-primary { background: #1a56db; color: #fff; }
+    .btn-secondary { background: #e9ecef; color: #495057; }
+
+    .status-bar {
+      padding: 8px 16px;
+      font-size: 12px;
+      border-top: 1px solid #dee2e6;
+      background: #fff;
+      flex-shrink: 0;
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-bar.success { color: #0f5132; background: #d1e7dd; }
+    .status-bar.error   { color: #842029; background: #f8d7da; }
+    .status-bar.sending { color: #055160; background: #cff4fc; }
+
+    .placeholder {
+      text-align: center;
+      color: #adb5bd;
+      padding: 40px 20px;
+    }
+
+    .config-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+    .config-row label { font-size: 12px; color: #495057; font-weight: 500; }
+    .config-row input {
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+    .config-row input:focus { outline: 2px solid #1a56db; border-color: transparent; }
+
+    details summary {
+      cursor: pointer;
+      font-size: 12px;
+      color: #1a56db;
+      margin-bottom: 10px;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+  </svg>
+  <h1>Convocation par e-mail</h1>
+</header>
+
+<main id="main">
+  <div class="placeholder" id="placeholder">
+    Sélectionnez un candidat dans la table Grist.
+  </div>
+
+  <div id="content" style="display:none; flex-direction:column; gap:14px;">
+
+    <div class="card">
+      <div class="card-title">Candidat</div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Nom complet</label>
+          <span id="f-nom"></span>
+        </div>
+        <div class="field">
+          <label>E-mail</label>
+          <span id="f-email"></span>
+        </div>
+        <div class="field">
+          <label>Examen</label>
+          <span id="f-examen"></span>
+        </div>
+        <div class="field">
+          <label>Date / Heure</label>
+          <span id="f-date"></span>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Lieu</label>
+          <span id="f-lieu"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Prévisualisation de l'e-mail</div>
+      <textarea id="preview" spellcheck="false"></textarea>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>Configuration (API d'envoi)</summary>
+        <div class="config-row">
+          <label for="cfg-endpoint">URL de l'API d'envoi</label>
+          <input id="cfg-endpoint" type="url" placeholder="https://api.example.com/send" />
+        </div>
+        <div class="config-row">
+          <label for="cfg-apikey">Clé API</label>
+          <input id="cfg-apikey" type="password" placeholder="sk-…" />
+        </div>
+        <div class="config-row">
+          <label for="cfg-from-name">Nom expéditeur</label>
+          <input id="cfg-from-name" type="text" placeholder="Certi-Trust FRANCE SAS" />
+        </div>
+        <div class="config-row">
+          <label for="cfg-from-email">E-mail expéditeur</label>
+          <input id="cfg-from-email" type="email" placeholder="examens@certi-trust.com" />
+        </div>
+        <button class="btn-secondary" onclick="saveConfig()">Enregistrer la configuration</button>
+      </details>
+    </div>
+
+    <div class="actions">
+      <button class="btn-primary" id="btn-send" onclick="sendOne()">Envoyer la convocation</button>
+    </div>
+
+  </div>
+</main>
+
+<div class="status-bar" id="status-bar"></div>
+
+<script>
+  const TEMPLATE = (d) =>
+`Objet : Convocation à l'examen — ${d.examen} du ${d.date}
+
+Madame, Monsieur ${d.nom},
+
+Nous avons le plaisir de vous convoquer à l'examen suivant :
+
+  Examen    : ${d.examen}
+  Date      : ${d.date}
+  Heure     : ${d.heure}
+  Lieu      : ${d.lieu}
+
+Merci de vous présenter 15 minutes avant l'heure de convocation,
+muni(e) d'une pièce d'identité en cours de validité.
+
+Cordialement,
+Certi-Trust FRANCE SAS`;
+
+  let currentRecord = null;
+  let mappings = {};
+
+  // ── Grist ─────────────────────────────────────────────────────────────────
+
+  grist.ready({
+    requiredAccess: 'full',
+    columns: [
+      { name: 'Prenom',             title: 'Prénom',            type: 'Text' },
+      { name: 'Nom',                title: 'Nom',               type: 'Text' },
+      { name: 'Email',              title: 'E-mail',            type: 'Text' },
+      { name: 'Examen',             title: 'Examen',            type: 'Text' },
+      { name: 'Date_examen',        title: 'Date de l\'examen', type: 'Date,Text' },
+      { name: 'Heure_debut',        title: 'Heure de début',    type: 'Text' },
+      { name: 'Lieu',               title: 'Lieu',              type: 'Text' },
+      { name: 'Statut_convocation', title: 'Statut convocation',type: 'Text' },
+    ],
+  });
+
+  grist.onOptions((options, interaction) => {
+    mappings = interaction.columns || {};
+  });
+
+  grist.onRecord(record => {
+    currentRecord = record;
+    render(record);
+  });
+
+  // ── Rendu ──────────────────────────────────────────────────────────────────
+
+  function val(record, key) {
+    const col = mappings[key] || key;
+    return record[col] ?? record[key] ?? '';
+  }
+
+  function render(record) {
+    const placeholder = document.getElementById('placeholder');
+    const content     = document.getElementById('content');
+
+    if (!record) {
+      placeholder.style.display = '';
+      content.style.display = 'none';
+      return;
+    }
+
+    placeholder.style.display = 'none';
+    content.style.display = 'flex';
+
+    const prenom = val(record, 'Prenom');
+    const nom    = val(record, 'Nom');
+    const email  = val(record, 'Email');
+    const examen = val(record, 'Examen');
+    const date   = formatDate(val(record, 'Date_examen'));
+    const heure  = val(record, 'Heure_debut') || '—';
+    const lieu   = val(record, 'Lieu')        || '—';
+
+    setText('f-nom',    [prenom, nom].filter(Boolean).join(' ') || '—');
+    setText('f-email',  email  || '—');
+    setText('f-examen', examen || '—');
+    setText('f-date',   [date, heure].filter(v => v && v !== '—').join(' à ') || '—');
+    setText('f-lieu',   lieu);
+
+    document.getElementById('preview').value = TEMPLATE({
+      nom: [prenom, nom].filter(Boolean).join(' '),
+      email, examen, date, heure, lieu,
+    });
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.classList.toggle('empty', !text || text === '—');
+  }
+
+  function formatDate(raw) {
+    if (!raw) return '—';
+    // Grist renvoie parfois un timestamp Unix (secondes)
+    if (typeof raw === 'number') {
+      return new Date(raw * 1000).toLocaleDateString('fr-FR', {
+        day: '2-digit', month: '2-digit', year: 'numeric'
+      });
+    }
+    return raw;
+  }
+
+  // ── Config ─────────────────────────────────────────────────────────────────
+
+  function loadConfig() {
+    const cfg = JSON.parse(localStorage.getItem('ct-convoc-cfg') || '{}');
+    document.getElementById('cfg-endpoint').value   = cfg.endpoint   || '';
+    document.getElementById('cfg-apikey').value     = cfg.apikey     || '';
+    document.getElementById('cfg-from-name').value  = cfg.fromName   || 'Certi-Trust FRANCE SAS';
+    document.getElementById('cfg-from-email').value = cfg.fromEmail  || '';
+  }
+
+  function saveConfig() {
+    localStorage.setItem('ct-convoc-cfg', JSON.stringify({
+      endpoint:  document.getElementById('cfg-endpoint').value.trim(),
+      apikey:    document.getElementById('cfg-apikey').value.trim(),
+      fromName:  document.getElementById('cfg-from-name').value.trim(),
+      fromEmail: document.getElementById('cfg-from-email').value.trim(),
+    }));
+    showStatus('Configuration enregistrée.', 'success', 2000);
+  }
+
+  function getConfig() {
+    return JSON.parse(localStorage.getItem('ct-convoc-cfg') || '{}');
+  }
+
+  // ── Envoi ──────────────────────────────────────────────────────────────────
+
+  async function sendOne() {
+    if (!currentRecord) return;
+
+    const cfg = getConfig();
+    if (!cfg.endpoint) {
+      showStatus('Configurez d\'abord l\'URL de l\'API d\'envoi.', 'error');
+      return;
+    }
+
+    const email = val(currentRecord, 'Email');
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showStatus('Adresse e-mail invalide ou manquante.', 'error');
+      return;
+    }
+
+    const body = document.getElementById('preview').value;
+    const subject = body.split('\n')[0].replace(/^Objet\s*:\s*/, '').trim();
+    const textBody = body.split('\n').slice(2).join('\n').trim();
+
+    setBtnEnabled(false);
+    showStatus('Envoi en cours…', 'sending');
+
+    try {
+      const res = await fetch(cfg.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cfg.apikey ? { 'Authorization': `Bearer ${cfg.apikey}` } : {}),
+        },
+        body: JSON.stringify({
+          to:       email,
+          subject,
+          text:     textBody,
+          from:     cfg.fromEmail  || undefined,
+          fromName: cfg.fromName   || 'Certi-Trust FRANCE SAS',
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const today = new Date().toLocaleDateString('fr-FR');
+      await writeStatus(currentRecord.id, `Envoyé le ${today}`);
+      showStatus(`Convocation envoyée à ${email}.`, 'success', 5000);
+
+    } catch (err) {
+      await writeStatus(currentRecord.id, 'Erreur').catch(() => {});
+      showStatus(`Erreur : ${err.message}`, 'error');
+    } finally {
+      setBtnEnabled(true);
+    }
+  }
+
+  async function writeStatus(rowId, statut) {
+    const col = mappings['Statut_convocation'] || 'Statut_convocation';
+    await grist.docApi.applyUserActions([
+      ['UpdateRecord', await getTableName(), rowId, { [col]: statut }],
+    ]);
+  }
+
+  async function getTableName() {
+    // Récupère le nom de la table liée au widget
+    const info = await grist.getTable();
+    return info.tableId;
+  }
+
+  // ── UI helpers ─────────────────────────────────────────────────────────────
+
+  function showStatus(msg, type = '', duration = 0) {
+    const bar = document.getElementById('status-bar');
+    bar.textContent = msg;
+    bar.className = `status-bar ${type}`;
+    if (duration) setTimeout(() => { bar.textContent = ''; bar.className = 'status-bar'; }, duration);
+  }
+
+  function setBtnEnabled(enabled) {
+    document.getElementById('btn-send').disabled = !enabled;
+  }
+
+  loadConfig();
+</script>
+</body>
+</html>

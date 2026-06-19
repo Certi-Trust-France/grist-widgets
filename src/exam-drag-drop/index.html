@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Planification des examens</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      background: #f0f2f5;
+      color: #212529;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ────────────────────────────────────────────────────── */
+    .toolbar {
+      background: #1a56db;
+      color: #fff;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .toolbar h1 { font-size: 14px; font-weight: 600; flex: 1; }
+    .search-input {
+      padding: 5px 10px;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+      background: rgba(255,255,255,.18);
+      color: #fff;
+    }
+    .search-input::placeholder { color: rgba(255,255,255,.65); }
+    .search-input:focus { outline: 2px solid rgba(255,255,255,.5); background: rgba(255,255,255,.25); }
+
+    /* ── Board ──────────────────────────────────────────────────────── */
+    .board {
+      flex: 1;
+      display: flex;
+      gap: 12px;
+      padding: 14px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      align-items: flex-start;
+    }
+
+    .column {
+      background: #e9ecef;
+      border-radius: 8px;
+      width: 220px;
+      min-width: 220px;
+      display: flex;
+      flex-direction: column;
+      max-height: 100%;
+    }
+    .column-header {
+      padding: 10px 12px 8px;
+      border-radius: 8px 8px 0 0;
+      background: #dee2e6;
+    }
+    .column-title {
+      font-weight: 600;
+      font-size: 13px;
+      color: #343a40;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .column-meta {
+      font-size: 11px;
+      color: #6c757d;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #adb5bd;
+      color: #fff;
+    }
+    .badge.ok     { background: #198754; }
+    .badge.warn   { background: #fd7e14; }
+    .badge.full   { background: #dc3545; }
+
+    .column-unaffected > .column-header { background: #cfe2ff; }
+    .column-unaffected > .column-header .column-title { color: #084298; }
+
+    .card-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 60px;
+    }
+
+    /* ── Drop zone highlight ────────────────────────────────────────── */
+    .card-list.drag-over {
+      background: rgba(26, 86, 219, .08);
+      border-radius: 4px;
+      outline: 2px dashed #1a56db;
+    }
+    .column.full-drop-blocked .card-list.drag-over {
+      background: rgba(220,53,69,.08);
+      outline-color: #dc3545;
+    }
+
+    /* ── Exam cards ─────────────────────────────────────────────────── */
+    .exam-card {
+      background: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      padding: 9px 10px;
+      cursor: grab;
+      transition: box-shadow .12s, transform .12s;
+      user-select: none;
+    }
+    .exam-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+    .exam-card.dragging {
+      opacity: .45;
+      transform: scale(.97);
+    }
+    .exam-card.hidden { display: none; }
+
+    .exam-card .candidate { font-weight: 600; color: #212529; margin-bottom: 2px; }
+    .exam-card .exam-title { font-size: 12px; color: #495057; }
+
+    /* ── Empty states ───────────────────────────────────────────────── */
+    .empty-col {
+      text-align: center;
+      color: #adb5bd;
+      font-size: 12px;
+      padding: 20px 10px;
+    }
+
+    /* ── Status bar ─────────────────────────────────────────────────── */
+    .statusbar {
+      padding: 7px 14px;
+      font-size: 12px;
+      background: #fff;
+      border-top: 1px solid #dee2e6;
+      min-height: 32px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+    }
+    .statusbar.success { background: #d1e7dd; color: #0f5132; }
+    .statusbar.error   { background: #f8d7da; color: #842029; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+  </svg>
+  <h1>Planification des examens</h1>
+  <input class="search-input" id="search" type="search" placeholder="Rechercher…" oninput="filterCards()" />
+</div>
+
+<div class="board" id="board">
+  <div class="column column-unaffected" id="col-unaffected"
+       data-session-id=""
+       ondragover="onDragOver(event, this)" ondragleave="onDragLeave(event, this)" ondrop="onDrop(event, this)">
+    <div class="column-header">
+      <div class="column-title">Non affectés</div>
+      <div class="column-meta">
+        <span id="count-unaffected">0 examen(s)</span>
+      </div>
+    </div>
+    <div class="card-list" id="list-unaffected">
+      <div class="empty-col">Aucun examen non affecté.</div>
+    </div>
+  </div>
+</div>
+
+<div class="statusbar" id="statusbar"></div>
+
+<script>
+  // ── État ───────────────────────────────────────────────────────────────────
+  let exams    = [];  // { id, candidat, titre, sessionId }
+  let sessions = [];  // { id, nom, date, lieu, capaciteMax }
+  let mappingsExam = {};
+  let mappingsSess = {};
+  let tableIdExam  = null;
+  let draggingId   = null;
+
+  // ── Grist ──────────────────────────────────────────────────────────────────
+
+  grist.ready({
+    requiredAccess: 'full',
+    columns: [
+      { name: 'ExamCandidат', title: 'Examen — Candidat',    type: 'Text' },
+      { name: 'ExamTitre',    title: 'Examen — Intitulé',    type: 'Text' },
+      { name: 'ExamSession',  title: 'Examen — Session (FK)',type: 'Int,Ref' },
+    ],
+  });
+
+  grist.onOptions((options, interaction) => {
+    mappingsExam = interaction.columns || {};
+  });
+
+  // Écoute les lignes de la table principale (examens)
+  grist.onRecords(records => {
+    tableIdExam = records.length ? records[0]._tableId : tableIdExam;
+    exams = records.map(r => ({
+      id:        r.id,
+      candidat:  r[mappingsExam['ExamCandidат'] || 'ExamCandidат'] ?? r['Candidat'] ?? '',
+      titre:     r[mappingsExam['ExamTitre']   || 'ExamTitre']   ?? r['Titre']    ?? '',
+      sessionId: r[mappingsExam['ExamSession'] || 'ExamSession'] ?? r['Session_id'] ?? null,
+    }));
+    render();
+  });
+
+  // Les sessions arrivent via une 2e table référencée — à adapter selon la configuration Grist.
+  // Si la table est liée via un widget lié, on peut recevoir les sessions séparément.
+  // Pour démo, on reconstruit les sessions depuis les examens si non disponibles.
+  function inferSessionsFromExams() {
+    const seen = new Map();
+    exams.forEach(e => {
+      if (e.sessionId && !seen.has(e.sessionId)) {
+        seen.set(e.sessionId, { id: e.sessionId, nom: `Session ${e.sessionId}`, date: '', lieu: '', capaciteMax: 999 });
+      }
+    });
+    if (sessions.length === 0) sessions = [...seen.values()];
+  }
+
+  // ── Rendu ──────────────────────────────────────────────────────────────────
+
+  function render() {
+    inferSessionsFromExams();
+    buildColumns();
+    filterCards();
+  }
+
+  function buildColumns() {
+    const board = document.getElementById('board');
+
+    // Supprimer les colonnes sessions existantes (garder col-unaffected)
+    board.querySelectorAll('[data-session-id]:not([data-session-id=""])').forEach(c => c.remove());
+
+    // Colonne non affectés
+    fillColumn('list-unaffected', exams.filter(e => !e.sessionId));
+    const unaffectedCount = exams.filter(e => !e.sessionId).length;
+    document.getElementById('count-unaffected').textContent =
+      `${unaffectedCount} examen${unaffectedCount > 1 ? 's' : ''}`;
+
+    // Colonnes sessions
+    sessions.forEach(sess => {
+      const sessExams  = exams.filter(e => String(e.sessionId) === String(sess.id));
+      const count      = sessExams.length;
+      const cap        = sess.capaciteMax || 999;
+      const badgeClass = count >= cap ? 'full' : count >= cap * .8 ? 'warn' : 'ok';
+
+      const col = document.createElement('div');
+      col.className = 'column';
+      col.dataset.sessionId = sess.id;
+      if (count >= cap) col.classList.add('full-drop-blocked');
+
+      col.innerHTML = `
+        <div class="column-header">
+          <div class="column-title">${esc(sess.nom)}</div>
+          <div class="column-meta">
+            <span>${esc(sess.date)} ${esc(sess.lieu)}</span>
+            <span class="badge ${badgeClass}">${count}/${cap === 999 ? '∞' : cap}</span>
+          </div>
+        </div>
+        <div class="card-list" id="list-sess-${sess.id}"></div>
+      `;
+
+      col.ondragover  = e => onDragOver(e, col);
+      col.ondragleave = e => onDragLeave(e, col);
+      col.ondrop      = e => onDrop(e, col);
+
+      board.appendChild(col);
+      fillColumn(`list-sess-${sess.id}`, sessExams);
+    });
+  }
+
+  function fillColumn(listId, items) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+    list.innerHTML = '';
+
+    if (!items.length) {
+      list.innerHTML = '<div class="empty-col">Déposez un examen ici.</div>';
+      return;
+    }
+
+    items.forEach(exam => {
+      const card = document.createElement('div');
+      card.className = 'exam-card';
+      card.draggable = true;
+      card.dataset.examId = exam.id;
+      card.innerHTML = `
+        <div class="candidate">${esc(exam.candidat)}</div>
+        <div class="exam-title">${esc(exam.titre)}</div>
+      `;
+      card.addEventListener('dragstart', e => {
+        draggingId = exam.id;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        draggingId = null;
+        document.querySelectorAll('.card-list').forEach(l => l.classList.remove('drag-over'));
+      });
+      list.appendChild(card);
+    });
+  }
+
+  // ── Drag & Drop ────────────────────────────────────────────────────────────
+
+  function getList(col) {
+    return col.querySelector('.card-list');
+  }
+
+  function onDragOver(e, col) {
+    e.preventDefault();
+    getList(col)?.classList.add('drag-over');
+    e.dataTransfer.dropEffect = 'move';
+  }
+
+  function onDragLeave(e, col) {
+    if (!col.contains(e.relatedTarget)) {
+      getList(col)?.classList.remove('drag-over');
+    }
+  }
+
+  async function onDrop(e, col) {
+    e.preventDefault();
+    getList(col)?.classList.remove('drag-over');
+
+    if (draggingId === null) return;
+
+    const targetSessionId = col.dataset.sessionId || null;
+    const exam = exams.find(ex => String(ex.id) === String(draggingId));
+    if (!exam) return;
+    if (String(exam.sessionId ?? '') === String(targetSessionId ?? '')) return;
+
+    // Vérifier la capacité
+    if (targetSessionId) {
+      const sess = sessions.find(s => String(s.id) === String(targetSessionId));
+      if (sess) {
+        const currentCount = exams.filter(e => String(e.sessionId) === String(targetSessionId)).length;
+        if (currentCount >= (sess.capaciteMax || 999)) {
+          showStatus(`Session "${sess.nom}" complète (${sess.capaciteMax} candidats max).`, 'error', 4000);
+          return;
+        }
+      }
+    }
+
+    // Optimistic update
+    exam.sessionId = targetSessionId ? Number(targetSessionId) : null;
+    render();
+
+    try {
+      await grist.docApi.applyUserActions([[
+        'UpdateRecord',
+        tableIdExam,
+        exam.id,
+        { [mappingsExam['ExamSession'] || 'Session_id']: exam.sessionId },
+      ]]);
+      const sessName = targetSessionId
+        ? (sessions.find(s => String(s.id) === String(targetSessionId))?.nom || `Session ${targetSessionId}`)
+        : 'Non affectés';
+      showStatus(`Examen déplacé vers « ${sessName} ».`, 'success', 3000);
+    } catch (err) {
+      // Rollback
+      showStatus(`Erreur lors du déplacement : ${err.message}`, 'error');
+    }
+  }
+
+  // ── Recherche ──────────────────────────────────────────────────────────────
+
+  function filterCards() {
+    const q = document.getElementById('search').value.toLowerCase().trim();
+    document.querySelectorAll('.exam-card').forEach(card => {
+      const text = card.textContent.toLowerCase();
+      card.classList.toggle('hidden', q.length > 0 && !text.includes(q));
+    });
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  function esc(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function showStatus(msg, type = '', duration = 0) {
+    const bar = document.getElementById('statusbar');
+    bar.textContent = msg;
+    bar.className = `statusbar ${type}`;
+    if (duration) setTimeout(() => { bar.textContent = ''; bar.className = 'statusbar'; }, duration);
+  }
+</script>
+</body>
+</html>
