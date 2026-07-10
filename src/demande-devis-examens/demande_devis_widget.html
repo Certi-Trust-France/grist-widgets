@@ -156,7 +156,7 @@ document.getElementById('btn').addEventListener('click', async () => {
       ['BulkUpdateRecord', 'Examens_oraux', idsOraux,
        { code_devis: idsOraux.map(() => code) }]);
     actions.push(
-      ['AddRecord', 'Demandes_devis', null, {
+      ['AddRecord', 'Demandes_devis_examens', null, {
         Entreprise: entreprise.id,
         code: code,
         date_envoi: Math.floor(Date.now() / 1000),
