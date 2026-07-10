@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Demander devis</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 16px;
+         background: #f7f7f7; color: #262633; }
+  h3 { margin: 0 0 4px; font-size: 15px; }
+  .entreprise { font-weight: 600; color: #16b378; }
+  #recap { font-size: 13px; margin: 10px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 8px 0; }
+  th, td { border: 1px solid #d9d9d9; padding: 4px 6px; text-align: left; }
+  th { background: #eee; }
+  td.num { text-align: right; }
+  button { background: #16b378; color: #fff; border: none; border-radius: 4px;
+           padding: 10px 18px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #bbb; cursor: default; }
+  #status { margin-top: 10px; font-size: 13px; min-height: 18px; }
+  .ok { color: #16b378; } .err { color: #d0021b; } .warn { color: #b8860b; }
+</style>
+</head>
+<body>
+  <h3>Demande de devis — <span class="entreprise" id="ent">…</span></h3>
+  <div id="recap">Sélectionne une entreprise.</div>
+  <button id="btn" disabled>📧 Demander le devis</button>
+  <div id="status"></div>
+
+<script>
+/* ============ CONFIGURATION ============ */
+const WEBHOOK_URL = "COLLER_ICI_URL_POWER_AUTOMATE";
+/* ======================================= */
+
+let entreprise = null;   // { id, nom }
+let lignes = [];         // aperçu courant
+let idsEcrits = [], idsOraux = [];
+
+grist.ready({ requiredAccess: 'full' });
+
+// Widget lié à la table Entreprises (Select by : sélecteur de la page)
+grist.onRecord(async rec => {
+  entreprise = rec ? { id: rec.id, nom: rec.Denomination || '' } : null;
+  await rafraichir();
+});
+
+async function rafraichir() {
+  const btn = document.getElementById('btn');
+  const recap = document.getElementById('recap');
+  document.getElementById('status').textContent = '';
+  if (!entreprise) {
+    document.getElementById('ent').textContent = '…';
+    recap.textContent = 'Sélectionne une entreprise.';
+    btn.disabled = true;
+    return;
+  }
+  document.getElementById('ent').textContent = entreprise.nom;
+
+  const [ecrits, oraux, candidats, qualifs] = await Promise.all([
+    grist.docApi.fetchTable('Examens_ecrits'),
+    grist.docApi.fetchTable('Examens_oraux'),
+    grist.docApi.fetchTable('Candidats'),
+    grist.docApi.fetchTable('Qualifications_List'),
+  ]);
+
+  const nomCandidat = id => {
+    const i = candidats.id.indexOf(id);
+    return i >= 0 ? `${candidats.Last_Name[i]} ${candidats.First_Name[i]}` : '?';
+  };
+  const codeQualif = id => {
+    const i = qualifs.id.indexOf(id);
+    return i >= 0 ? qualifs.Qualification_code[i] : '?';
+  };
+
+  lignes = []; idsEcrits = []; idsOraux = [];
+
+  ecrits.id.forEach((rid, i) => {
+    if (ecrits.Denomination[i] === entreprise.id
+        && !ecrits.Devis_CT[i] && !ecrits.code_devis[i]) {
+      idsEcrits.push(rid);
+      lignes.push({
+        nom: nomCandidat(ecrits.Candidat[i]),
+        qualifications: codeQualif(ecrits.Qualification[i]) + ' (écrit)',
+        montant: ecrits.Montant[i] || 0,
+      });
+    }
+  });
+
+  oraux.id.forEach((rid, i) => {
+    if (oraux.Denomination[i] === entreprise.id
+        && !oraux.Devis_CT[i] && !oraux.code_devis[i]) {
+      idsOraux.push(rid);
+      const raw = oraux.Qualifications[i];
+      const qs = Array.isArray(raw) ? raw.slice(1) : []; // ["L", id, id…]
+      lignes.push({
+        nom: nomCandidat(oraux.Candidat[i]),
+        qualifications: qs.map(codeQualif).join(', ') + ' (oral)',
+        montant: oraux.Montant[i] || 0,
+      });
+    }
+  });
+
+  if (!lignes.length) {
+    recap.innerHTML = '<span class="warn">Aucun examen sans devis pour cette entreprise.</span>';
+    btn.disabled = true;
+    return;
+  }
+
+  const total = lignes.reduce((s, l) => s + l.montant, 0);
+  recap.innerHTML =
+    `<b>${lignes.length}</b> examen(s) sans devis :` +
+    '<table><tr><th>Nom</th><th>Qualifications</th><th>Montant</th></tr>' +
+    lignes.map(l => `<tr><td>${l.nom}</td><td>${l.qualifications}</td>` +
+                    `<td class="num">${l.montant.toFixed(2)} €</td></tr>`).join('') +
+    `<tr><th colspan="2">Total</th><th class="num">${total.toFixed(2)} €</th></tr></table>`;
+  btn.disabled = false;
+}
+
+document.getElementById('btn').addEventListener('click', async () => {
+  const btn = document.getElementById('btn');
+  const status = document.getElementById('status');
+  if (!entreprise || !lignes.length) return;
+
+  btn.disabled = true;
+  status.textContent = 'Envoi en cours…';
+  status.className = '';
+
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const code = 'DEV-'
+    + entreprise.nom.replace(/\s+/g, '').toUpperCase().slice(0, 10)
+    + `-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}`
+    + `-${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+  const total = lignes.reduce((s, l) => s + l.montant, 0);
+
+  try {
+    const resp = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entreprise: entreprise.nom,
+        code: code,
+        lignes: lignes,
+        total: total,
+      }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+    // Tampon uniquement après envoi réussi
+    const actions = [];
+    if (idsEcrits.length) actions.push(
+      ['BulkUpdateRecord', 'Examens_ecrits', idsEcrits,
+       { code_devis: idsEcrits.map(() => code) }]);
+    if (idsOraux.length) actions.push(
+      ['BulkUpdateRecord', 'Examens_oraux', idsOraux,
+       { code_devis: idsOraux.map(() => code) }]);
+    actions.push(
+      ['AddRecord', 'Demandes_devis', null, {
+        Entreprise: entreprise.id,
+        code: code,
+        date_envoi: Math.floor(Date.now() / 1000),
+        nb_lignes: lignes.length,
+        total: total,
+      }]);
+    await grist.docApi.applyUserActions(actions);
+
+    status.textContent = `✅ Mail envoyé — code ${code}`;
+    status.className = 'ok';
+    await rafraichir();
+  } catch (e) {
+    status.textContent = '❌ Échec de l\'envoi : ' + e.message +
+      ' — aucun examen n\'a été modifié.';
+    status.className = 'err';
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
