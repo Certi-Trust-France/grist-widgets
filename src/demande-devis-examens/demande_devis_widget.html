@@ -134,6 +134,26 @@ document.getElementById('btn').addEventListener('click', async () => {
 
   const total = lignes.reduce((s, l) => s + l.montant, 0);
 
+  // Table HTML prête à insérer dans le mail (styles inline pour Outlook)
+  const td = 'border:1px solid #999;padding:4px 8px;';
+  const tableauHtml =
+    '<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:13px;">' +
+    '<tr>' +
+    `<th style="${td}background:#eee;text-align:left;">Nom</th>` +
+    `<th style="${td}background:#eee;text-align:left;">Qualifications</th>` +
+    `<th style="${td}background:#eee;text-align:right;">Montant</th>` +
+    '</tr>' +
+    lignes.map(l =>
+      '<tr>' +
+      `<td style="${td}">${l.nom}</td>` +
+      `<td style="${td}">${l.qualifications}</td>` +
+      `<td style="${td}text-align:right;">${l.montant.toFixed(2)} €</td>` +
+      '</tr>').join('') +
+    '<tr>' +
+    `<th colspan="2" style="${td}background:#eee;text-align:left;">Total</th>` +
+    `<th style="${td}background:#eee;text-align:right;">${total.toFixed(2)} €</th>` +
+    '</tr></table>';
+
   try {
     const resp = await fetch(WEBHOOK_URL, {
       method: 'POST',
@@ -143,6 +163,7 @@ document.getElementById('btn').addEventListener('click', async () => {
         code: code,
         lignes: lignes,
         total: total,
+        tableau_html: tableauHtml,
       }),
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -156,7 +177,7 @@ document.getElementById('btn').addEventListener('click', async () => {
       ['BulkUpdateRecord', 'Examens_oraux', idsOraux,
        { code_devis: idsOraux.map(() => code) }]);
     actions.push(
-      ['AddRecord', 'Demandes_devis_examens', null, {
+      ['AddRecord', 'Demandes_devis', null, {
         Entreprise: entreprise.id,
         code: code,
         date_envoi: Math.floor(Date.now() / 1000),
