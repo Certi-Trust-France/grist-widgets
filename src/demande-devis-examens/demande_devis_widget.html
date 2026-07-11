@@ -127,11 +127,9 @@ document.getElementById('btn').addEventListener('click', async () => {
 
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
-  const code = 'DEV-'
-    + entreprise.nom.replace(/\s+/g, '').toUpperCase().slice(0, 10)
+  const code = entreprise.nom.replace(/\s+/g, '').toUpperCase().slice(0, 3)
     + `-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}`
-    + `-${pad(now.getHours())}${pad(now.getMinutes())}`;
-
+    + `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   const total = lignes.reduce((s, l) => s + l.montant, 0);
 
   // Table HTML prête à insérer dans le mail (styles inline pour Outlook)
@@ -188,6 +186,7 @@ document.getElementById('btn').addEventListener('click', async () => {
 
     status.textContent = `✅ Mail envoyé — code ${code}`;
     status.className = 'ok';
+    await new Promise(r => setTimeout(r, 500));  // tempo 1 s
     await rafraichir();
   } catch (e) {
     status.textContent = '❌ Échec de l\'envoi : ' + e.message +
