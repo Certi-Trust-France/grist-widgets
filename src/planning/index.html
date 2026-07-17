@@ -303,7 +303,10 @@ grist.onOptions((_opts, interaction) => {
   mappings = interaction?.columns ?? {};
 });
 
+let _debugFirstRecord = null;
+
 grist.onRecords(async records => {
+  _debugFirstRecord = records[0] ?? null;
   lots = records.map(parseLot);
   await loadEvaluateurs();
   buildPlanMap();
@@ -700,6 +703,14 @@ function render() {
   const evalCount     = evals.length;
   const lotsAvecEval  = lots.filter(l => l.evalIds.length > 0).length;
   const lotsAvecDate  = lots.filter(l => l.dateDebut).length;
+
+  if (lotsAvecEval === 0 && _debugFirstRecord) {
+    const r = _debugFirstRecord;
+    const colonnes = Object.keys(r).filter(k => !k.startsWith('grist')).join(' | ');
+    const valEval  = JSON.stringify(r.evaluateurs ?? r.Evaluateurs ?? '(absent)');
+    showStatus(`⚠ 0 évaluateur dans les lots. Colonnes : ${colonnes} — valeur "evaluateurs" : ${valEval}`, 'error');
+    return;
+  }
   showStatus(`${lotCount} lot(s) dont ${lotsAvecEval} avec évaluateur(s) et ${lotsAvecDate} avec date · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
 }
 
