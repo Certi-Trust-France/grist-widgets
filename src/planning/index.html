@@ -289,7 +289,7 @@ let planMap     = new Map(); // evalId → Map(dateStr → lot)
 // ── Grist wiring ───────────────────────────────────────────────────────────
 
 grist.ready({
-  requiredAccess: 'read table',
+  requiredAccess: 'full',
   columns: [
     { name: 'Denomination',     title: 'Lot — Dénomination',          type: 'Text'           },
     { name: 'Programme',        title: 'Lot — Programme',              type: 'Text'           },
@@ -352,7 +352,11 @@ function parseLot(r) {
 async function loadEvaluateurs() {
   try {
     const tbl = await grist.docApi.fetchTable('Evaluateurs');
-    if (!tbl?.id?.length) { evaluateurs = []; return; }
+    if (!tbl?.id?.length) {
+      evaluateurs = [];
+      fallbackEvaluateursFromLots();
+      return;
+    }
     evaluateurs = tbl.id.map((id, i) => ({
       id,
       nom:       tbl.Evaluateur_Nom?.[i]       ?? '',
@@ -361,9 +365,23 @@ async function loadEvaluateurs() {
       employeur: tbl.Employeur?.[i]            ?? '',
     })).filter(e => e.nom || e.prenom || e.trigramme);
   } catch (e) {
+    // fetchTable peut échouer si la table n'existe pas ou est inaccessible
     evaluateurs = [];
-    showStatus('Impossible de charger la table Evaluateurs : ' + e.message, 'error');
+    fallbackEvaluateursFromLots();
+    showStatus('Table Evaluateurs inaccessible (' + e.message + ') — affichage par ID', 'error');
   }
+}
+
+// Construit des colonnes d'évaluateurs minimales à partir des IDs trouvés dans les lots
+function fallbackEvaluateursFromLots() {
+  const ids = new Set(lots.flatMap(l => l.evalIds));
+  evaluateurs = [...ids].sort((a, b) => a - b).map(id => ({
+    id,
+    nom: String(id),
+    prenom: '',
+    trigramme: `#${id}`,
+    employeur: '',
+  }));
 }
 
 // ── Planning map ───────────────────────────────────────────────────────────
