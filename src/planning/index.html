@@ -77,10 +77,10 @@
       position: sticky;
       top: 0;
       z-index: 20;
-      height: 34px;
+      height: 28px;
       background: #1e3a8a;
       color: #fff;
-      padding: 4px 6px;
+      padding: 2px 5px;
       text-align: center;
       font-size: 11px;
       font-weight: 700;
@@ -89,19 +89,20 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    /* Sticky header — row 2: CT / Externe labels */
+    /* Sticky header — row 2: mois courant (même style que bandeau mois) */
     #planning-table thead tr:nth-child(2) th {
       position: sticky;
-      top: 34px;
+      top: 28px;
       z-index: 20;
-      height: 20px;
-      background: #1d4ed8;
-      color: rgba(255,255,255,.85);
-      font-size: 10px;
-      font-weight: 500;
-      text-align: center;
-      padding: 2px 4px;
-      border: 1px solid #2563eb;
+      height: 18px;
+      background: #1e40af;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-align: left;
+      padding: 1px 10px;
+      border: 1px solid #1d4ed8;
       white-space: nowrap;
     }
     /* Corner cell (sticky top + left) */
@@ -141,10 +142,10 @@
     /* ── Day rows ────────────────────────────────────────────────────── */
     .row-day td {
       border: 1px solid #e5e7eb;
-      height: 26px;
-      width: 100px;
-      min-width: 100px;
-      max-width: 100px;
+      height: 20px;
+      width: 80px;
+      min-width: 80px;
+      max-width: 80px;
       vertical-align: middle;
       padding: 0;
       overflow: hidden;
@@ -192,19 +193,25 @@
     .lot-cell {
       display: flex;
       align-items: center;
-      padding: 0 5px;
+      padding: 0 4px;
       height: 100%;
       overflow: hidden;
       cursor: default;
       border-left: 3px solid transparent;
     }
     .lot-client {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 500;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       color: #1f2937;
+    }
+    .week-num {
+      font-size: 9px;
+      font-weight: 700;
+      color: #64748b;
+      margin-right: 2px;
     }
 
     /* ── Légende toolbar ─────────────────────────────────────────────── */
@@ -671,25 +678,21 @@ function render() {
   });
   thead.appendChild(tr1);
 
-  // Row 2: group labels
+  // Row 2: mois courant (mis à jour au scroll)
   const tr2 = document.createElement('tr');
-  addTh(tr2, '', 'corner');
-  if (ctEvals.length) {
-    const th = addTh(tr2, `Certi-Trust (${ctEvals.length})`);
-    th.colSpan = ctEvals.length;
-  }
-  if (extEvals.length) {
-    const th = addTh(tr2, `Externes (${extEvals.length})`);
-    th.colSpan = extEvals.length;
-    th.classList.add('sep-left');
-  }
+  const cornerTh2 = addTh(tr2, '', 'corner');
+  const monthLabelTh = document.createElement('th');
+  monthLabelTh.id = 'sticky-month-label';
+  monthLabelTh.colSpan = evals.length;
+  monthLabelTh.textContent = ''; // rempli après insertion
+  tr2.appendChild(monthLabelTh);
   thead.appendChild(tr2);
   table.appendChild(thead);
 
   // ── tbody ──────────────────────────────────────────────────────────────
 
   const tbody   = document.createElement('tbody');
-  let lastMonth = -1, lastWeek  = -1;
+  let lastMonth = -1;
 
   days.forEach(day => {
     const ds     = toDateStr(day);
@@ -709,19 +712,6 @@ function render() {
       tr.appendChild(td);
       tbody.appendChild(tr);
       lastMonth = month;
-      lastWeek  = -1;
-    }
-
-    // Week separator row (only on weekdays to avoid spurious rows)
-    if (week !== lastWeek && !isWE) {
-      const tr = document.createElement('tr');
-      tr.className = 'row-week';
-      const td = document.createElement('td');
-      td.colSpan = evals.length + 1;
-      td.textContent = `Semaine ${week}`;
-      tr.appendChild(td);
-      tbody.appendChild(tr);
-      lastWeek = week;
     }
 
     // Day row
@@ -735,7 +725,12 @@ function render() {
 
     const labelTd = document.createElement('td');
     labelTd.className = 'day-label';
-    labelTd.textContent = `${DAYS_FR[dow]} ${day.getUTCDate()}`;
+    // Lundi : ajouter le numéro de semaine dans la même case
+    if (dow === 1) {
+      labelTd.innerHTML = `<span class="week-num">S${week}</span>${DAYS_FR[dow]} ${day.getUTCDate()}`;
+    } else {
+      labelTd.textContent = `${DAYS_FR[dow]} ${day.getUTCDate()}`;
+    }
     if (isHoli) labelTd.title = ds;
     tr.appendChild(labelTd);
 
@@ -772,15 +767,16 @@ function render() {
 
   // Centrer la vue sur aujourd'hui si la date est dans la période affichée
   const todayRow = wrapper.querySelector(`[data-date="${todayStr}"]`);
-  if (todayRow) {
-    requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
+    if (todayRow) {
       const rowTop      = todayRow.offsetTop;
       const rowH        = todayRow.offsetHeight;
       const visibleH    = wrapper.clientHeight;
       const scrollTarget = rowTop - visibleH / 2 + rowH / 2;
       wrapper.scrollTop  = Math.max(0, scrollTarget);
-    });
-  }
+    }
+    onPlanningScroll(); // initialise le label mois collant
+  });
 
   const lotCount      = lots.length;
   const evalCount     = evals.length;
@@ -806,6 +802,27 @@ function showStatus(msg, type = '') {
   bar.textContent = msg;
   bar.className = 'statusbar' + (type ? ` ${type}` : '');
 }
+
+// ── Sticky month label (mise à jour au scroll) ─────────────────────────────
+
+function onPlanningScroll() {
+  const wrapper = document.getElementById('table-wrapper');
+  const label   = document.getElementById('sticky-month-label');
+  if (!label || !wrapper) return;
+
+  // Hauteur cumulée des deux lignes d'en-tête (évaluateurs + mois collant)
+  const headerH = 46;
+  const threshold = wrapper.getBoundingClientRect().top + headerH;
+
+  let currentText = '';
+  wrapper.querySelectorAll('.row-month td').forEach(td => {
+    if (td.getBoundingClientRect().top <= threshold) currentText = td.textContent;
+  });
+  label.textContent = currentText;
+}
+
+// Listener unique (pas besoin de le recréer à chaque render)
+document.getElementById('table-wrapper').addEventListener('scroll', onPlanningScroll);
 </script>
 </body>
 </html>
