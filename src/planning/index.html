@@ -167,36 +167,36 @@
       background: #fff;
     }
 
-    /* Weekend */
-    .row-weekend td          { background: #f3f4f6; }
-    .row-weekend td.day-label { background: #f3f4f6; color: #9ca3af; }
+    /* Weekday: blanc */
+    .row-day td                                                { background: #fff; }
+    .row-day:not(.row-weekend):not(.row-holiday) td.day-label { background: #fff; }
 
-    /* Holiday */
+    /* Weekend: gris-bleu */
+    .row-weekend td           { background: #e8eef7; }
+    .row-weekend td.day-label { background: #e8eef7; color: #64748b; }
+
+    /* Jour férié: jaune pâle */
     .row-holiday td           { background: #fef9c3; }
     .row-holiday td.day-label { background: #fef9c3; color: #854d0e; font-weight: 700; }
 
-    /* Normal day label background kept white (row-day default overridden by sticky) */
-    .row-day:not(.row-weekend):not(.row-holiday) td.day-label { background: #fff; }
+    /* Aujourd'hui */
+    .row-today td:not(.day-label) { background: #eff6ff !important; }
+    .row-today td.day-label {
+      background: #1e40af !important;
+      color: #fff !important;
+      font-weight: 700 !important;
+      border-right-color: #1e40af;
+    }
 
     /* ── Lot cell content ────────────────────────────────────────────── */
     .lot-cell {
       display: flex;
       align-items: center;
-      gap: 3px;
-      padding: 2px 4px;
+      padding: 0 5px;
       height: 100%;
       overflow: hidden;
       cursor: default;
-    }
-    .prog-badge {
-      flex-shrink: 0;
-      font-size: 9px;
-      font-weight: 700;
-      color: #fff;
-      padding: 1px 4px;
-      border-radius: 2px;
-      text-transform: uppercase;
-      letter-spacing: .02em;
+      border-left: 3px solid transparent;
     }
     .lot-client {
       font-size: 10px;
@@ -205,6 +205,29 @@
       overflow: hidden;
       text-overflow: ellipsis;
       color: #1f2937;
+    }
+
+    /* ── Légende toolbar ─────────────────────────────────────────────── */
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .legend-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 2px;
+      flex-shrink: 0;
     }
 
     /* ── Status bar ──────────────────────────────────────────────────── */
@@ -231,11 +254,6 @@
 <body>
 
 <div class="toolbar">
-  <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-    <path stroke-linecap="round" stroke-linejoin="round"
-      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-  </svg>
-  <h1>Planning des évaluations</h1>
   <button class="btn-nav" onclick="navigate(-1)" title="Période précédente">&#8249;</button>
   <span id="period-label"></span>
   <button class="btn-nav" onclick="navigate(1)"  title="Période suivante">&#8250;</button>
@@ -244,6 +262,14 @@
     <option value="quarter">Trimestre</option>
     <option value="month">Mois</option>
   </select>
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot" style="background:#2563EB"></span>PASSI</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#059669"></span>PACS</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#D97706"></span>PRIS</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#7C3AED"></span>PDIS</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#DC2626"></span>PAMS</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#0891B2"></span>SecNumCloud</span>
+  </div>
 </div>
 
 <div class="table-wrapper" id="table-wrapper">
@@ -609,6 +635,10 @@ function render() {
   const days = periodDays();
   if (!days.length) return;
 
+  // Date du jour en UTC (insensible au fuseau)
+  const now = new Date();
+  const todayStr = toDateStr(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())));
+
   // Pre-compute holidays for all years in view
   const years = new Set(days.map(d => d.getUTCFullYear()));
   const holidays = new Set();
@@ -695,8 +725,13 @@ function render() {
     }
 
     // Day row
+    const isToday = ds === todayStr;
     const tr = document.createElement('tr');
-    tr.className = 'row-day' + (isWE ? ' row-weekend' : '') + (isHoli ? ' row-holiday' : '');
+    tr.className = 'row-day'
+      + (isWE    ? ' row-weekend' : '')
+      + (isHoli  ? ' row-holiday' : '')
+      + (isToday ? ' row-today'   : '');
+    tr.dataset.date = ds;
 
     const labelTd = document.createElement('td');
     labelTd.className = 'day-label';
@@ -714,19 +749,13 @@ function render() {
         const color = progColor(lot.programme);
         const cell  = document.createElement('div');
         cell.className = 'lot-cell';
-        cell.title    = `${lot.denomination} — ${lot.programme || '?'} (${lot.jours} j)`;
-        cell.style.background = color + '25'; // light tint
-
-        const badge = document.createElement('span');
-        badge.className = 'prog-badge';
-        badge.textContent = progLabel(lot.programme);
-        badge.style.background = color;
+        cell.title = `${lot.denomination} — ${lot.programme || '?'} (${lot.jours} j)`;
+        cell.style.background    = color + '28';
+        cell.style.borderLeftColor = color;
 
         const client = document.createElement('span');
         client.className = 'lot-client';
         client.textContent = lot.denomination;
-
-        cell.appendChild(badge);
         cell.appendChild(client);
         td.appendChild(cell);
       }
@@ -740,6 +769,18 @@ function render() {
 
   wrapper.innerHTML = '';
   wrapper.appendChild(table);
+
+  // Centrer la vue sur aujourd'hui si la date est dans la période affichée
+  const todayRow = wrapper.querySelector(`[data-date="${todayStr}"]`);
+  if (todayRow) {
+    requestAnimationFrame(() => {
+      const rowTop      = todayRow.offsetTop;
+      const rowH        = todayRow.offsetHeight;
+      const visibleH    = wrapper.clientHeight;
+      const scrollTarget = rowTop - visibleH / 2 + rowH / 2;
+      wrapper.scrollTop  = Math.max(0, scrollTarget);
+    });
+  }
 
   const lotCount      = lots.length;
   const evalCount     = evals.length;
