@@ -343,25 +343,40 @@ function parseLot(r) {
     dateDebut = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   }
 
-  const evalIds = parseEvalIds(getField(r, 'Evaluateurs_col') ?? getField(r, 'evaluateurs'));
+  const evalRaw   = getField(r, 'Evaluateurs_col') ?? r.evaluateurs;
+  const evalIds   = parseRawEvalIds(evalRaw);    // cas : Grist envoie les IDs bruts
+  const evalNames = parseRawEvalNames(evalRaw);  // cas : Grist envoie les noms affichés
 
-  return { id: r.id, denomination, programme, evalIds, dateDebut, jours };
+  return { id: r.id, denomination, programme, evalIds, evalNames, dateDebut, jours };
 }
 
-// Grist RefList peut arriver sous plusieurs formes selon la version et le contexte
-function parseEvalIds(raw) {
+// Extrait les IDs numériques d'une valeur RefList Grist
+function parseRawEvalIds(raw) {
   if (raw == null) return [];
   if (Array.isArray(raw)) {
     const arr = raw[0] === 'L' ? raw.slice(1) : raw;
     return arr.map(Number).filter(n => n > 0);
   }
-  // JSON string : '["L",1,2,3]' ou '[1,2,3]'
   if (typeof raw === 'string' && raw.includes('[')) {
-    try { return parseEvalIds(JSON.parse(raw)); } catch {}
+    try { return parseRawEvalIds(JSON.parse(raw)); } catch {}
   }
-  // Ref simple (entier ou string numérique)
   const n = Number(raw);
   return n > 0 ? [n] : [];
+}
+
+// Extrait les noms/trigrammes d'une valeur RefList dont Grist renvoie la colonne visible
+function parseRawEvalNames(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter(v => typeof v === 'string' && v !== 'L' && v.trim()).map(v => v.trim());
+  }
+  if (typeof raw === 'string') {
+    if (raw.startsWith('[')) {
+      try { return parseRawEvalNames(JSON.parse(raw)); } catch {}
+    }
+    if (raw.trim()) return [raw.trim()];
+  }
+  return [];
 }
 
 async function loadEvaluateurs() {
@@ -389,25 +404,52 @@ async function loadEvaluateurs() {
   }
 }
 
-// Construit des colonnes d'évaluateurs minimales à partir des IDs trouvés dans les lots
+// Fallback : construit des évaluateurs minimaux depuis les noms trouvés dans les lots
 function fallbackEvaluateursFromLots() {
-  const ids = new Set(lots.flatMap(l => l.evalIds));
-  evaluateurs = [...ids].sort((a, b) => a - b).map(id => ({
-    id,
-    nom: String(id),
+  const names = new Set(lots.flatMap(l => l.evalNames));
+  evaluateurs = [...names].sort().map((name, i) => ({
+    id: -(i + 1), // IDs négatifs fictifs pour ne pas collisionner
+    nom: name,
     prenom: '',
-    trigramme: `#${id}`,
+    trigramme: name.slice(0, 3).toUpperCase(),
     employeur: '',
+    planning: true,
   }));
 }
 
 // ── Planning map ───────────────────────────────────────────────────────────
 
+// Map nom/trigramme → id, construite après chargement des évaluateurs
+let nameToEvalId = new Map();
+
+function buildNameToIdMap() {
+  nameToEvalId.clear();
+  evaluateurs.forEach(ev => {
+    const add = k => k && nameToEvalId.set(k.toLowerCase().trim(), ev.id);
+    add(ev.trigramme);
+    add(ev.nom);
+    add(ev.prenom);
+    add(`${ev.prenom} ${ev.nom}`.trim());
+    add(`${ev.nom} ${ev.prenom}`.trim());
+  });
+}
+
+function resolveEvalIds(lot) {
+  if (lot.evalIds.length > 0) return lot.evalIds;  // IDs bruts disponibles
+  // Résolution par nom/trigramme
+  return lot.evalNames
+    .map(name => nameToEvalId.get(name.toLowerCase().trim()))
+    .filter(id => id != null);
+}
+
 function buildPlanMap() {
+  buildNameToIdMap();
   planMap.clear();
   lots.forEach(lot => {
-    if (!lot.dateDebut || lot.jours <= 0 || !lot.evalIds.length) return;
-    lot.evalIds.forEach(eid => {
+    if (!lot.dateDebut || lot.jours <= 0) return;
+    const ids = resolveEvalIds(lot);
+    if (!ids.length) return;
+    ids.forEach(eid => {
       if (!planMap.has(eid)) planMap.set(eid, new Map());
       const em = planMap.get(eid);
       // Advance through 'jours' working days (Mon–Fri) from dateDebut
@@ -704,14 +746,8 @@ function render() {
   const lotsAvecEval  = lots.filter(l => l.evalIds.length > 0).length;
   const lotsAvecDate  = lots.filter(l => l.dateDebut).length;
 
-  if (lotsAvecEval === 0 && _debugFirstRecord) {
-    const r = _debugFirstRecord;
-    const colonnes = Object.keys(r).filter(k => !k.startsWith('grist')).join(' | ');
-    const valEval  = JSON.stringify(r.evaluateurs ?? r.Evaluateurs ?? '(absent)');
-    showStatus(`⚠ 0 évaluateur dans les lots. Colonnes : ${colonnes} — valeur "evaluateurs" : ${valEval}`, 'error');
-    return;
-  }
-  showStatus(`${lotCount} lot(s) dont ${lotsAvecEval} avec évaluateur(s) et ${lotsAvecDate} avec date · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
+  const lotsResolus = lots.filter(l => resolveEvalIds(l).length > 0).length;
+  showStatus(`${lotCount} lot(s) dont ${lotsResolus} placés · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────
