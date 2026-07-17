@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Planning des évaluations</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 12px;
+      background: #f0f2f5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ─────────────────────────────────────────────────────── */
+    .toolbar {
+      background: #1e3a8a;
+      color: #fff;
+      padding: 7px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .toolbar h1 { font-size: 14px; font-weight: 600; flex: 1; }
+    .btn-nav {
+      background: rgba(255,255,255,.18);
+      border: none;
+      color: #fff;
+      width: 26px; height: 26px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .btn-nav:hover { background: rgba(255,255,255,.3); }
+    #period-label {
+      font-weight: 700;
+      font-size: 13px;
+      min-width: 90px;
+      text-align: center;
+    }
+    .toolbar select {
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.3);
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .toolbar select option { background: #1e3a8a; }
+
+    /* ── Table wrapper ───────────────────────────────────────────────── */
+    .table-wrapper {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+    }
+
+    /* ── Planning table ──────────────────────────────────────────────── */
+    #planning-table {
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    /* Sticky header — row 1: evaluator names */
+    #planning-table thead tr:nth-child(1) th {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      height: 34px;
+      background: #1e3a8a;
+      color: #fff;
+      padding: 4px 6px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid #1d4ed8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* Sticky header — row 2: CT / Externe labels */
+    #planning-table thead tr:nth-child(2) th {
+      position: sticky;
+      top: 34px;
+      z-index: 20;
+      height: 20px;
+      background: #1d4ed8;
+      color: rgba(255,255,255,.85);
+      font-size: 10px;
+      font-weight: 500;
+      text-align: center;
+      padding: 2px 4px;
+      border: 1px solid #2563eb;
+      white-space: nowrap;
+    }
+    /* Corner cell (sticky top + left) */
+    #planning-table thead th.corner {
+      left: 0;
+      z-index: 30 !important;
+      background: #1e3a8a !important;
+      width: 62px;
+      min-width: 62px;
+      max-width: 62px;
+    }
+
+    /* Separator between CT and external groups */
+    .sep-left { border-left: 3px solid #60a5fa !important; }
+
+    /* ── Month header rows ───────────────────────────────────────────── */
+    .row-month td {
+      background: #1e40af;
+      color: #fff;
+      font-weight: 700;
+      font-size: 12px;
+      padding: 5px 10px;
+      letter-spacing: .06em;
+      border-top: 3px solid #1e3a8a;
+    }
+
+    /* ── Week header rows ────────────────────────────────────────────── */
+    .row-week td {
+      background: #dbeafe;
+      color: #1e40af;
+      font-weight: 600;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-top: 1px solid #93c5fd;
+    }
+
+    /* ── Day rows ────────────────────────────────────────────────────── */
+    .row-day td {
+      border: 1px solid #e5e7eb;
+      height: 26px;
+      width: 100px;
+      min-width: 100px;
+      max-width: 100px;
+      vertical-align: middle;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    /* Day label — sticky left */
+    td.day-label {
+      position: sticky;
+      left: 0;
+      z-index: 10;
+      width: 62px;
+      min-width: 62px;
+      max-width: 62px;
+      padding: 0 6px;
+      text-align: right;
+      font-size: 11px;
+      font-weight: 500;
+      border-right: 2px solid #d1d5db;
+      white-space: nowrap;
+      background: #fff;
+    }
+
+    /* Weekend */
+    .row-weekend td          { background: #f3f4f6; }
+    .row-weekend td.day-label { background: #f3f4f6; color: #9ca3af; }
+
+    /* Holiday */
+    .row-holiday td           { background: #fef9c3; }
+    .row-holiday td.day-label { background: #fef9c3; color: #854d0e; font-weight: 700; }
+
+    /* Normal day label background kept white (row-day default overridden by sticky) */
+    .row-day:not(.row-weekend):not(.row-holiday) td.day-label { background: #fff; }
+
+    /* ── Lot cell content ────────────────────────────────────────────── */
+    .lot-cell {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 4px;
+      height: 100%;
+      overflow: hidden;
+      cursor: default;
+    }
+    .prog-badge {
+      flex-shrink: 0;
+      font-size: 9px;
+      font-weight: 700;
+      color: #fff;
+      padding: 1px 4px;
+      border-radius: 2px;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+    }
+    .lot-client {
+      font-size: 10px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #1f2937;
+    }
+
+    /* ── Status bar ──────────────────────────────────────────────────── */
+    .statusbar {
+      padding: 5px 14px;
+      font-size: 11px;
+      background: #fff;
+      border-top: 1px solid #e5e7eb;
+      color: #6b7280;
+      flex-shrink: 0;
+      min-height: 28px;
+    }
+    .statusbar.error { background: #fef2f2; color: #991b1b; }
+
+    /* ── Placeholder ─────────────────────────────────────────────────── */
+    .placeholder {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: #9ca3af; font-size: 14px;
+      flex-direction: column; gap: 8px;
+    }
+    .placeholder small { font-size: 12px; color: #d1d5db; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+  </svg>
+  <h1>Planning des évaluations</h1>
+  <button class="btn-nav" onclick="navigate(-1)" title="Période précédente">&#8249;</button>
+  <span id="period-label"></span>
+  <button class="btn-nav" onclick="navigate(1)"  title="Période suivante">&#8250;</button>
+  <select id="view-mode" onchange="setViewMode(this.value)">
+    <option value="year">Année</option>
+    <option value="quarter">Trimestre</option>
+    <option value="month">Mois</option>
+  </select>
+</div>
+
+<div class="table-wrapper" id="table-wrapper">
+  <div class="placeholder" id="placeholder">
+    <span>Chargement des données…</span>
+    <small>Configurez le widget en liant la table Lots_d_evaluation</small>
+  </div>
+</div>
+
+<div class="statusbar" id="statusbar"></div>
+
+<script>
+// ── Programme colour palette ───────────────────────────────────────────────
+
+const PROG_COLORS = {
+  PASSI:       '#2563EB',
+  PACS:        '#059669',
+  PRIS:        '#D97706',
+  PDIS:        '#7C3AED',
+  PAMS:        '#DC2626',
+  SECNUMCLOUD: '#0891B2',
+  DEFAULT:     '#6B7280',
+};
+
+const MONTHS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin',
+                   'Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const DAYS_FR   = ['Di','Lu','Ma','Me','Je','Ve','Sa'];
+
+// ── Navigation state ───────────────────────────────────────────────────────
+
+let viewMode    = 'year';
+let viewYear    = new Date().getFullYear();
+let viewQuarter = Math.floor(new Date().getMonth() / 3);
+let viewMonth   = new Date().getMonth();
+
+// ── Data state ─────────────────────────────────────────────────────────────
+
+let lots        = [];   // parsed lots
+let evaluateurs = [];   // from docApi.fetchTable
+let mappings    = {};   // column mapping from grist.onOptions
+let planMap     = new Map(); // evalId → Map(dateStr → lot)
+
+// ── Grist wiring ───────────────────────────────────────────────────────────
+
+grist.ready({
+  requiredAccess: 'read table',
+  columns: [
+    { name: 'Denomination',     title: 'Lot — Dénomination',          type: 'Text'           },
+    { name: 'Programme',        title: 'Lot — Programme',              type: 'Text'           },
+    { name: 'Evaluateurs_col',  title: 'Lot — Évaluateur(s)',          type: 'RefList,Ref,Int'},
+    { name: 'DateDebut',        title: 'Lot — Date de début',          type: 'Date'           },
+    { name: 'Jours',            title: 'Lot — Nombre de jours (J/H)',  type: 'Numeric,Int'    },
+  ],
+});
+
+grist.onOptions((_opts, interaction) => {
+  mappings = interaction?.columns ?? {};
+});
+
+grist.onRecords(async records => {
+  lots = records.map(parseLot);
+  await loadEvaluateurs();
+  buildPlanMap();
+  render();
+});
+
+// ── Parsing helpers ────────────────────────────────────────────────────────
+
+function getField(record, widgetName) {
+  const mapped = mappings[widgetName];
+  if (mapped !== undefined && record[mapped] !== undefined) return record[mapped];
+  // Fallback: try the Grist column name directly
+  const FALLBACK = {
+    Denomination:    'Denomination',
+    Programme:       'Programme',
+    Evaluateurs_col: 'evaluateurs',
+    DateDebut:       'date_debut_incluse',
+    Jours:           'Jours',
+  };
+  return record[FALLBACK[widgetName]];
+}
+
+function parseLot(r) {
+  const denomination = String(getField(r, 'Denomination') ?? '');
+  const programme    = String(getField(r, 'Programme')    ?? '');
+  const jours        = Number(getField(r, 'Jours') ?? 0);
+  const dateRaw      = getField(r, 'DateDebut');
+
+  // Date: Grist sends Date columns as Unix seconds (number)
+  let dateDebut = null;
+  if (dateRaw) {
+    const ts = typeof dateRaw === 'number' ? dateRaw * 1000 : new Date(dateRaw).getTime();
+    const d  = new Date(ts);
+    dateDebut = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  }
+
+  // RefList comes as array (possibly prefixed with 'L' marker from Grist encoding)
+  let evalIds = getField(r, 'Evaluateurs_col') ?? [];
+  if (!Array.isArray(evalIds)) evalIds = evalIds ? [evalIds] : [];
+  if (evalIds[0] === 'L') evalIds = evalIds.slice(1); // strip Grist list marker
+  evalIds = evalIds.map(Number).filter(n => n > 0);
+
+  return { id: r.id, denomination, programme, evalIds, dateDebut, jours };
+}
+
+async function loadEvaluateurs() {
+  try {
+    const tbl = await grist.docApi.fetchTable('Evaluateurs');
+    if (!tbl?.id?.length) { evaluateurs = []; return; }
+    evaluateurs = tbl.id.map((id, i) => ({
+      id,
+      nom:       tbl.Evaluateur_Nom?.[i]       ?? '',
+      prenom:    tbl.Evaluateur_Prenom?.[i]    ?? '',
+      trigramme: tbl.Evaluateur_Trigramme?.[i] ?? '',
+      employeur: tbl.Employeur?.[i]            ?? '',
+    })).filter(e => e.nom || e.prenom || e.trigramme);
+  } catch (e) {
+    evaluateurs = [];
+    showStatus('Impossible de charger la table Evaluateurs : ' + e.message, 'error');
+  }
+}
+
+// ── Planning map ───────────────────────────────────────────────────────────
+
+function buildPlanMap() {
+  planMap.clear();
+  lots.forEach(lot => {
+    if (!lot.dateDebut || lot.jours <= 0 || !lot.evalIds.length) return;
+    lot.evalIds.forEach(eid => {
+      if (!planMap.has(eid)) planMap.set(eid, new Map());
+      const em = planMap.get(eid);
+      // Advance through 'jours' working days (Mon–Fri) from dateDebut
+      let cur = new Date(lot.dateDebut), counted = 0, guard = 0;
+      while (counted < lot.jours && guard++ < 500) {
+        const dow = cur.getUTCDay();
+        if (dow !== 0 && dow !== 6) {
+          const ds = toDateStr(cur);
+          if (!em.has(ds)) em.set(ds, lot); // first lot wins on a given day
+          counted++;
+        }
+        cur = addDays(cur, 1);
+      }
+    });
+  });
+}
+
+// ── Date utilities ─────────────────────────────────────────────────────────
+
+function toDateStr(d) {
+  const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate();
+  return `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+function addDays(d, n) {
+  return new Date(d.getTime() + n * 86400_000);
+}
+
+// Meeus/Jones/Butcher algorithm for Easter Sunday
+function easterUTC(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day   = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function frenchHolidays(year) {
+  const set = new Set();
+  const easter = easterUTC(year);
+  const push = d => set.add(toDateStr(d));
+  // Fixed
+  push(new Date(Date.UTC(year, 0,  1)));  // Nouvel an
+  push(new Date(Date.UTC(year, 4,  1)));  // Fête du travail
+  push(new Date(Date.UTC(year, 4,  8)));  // Victoire 1945
+  push(new Date(Date.UTC(year, 6, 14)));  // Fête nationale
+  push(new Date(Date.UTC(year, 7, 15)));  // Assomption
+  push(new Date(Date.UTC(year, 10, 1)));  // Toussaint
+  push(new Date(Date.UTC(year, 10,11)));  // Armistice
+  push(new Date(Date.UTC(year, 11,25)));  // Noël
+  // Mobile (Easter-based)
+  push(addDays(easter,  1));  // Lundi de Pâques
+  push(addDays(easter, 39));  // Ascension (jeudi)
+  push(addDays(easter, 50));  // Lundi de Pentecôte
+  return set;
+}
+
+function isoWeekNumber(d) {
+  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = tmp.getUTCDay() || 7;
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - day);
+  const jan1 = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  return Math.ceil((((tmp - jan1) / 86400_000) + 1) / 7);
+}
+
+// ── Period helpers ─────────────────────────────────────────────────────────
+
+function periodDays() {
+  let start, end;
+  if (viewMode === 'year') {
+    start = new Date(Date.UTC(viewYear, 0,  1));
+    end   = new Date(Date.UTC(viewYear, 11, 31));
+  } else if (viewMode === 'quarter') {
+    const qm = viewQuarter * 3;
+    start = new Date(Date.UTC(viewYear, qm,   1));
+    end   = new Date(Date.UTC(viewYear, qm+3, 0));
+  } else {
+    start = new Date(Date.UTC(viewYear, viewMonth, 1));
+    end   = new Date(Date.UTC(viewYear, viewMonth + 1, 0));
+  }
+  const days = [];
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) days.push(new Date(d));
+  return days;
+}
+
+function updatePeriodLabel() {
+  const el = document.getElementById('period-label');
+  if (viewMode === 'year') {
+    el.textContent = String(viewYear);
+  } else if (viewMode === 'quarter') {
+    el.textContent = `T${viewQuarter + 1} ${viewYear}`;
+  } else {
+    el.textContent = `${MONTHS_FR[viewMonth].slice(0,4)}. ${viewYear}`;
+  }
+}
+
+function navigate(dir) {
+  if (viewMode === 'year') {
+    viewYear += dir;
+  } else if (viewMode === 'quarter') {
+    viewQuarter += dir;
+    if (viewQuarter > 3) { viewQuarter = 0; viewYear++; }
+    if (viewQuarter < 0) { viewQuarter = 3; viewYear--; }
+  } else {
+    viewMonth += dir;
+    if (viewMonth > 11) { viewMonth = 0;  viewYear++; }
+    if (viewMonth <  0) { viewMonth = 11; viewYear--; }
+  }
+  render();
+}
+
+function setViewMode(mode) {
+  viewMode = mode;
+  render();
+}
+
+// ── Programme colour helper ────────────────────────────────────────────────
+
+function progColor(programme) {
+  if (!programme) return PROG_COLORS.DEFAULT;
+  const up = programme.toUpperCase();
+  for (const key of Object.keys(PROG_COLORS)) {
+    if (up.includes(key)) return PROG_COLORS[key];
+  }
+  return PROG_COLORS.DEFAULT;
+}
+
+function progLabel(programme) {
+  if (!programme) return '?';
+  const up = programme.toUpperCase();
+  for (const key of Object.keys(PROG_COLORS)) {
+    if (up.includes(key)) return key === 'SECNUMCLOUD' ? 'SNC' : key;
+  }
+  return programme.slice(0, 4).toUpperCase();
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+
+function render() {
+  updatePeriodLabel();
+  const wrapper = document.getElementById('table-wrapper');
+
+  if (!evaluateurs.length && !lots.length) {
+    wrapper.innerHTML = `
+      <div class="placeholder">
+        <span>Aucune donnée disponible</span>
+        <small>Liez ce widget à la table Lots_d_evaluation dans Grist</small>
+      </div>`;
+    return;
+  }
+
+  const days = periodDays();
+  if (!days.length) return;
+
+  // Pre-compute holidays for all years in view
+  const years = new Set(days.map(d => d.getUTCFullYear()));
+  const holidays = new Set();
+  years.forEach(y => frenchHolidays(y).forEach(ds => holidays.add(ds)));
+
+  // Sort evaluateurs: Certi-Trust first, then external; alphabetically within group
+  const isCT  = ev => /certi.?trust/i.test(ev.employeur);
+  const label  = ev => ev.trigramme || `${ev.prenom} ${ev.nom}`.trim() || `#${ev.id}`;
+  const byLabel = (a, b) => label(a).localeCompare(label(b), 'fr');
+
+  const ctEvals  = evaluateurs.filter(isCT).sort(byLabel);
+  const extEvals = evaluateurs.filter(e => !isCT(e)).sort(byLabel);
+  const evals    = [...ctEvals, ...extEvals];
+
+  // Build table
+  const table = document.createElement('table');
+  table.id = 'planning-table';
+
+  // ── thead ──────────────────────────────────────────────────────────────
+
+  const thead = document.createElement('thead');
+
+  // Row 1: evaluator names
+  const tr1 = document.createElement('tr');
+  addTh(tr1, 'Date', 'corner');
+  evals.forEach((ev, i) => {
+    const th = addTh(tr1, label(ev));
+    th.title = `${ev.prenom} ${ev.nom}`.trim() + (ev.employeur ? ` — ${ev.employeur}` : '');
+    if (i === ctEvals.length && extEvals.length) th.classList.add('sep-left');
+  });
+  thead.appendChild(tr1);
+
+  // Row 2: group labels
+  const tr2 = document.createElement('tr');
+  addTh(tr2, '', 'corner');
+  if (ctEvals.length) {
+    const th = addTh(tr2, `Certi-Trust (${ctEvals.length})`);
+    th.colSpan = ctEvals.length;
+  }
+  if (extEvals.length) {
+    const th = addTh(tr2, `Externes (${extEvals.length})`);
+    th.colSpan = extEvals.length;
+    th.classList.add('sep-left');
+  }
+  thead.appendChild(tr2);
+  table.appendChild(thead);
+
+  // ── tbody ──────────────────────────────────────────────────────────────
+
+  const tbody   = document.createElement('tbody');
+  let lastMonth = -1, lastWeek  = -1;
+
+  days.forEach(day => {
+    const ds     = toDateStr(day);
+    const dow    = day.getUTCDay();         // 0=Sun … 6=Sat
+    const month  = day.getUTCMonth();
+    const week   = isoWeekNumber(day);
+    const isWE   = dow === 0 || dow === 6;
+    const isHoli = holidays.has(ds);
+
+    // Month separator row
+    if (month !== lastMonth) {
+      const tr = document.createElement('tr');
+      tr.className = 'row-month';
+      const td = document.createElement('td');
+      td.colSpan = evals.length + 1;
+      td.textContent = `${MONTHS_FR[month].toUpperCase()} ${day.getUTCFullYear()}`;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      lastMonth = month;
+      lastWeek  = -1;
+    }
+
+    // Week separator row (only on weekdays to avoid spurious rows)
+    if (week !== lastWeek && !isWE) {
+      const tr = document.createElement('tr');
+      tr.className = 'row-week';
+      const td = document.createElement('td');
+      td.colSpan = evals.length + 1;
+      td.textContent = `Semaine ${week}`;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      lastWeek = week;
+    }
+
+    // Day row
+    const tr = document.createElement('tr');
+    tr.className = 'row-day' + (isWE ? ' row-weekend' : '') + (isHoli ? ' row-holiday' : '');
+
+    const labelTd = document.createElement('td');
+    labelTd.className = 'day-label';
+    labelTd.textContent = `${DAYS_FR[dow]} ${day.getUTCDate()}`;
+    if (isHoli) labelTd.title = ds;
+    tr.appendChild(labelTd);
+
+    // Evaluator cells
+    evals.forEach((ev, i) => {
+      const td = document.createElement('td');
+      if (i === ctEvals.length && extEvals.length) td.classList.add('sep-left');
+
+      const lot = !isWE ? planMap.get(ev.id)?.get(ds) : undefined;
+      if (lot) {
+        const color = progColor(lot.programme);
+        const cell  = document.createElement('div');
+        cell.className = 'lot-cell';
+        cell.title    = `${lot.denomination} — ${lot.programme || '?'} (${lot.jours} j)`;
+        cell.style.background = color + '25'; // light tint
+
+        const badge = document.createElement('span');
+        badge.className = 'prog-badge';
+        badge.textContent = progLabel(lot.programme);
+        badge.style.background = color;
+
+        const client = document.createElement('span');
+        client.className = 'lot-client';
+        client.textContent = lot.denomination;
+
+        cell.appendChild(badge);
+        cell.appendChild(client);
+        td.appendChild(cell);
+      }
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+
+  wrapper.innerHTML = '';
+  wrapper.appendChild(table);
+
+  const lotCount = lots.length;
+  const evalCount = evals.length;
+  showStatus(`${lotCount} lot(s) · ${evalCount} évaluateur(s) (${ctEvals.length} Certi-Trust, ${extEvals.length} externe(s)) · ${days.length} jours affichés`);
+}
+
+// ── DOM helpers ────────────────────────────────────────────────────────────
+
+function addTh(tr, text, className) {
+  const th = document.createElement('th');
+  th.textContent = text;
+  if (className) th.className = className;
+  tr.appendChild(th);
+  return th;
+}
+
+function showStatus(msg, type = '') {
+  const bar = document.getElementById('statusbar');
+  bar.textContent = msg;
+  bar.className = 'statusbar' + (type ? ` ${type}` : '');
+}
+</script>
+</body>
+</html>
