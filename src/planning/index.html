@@ -340,13 +340,25 @@ function parseLot(r) {
     dateDebut = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   }
 
-  // RefList comes as array (possibly prefixed with 'L' marker from Grist encoding)
-  let evalIds = getField(r, 'Evaluateurs_col') ?? [];
-  if (!Array.isArray(evalIds)) evalIds = evalIds ? [evalIds] : [];
-  if (evalIds[0] === 'L') evalIds = evalIds.slice(1); // strip Grist list marker
-  evalIds = evalIds.map(Number).filter(n => n > 0);
+  const evalIds = parseEvalIds(getField(r, 'Evaluateurs_col') ?? getField(r, 'evaluateurs'));
 
   return { id: r.id, denomination, programme, evalIds, dateDebut, jours };
+}
+
+// Grist RefList peut arriver sous plusieurs formes selon la version et le contexte
+function parseEvalIds(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) {
+    const arr = raw[0] === 'L' ? raw.slice(1) : raw;
+    return arr.map(Number).filter(n => n > 0);
+  }
+  // JSON string : '["L",1,2,3]' ou '[1,2,3]'
+  if (typeof raw === 'string' && raw.includes('[')) {
+    try { return parseEvalIds(JSON.parse(raw)); } catch {}
+  }
+  // Ref simple (entier ou string numérique)
+  const n = Number(raw);
+  return n > 0 ? [n] : [];
 }
 
 async function loadEvaluateurs() {
@@ -357,13 +369,15 @@ async function loadEvaluateurs() {
       fallbackEvaluateursFromLots();
       return;
     }
+    const hasPlanningCol = Array.isArray(tbl.planning);
     evaluateurs = tbl.id.map((id, i) => ({
       id,
       nom:       tbl.Evaluateur_Nom?.[i]       ?? '',
       prenom:    tbl.Evaluateur_Prenom?.[i]    ?? '',
       trigramme: tbl.Evaluateur_Trigramme?.[i] ?? '',
       employeur: tbl.Employeur?.[i]            ?? '',
-    })).filter(e => e.nom || e.prenom || e.trigramme);
+      planning:  hasPlanningCol ? Boolean(tbl.planning[i]) : true,
+    })).filter(e => (e.nom || e.prenom || e.trigramme) && e.planning);
   } catch (e) {
     // fetchTable peut échouer si la table n'existe pas ou est inaccessible
     evaluateurs = [];
@@ -682,9 +696,11 @@ function render() {
   wrapper.innerHTML = '';
   wrapper.appendChild(table);
 
-  const lotCount = lots.length;
-  const evalCount = evals.length;
-  showStatus(`${lotCount} lot(s) · ${evalCount} évaluateur(s) (${ctEvals.length} Certi-Trust, ${extEvals.length} externe(s)) · ${days.length} jours affichés`);
+  const lotCount      = lots.length;
+  const evalCount     = evals.length;
+  const lotsAvecEval  = lots.filter(l => l.evalIds.length > 0).length;
+  const lotsAvecDate  = lots.filter(l => l.dateDebut).length;
+  showStatus(`${lotCount} lot(s) dont ${lotsAvecEval} avec évaluateur(s) et ${lotsAvecDate} avec date · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────
