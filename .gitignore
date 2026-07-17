@@ -16,6 +16,10 @@ build/
 *.key
 *.pem
 
+# CT doc
+docs/specs/Evaluations(**).grist
+docs/specs/Plan_de_charge_Certitrust_V11.xlsx
+
 # IDE
 .vscode/settings.json
 .idea/
