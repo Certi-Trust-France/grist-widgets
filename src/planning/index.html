@@ -123,10 +123,17 @@
       background: #1e40af;
       color: #fff;
       font-weight: 700;
-      font-size: 12px;
-      padding: 5px 10px;
+      font-size: 11px;
       letter-spacing: .06em;
-      border-top: 3px solid #1e3a8a;
+      height: 18px;
+      padding: 1px 10px;
+      border-top: 2px solid #1e3a8a;
+    }
+    /* Cellule date du bandeau mois : même style que le coin de l'en-tête */
+    .row-month td.day-label {
+      background: #1e3a8a;
+      border-right-color: #1e3a8a;
+      color: transparent; /* vide */
     }
 
     /* ── Week header rows ────────────────────────────────────────────── */
@@ -702,14 +709,17 @@ function render() {
     const isWE   = dow === 0 || dow === 6;
     const isHoli = holidays.has(ds);
 
-    // Month separator row
+    // Month separator row (même structure 2 colonnes que le sticky month)
     if (month !== lastMonth) {
       const tr = document.createElement('tr');
       tr.className = 'row-month';
-      const td = document.createElement('td');
-      td.colSpan = evals.length + 1;
-      td.textContent = `${MONTHS_FR[month].toUpperCase()} ${day.getUTCFullYear()}`;
-      tr.appendChild(td);
+      const dateTd = document.createElement('td');
+      dateTd.className = 'day-label';
+      tr.appendChild(dateTd);
+      const textTd = document.createElement('td');
+      textTd.colSpan = evals.length;
+      textTd.textContent = `${MONTHS_FR[month].toUpperCase()} ${day.getUTCFullYear()}`;
+      tr.appendChild(textTd);
       tbody.appendChild(tr);
       lastMonth = month;
     }
