@@ -27,3 +27,18 @@ Les sources de données sont les tables de GRIST :
 - mais aussi les tables :
   - des évaluations : évaluations
   - des entreprises : Entreprises
+
+## 2. IHM
+
+### Emoticon des évaluations
+
+Plan_Eval	Icône
+Journée de lancement	👥
+Revue documentaire	📄
+Évaluation siège	🏢
+Évaluation prestation témoin	👨‍🏫
+Réunion de clôture	🔒
+Rédaction du rapport	✏️
+Soutenance des travaux à l'ANSSI et suivi	🇫🇷
+Plan d'évaluation	📅
+Planification	💻
