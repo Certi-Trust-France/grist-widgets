@@ -341,6 +341,7 @@ grist.ready({
     { name: 'Evaluateurs_col',  title: 'Lot — Évaluateur(s)',          type: 'RefList,Ref,Int'},
     { name: 'DateDebut',        title: 'Lot — Date de début',          type: 'Date'           },
     { name: 'Jours',            title: 'Lot — Nombre de jours (J/H)',  type: 'Numeric,Int'    },
+    { name: 'PlanEval',         title: "Lot — Plan d'évaluation",      type: 'Text'           },
   ],
 });
 
@@ -370,6 +371,7 @@ function getField(record, widgetName) {
     Evaluateurs_col: 'evaluateurs',
     DateDebut:       'date_debut_incluse',
     Jours:           'Jours',
+    PlanEval:        'Plan_Eval',
   };
   return record[FALLBACK[widgetName]];
 }
@@ -392,7 +394,9 @@ function parseLot(r) {
   const evalIds   = parseRawEvalIds(evalRaw);    // cas : Grist envoie les IDs bruts
   const evalNames = parseRawEvalNames(evalRaw);  // cas : Grist envoie les noms affichés
 
-  return { id: r.id, denomination, programme, evalIds, evalNames, dateDebut, jours };
+  const planEval = String(getField(r, 'PlanEval') ?? r.Plan_Eval ?? '');
+
+  return { id: r.id, denomination, programme, evalIds, evalNames, dateDebut, jours, planEval };
 }
 
 // Extrait les IDs numériques d'une valeur RefList Grist
@@ -654,6 +658,20 @@ function progLabel(programme) {
   return programme.slice(0, 4).toUpperCase();
 }
 
+function planEvalIcon(planEval) {
+  if (!planEval) return '';
+  const v = planEval.toLowerCase();
+  if (v.includes('lancement'))          return '👥';
+  if (v.includes('documentaire'))       return '📄';
+  if (v.includes('siège') || v.includes('siege')) return '🏢';
+  if (v.includes('prestation') || v.includes('témoin') || v.includes('temoin')) return '🖥️';
+  if (v.includes('clôture') || v.includes('cloture')) return '🔒';
+  if (v.includes('rapport'))            return '✏️';
+  if (v.includes("plan d'évaluation") || v.includes("plan d'evaluation")) return '✏️';
+  if (v.includes('planif'))             return '📅';
+  return '';
+}
+
 // ── Render ─────────────────────────────────────────────────────────────────
 
 function render() {
@@ -826,14 +844,17 @@ function render() {
 
 function makeLotCell(lot, isHalf) {
   const color = progColor(lot.programme);
+  const icon  = planEvalIcon(lot.planEval);
   const cell  = document.createElement('div');
   cell.className = 'lot-cell' + (isHalf ? ' lot-cell-half' : '');
-  cell.title = `${lot.denomination} — ${lot.programme || '?'} (${lot.jours} j)`;
+  const titleParts = [`${lot.denomination} — ${lot.programme || '?'} (${lot.jours} j)`];
+  if (lot.planEval) titleParts.push(lot.planEval);
+  cell.title = titleParts.join('\n');
   cell.style.background      = color + '28';
   cell.style.borderLeftColor = color;
   const client = document.createElement('span');
   client.className = 'lot-client';
-  client.textContent = lot.denomination;
+  client.textContent = icon ? `${icon} ${lot.denomination}` : lot.denomination;
   cell.appendChild(client);
   return cell;
 }
