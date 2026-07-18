@@ -205,6 +205,11 @@
       overflow: hidden;
       cursor: default;
       border-left: 3px solid transparent;
+      min-width: 0;
+    }
+    /* Demi-journée : occupe exactement 50 % de la case */
+    .lot-cell-half {
+      flex: 0 0 50%;
     }
     .lot-client {
       font-size: 9px;
@@ -489,19 +494,37 @@ function buildPlanMap() {
     if (!lot.dateDebut || lot.jours <= 0) return;
     const ids = resolveEvalIds(lot);
     if (!ids.length) return;
+
+    const isHalf = lot.jours < 1; // demi-journée (ex. 0.5 j)
+
     ids.forEach(eid => {
       if (!planMap.has(eid)) planMap.set(eid, new Map());
       const em = planMap.get(eid);
-      // Advance through 'jours' working days (Mon–Fri) from dateDebut
-      let cur = new Date(lot.dateDebut), counted = 0, guard = 0;
-      while (counted < lot.jours && guard++ < 500) {
-        const dow = cur.getUTCDay();
-        if (dow !== 0 && dow !== 6) {
-          const ds = toDateStr(cur);
-          if (!em.has(ds)) em.set(ds, lot); // first lot wins on a given day
-          counted++;
+
+      if (isHalf) {
+        // Demi-journée : placée uniquement sur dateDebut
+        const dow = lot.dateDebut.getUTCDay();
+        if (dow === 0 || dow === 6) return; // week-end ignoré
+        const ds = toDateStr(lot.dateDebut);
+        const existing = em.get(ds);
+        if (!existing) {
+          em.set(ds, [lot]);            // première demi-journée (gauche)
+        } else if (existing.length === 1 && existing[0].jours < 1) {
+          em.set(ds, [existing[0], lot]); // deuxième demi-journée (droite)
         }
-        cur = addDays(cur, 1);
+        // Si la case est déjà pleine (journée entière ou 2 demi-j), on ignore
+      } else {
+        // Journée entière / multi-jours : N jours ouvrés consécutifs
+        let cur = new Date(lot.dateDebut), counted = 0, guard = 0;
+        while (counted < lot.jours && guard++ < 500) {
+          const dow = cur.getUTCDay();
+          if (dow !== 0 && dow !== 6) {
+            const ds = toDateStr(cur);
+            if (!em.has(ds)) em.set(ds, [lot]); // premier lot de la case gagne
+            counted++;
+          }
+          cur = addDays(cur, 1);
+        }
       }
     });
   });
@@ -749,20 +772,22 @@ function render() {
       const td = document.createElement('td');
       if (i === ctEvals.length && extEvals.length) td.classList.add('sep-left');
 
-      const lot = !isWE ? planMap.get(ev.id)?.get(ds) : undefined;
-      if (lot) {
-        const color = progColor(lot.programme);
-        const cell  = document.createElement('div');
-        cell.className = 'lot-cell';
-        cell.title = `${lot.denomination} — ${lot.programme || '?'} (${lot.jours} j)`;
-        cell.style.background    = color + '28';
-        cell.style.borderLeftColor = color;
-
-        const client = document.createElement('span');
-        client.className = 'lot-client';
-        client.textContent = lot.denomination;
-        cell.appendChild(client);
-        td.appendChild(cell);
+      const slots = !isWE ? planMap.get(ev.id)?.get(ds) : undefined;
+      if (slots?.length) {
+        if (slots.length === 1 && slots[0].jours >= 1) {
+          // Case pleine
+          td.appendChild(makeLotCell(slots[0], false));
+        } else {
+          // Une ou deux demi-journées : wrapper flex
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'display:flex;height:100%;width:100%';
+          slots.forEach((lot, idx) => {
+            const cell = makeLotCell(lot, true);
+            if (idx > 0) cell.style.borderLeft = '1px solid #d1d5db';
+            wrap.appendChild(cell);
+          });
+          td.appendChild(wrap);
+        }
       }
       tr.appendChild(td);
     });
@@ -798,6 +823,20 @@ function render() {
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────
+
+function makeLotCell(lot, isHalf) {
+  const color = progColor(lot.programme);
+  const cell  = document.createElement('div');
+  cell.className = 'lot-cell' + (isHalf ? ' lot-cell-half' : '');
+  cell.title = `${lot.denomination} — ${lot.programme || '?'} (${lot.jours} j)`;
+  cell.style.background      = color + '28';
+  cell.style.borderLeftColor = color;
+  const client = document.createElement('span');
+  client.className = 'lot-client';
+  client.textContent = lot.denomination;
+  cell.appendChild(client);
+  return cell;
+}
 
 function addTh(tr, text, className) {
   const th = document.createElement('th');
