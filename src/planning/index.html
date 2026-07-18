@@ -664,11 +664,12 @@ function planEvalIcon(planEval) {
   if (v.includes('lancement'))          return '👥';
   if (v.includes('documentaire'))       return '📄';
   if (v.includes('siège') || v.includes('siege')) return '🏢';
-  if (v.includes('prestation') || v.includes('témoin') || v.includes('temoin')) return '🖥️';
+  if (v.includes('prestation') || v.includes('témoin') || v.includes('temoin')) return '👨‍🏫';
   if (v.includes('clôture') || v.includes('cloture')) return '🔒';
   if (v.includes('rapport'))            return '✏️';
-  if (v.includes("plan d'évaluation") || v.includes("plan d'evaluation")) return '✏️';
-  if (v.includes('planif'))             return '📅';
+  if (v.includes('soutenance') || v.includes('anssi')) return '🇫🇷';
+  if (v.includes("plan d'évaluation") || v.includes("plan d'evaluation")) return '📅';
+  if (v.includes('planif'))             return '💻';
   return '';
 }
 
