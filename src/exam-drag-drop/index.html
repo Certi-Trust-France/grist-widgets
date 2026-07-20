@@ -145,17 +145,23 @@
     .exam-card.dragging { opacity: .4; transform: scale(.97); }
     .exam-card.hidden   { display: none; }
 
-    .card-entreprise {
-      font-size: 10px;
-      font-weight: 700;
-      color: #1a56db;
-      text-transform: uppercase;
-      letter-spacing: .4px;
-      margin-bottom: 1px;
+    .card-main {
+      font-size: 12px;
+      font-weight: 600;
+      color: #212529;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .card-nom   { font-weight: 600; font-size: 13px; color: #212529; }
-    .card-titre { font-size: 11px; color: #495057; margin-top: 2px; }
-    .card-date  { font-size: 10px; color: #6c757d; margin-top: 3px; }
+    .card-main .sep { color: #adb5bd; font-weight: 400; margin: 0 3px; }
+    .card-qualif {
+      font-size: 11px;
+      color: #495057;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
     /* ── Empty states ────────────────────────────────────────────────────── */
     .empty-col {
@@ -233,6 +239,15 @@
 
   async function loadAllExams() {
     try {
+      // Prénom des candidats depuis Candidats.First_Name
+      const prenomMap = new Map();
+      try {
+        const cTbl = await grist.docApi.fetchTable('Candidats');
+        for (let i = 0; i < cTbl.id.length; i++) {
+          prenomMap.set(cTbl.id[i], String(cTbl.First_Name?.[i] ?? ''));
+        }
+      } catch {}
+
       const tbl = await grist.docApi.fetchTable('Examens_ecrits');
       const n = tbl.id.length;
       allExams = [];
@@ -244,21 +259,17 @@
         const sessRaw  = tbl.Sessions_examens_ecrits?.[i] ?? 0;
         const sessionId = typeof sessRaw === 'number' && sessRaw > 0 ? sessRaw : null;
 
-        // Date souhaitée
-        const dateRaw = tbl.date_heure?.[i];
-        let dateStr = '';
-        if (typeof dateRaw === 'number' && dateRaw > 0) dateStr = fmtDate(dateRaw * 1000);
-        else if (typeof dateRaw === 'string' && dateRaw) dateStr = dateRaw;
-
-        // Nom candidat  : gristHelper_Display  = valeur affichée de la Ref Candidat
-        // Dénomination  : gristHelper_Display5 = valeur affichée de la Ref Denomination (Entreprises)
+        // Nom candidat     : gristHelper_Display  = valeur affichée de la Ref Candidat
+        // Dénomination      : gristHelper_Display5 = valeur affichée de la Ref Denomination
+        // Qualification     : gristHelper_Display4 = valeur affichée de la Ref Qualification
+        const candidatId = tbl.Candidat?.[i];
         allExams.push({
           id,
-          nom:        String(tbl.gristHelper_Display?.[i]  ?? ''),
-          entreprise: String(tbl.gristHelper_Display5?.[i] ?? ''),
-          titre:      String(tbl.libelle_examen_ecrit?.[i]      ?? ''),
+          nom:          String(tbl.gristHelper_Display?.[i]  ?? ''),
+          prenom:       prenomMap.get(candidatId) ?? '',
+          entreprise:   String(tbl.gristHelper_Display5?.[i] ?? ''),
+          qualification:String(tbl.gristHelper_Display4?.[i] ?? ''),
           sessionId,
-          date: dateStr,
         });
       }
     } catch (e) {
@@ -372,11 +383,16 @@
     card.className = 'exam-card';
     card.draggable = true;
     card.dataset.examId = String(exam.id);
-    let html = '';
-    if (exam.entreprise) html += `<div class="card-entreprise">${esc(exam.entreprise)}</div>`;
-    html += `<div class="card-nom">${esc(exam.nom) || `Examen #${exam.id}`}</div>`;
-    if (exam.titre) html += `<div class="card-titre">${esc(exam.titre)}</div>`;
-    if (exam.date)  html += `<div class="card-date">📅 ${esc(exam.date)}</div>`;
+
+    // Ligne principale : Dénomination · Prénom NOM
+    const nomComplet = [exam.prenom, exam.nom].filter(Boolean).join(' ');
+    const parts = [exam.entreprise, nomComplet].filter(Boolean);
+    const mainContent = parts.length
+      ? parts.map(esc).join('<span class="sep">·</span>')
+      : `Examen #${exam.id}`;
+
+    let html = `<div class="card-main">${mainContent}</div>`;
+    if (exam.qualification) html += `<div class="card-qualif">${esc(exam.qualification)}</div>`;
     card.innerHTML = html;
     card.addEventListener('dragstart', e => {
       draggingId = exam.id;
