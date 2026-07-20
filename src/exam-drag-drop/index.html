@@ -268,7 +268,8 @@
           nom:          String(tbl.gristHelper_Display?.[i]  ?? ''),
           prenom:       prenomMap.get(candidatId) ?? '',
           entreprise:   String(tbl.gristHelper_Display5?.[i] ?? ''),
-          qualification:String(tbl.gristHelper_Display4?.[i] ?? ''),
+          qualification: String(tbl.gristHelper_Display4?.[i] ?? ''),
+          commentaires:  String(tbl.commentaires?.[i]        ?? ''),
           sessionId,
         });
       }
@@ -355,7 +356,7 @@
     if (!sessExams.length) {
       list.innerHTML = `<div class="empty-col">${isUnaffected ? 'Aucun examen non affecté' : 'Déposez un examen ici'}</div>`;
     } else {
-      sessExams.forEach(exam => list.appendChild(makeCard(exam)));
+      sessExams.forEach(exam => list.appendChild(makeCard(exam, isUnaffected)));
     }
     col.appendChild(list);
 
@@ -378,7 +379,7 @@
     return `<span class="badge-places ${cls}">${places} pl.</span>`;
   }
 
-  function makeCard(exam) {
+  function makeCard(exam, showComment = false) {
     const card = document.createElement('div');
     card.className = 'exam-card';
     card.draggable = true;
@@ -392,7 +393,7 @@
       : `Examen #${exam.id}`;
 
     let html = `<div class="card-main">${mainContent}</div>`;
-    if (exam.qualification) html += `<div class="card-qualif">${esc(exam.qualification)}</div>`;
+    if (exam.qualification) html += `<div class="card-qualif">${esc(exam.qualification)}${showComment && exam.commentaires ? `<span class="sep">—</span>${esc(exam.commentaires)}` : ''}</div>`;
     card.innerHTML = html;
     card.addEventListener('dragstart', e => {
       draggingId = exam.id;
