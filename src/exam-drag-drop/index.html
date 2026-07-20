@@ -328,7 +328,6 @@
     const col = document.createElement('div');
     col.className = 'column' + (isUnaffected ? ' col-unaffected' : '');
     col.dataset.sessionId = isUnaffected ? '' : String(sess.id);
-    if (sess && sess.places === 0) col.classList.add('drop-blocked');
 
     const header = document.createElement('div');
     header.className = 'column-header';
@@ -362,8 +361,8 @@
 
     list.addEventListener('dragover', e => {
       e.preventDefault();
-      if (!col.classList.contains('drop-blocked')) list.classList.add('drag-over');
-      e.dataTransfer.dropEffect = col.classList.contains('drop-blocked') ? 'none' : 'move';
+      list.classList.add('drag-over');
+      e.dataTransfer.dropEffect = 'move';
     });
     list.addEventListener('dragleave', e => {
       if (!col.contains(e.relatedTarget)) list.classList.remove('drag-over');
@@ -375,7 +374,7 @@
 
   function badgePlaces(places) {
     if (places === null || places === undefined) return '';
-    const cls = places === 0 ? 'full' : places === 1 ? 'warn' : 'free';
+    const cls = places < 0 ? 'full' : places === 0 ? 'warn' : 'free';
     return `<span class="badge-places ${cls}">${places} pl.</span>`;
   }
 
@@ -393,7 +392,8 @@
       : `Examen #${exam.id}`;
 
     let html = `<div class="card-main">${mainContent}</div>`;
-    if (exam.qualification) html += `<div class="card-qualif">${esc(exam.qualification)}${showComment && exam.commentaires ? `<span class="sep">—</span>${esc(exam.commentaires)}` : ''}</div>`;
+    if (exam.qualification) html += `<div class="card-qualif">${esc(exam.qualification)}</div>`;
+    if (showComment && exam.commentaires) html += `<div class="card-qualif" style="color:#6c757d">${esc(exam.commentaires)}</div>`;
     card.innerHTML = html;
     card.addEventListener('dragstart', e => {
       draggingId = exam.id;
@@ -414,18 +414,10 @@
     e.preventDefault();
     col.querySelector('.card-list')?.classList.remove('drag-over');
     if (draggingId === null) return;
-    if (col.classList.contains('drop-blocked')) {
-      showStatus('Session complète — aucune place disponible.', 'error', 4000);
-      return;
-    }
 
     const targetSessId = col.dataset.sessionId ? Number(col.dataset.sessionId) : null;
     const exam = allExams.find(ex => ex.id === draggingId);
     if (!exam || exam.sessionId === targetSessId) return;
-
-    if (targetSessId && selectedSession?.places === 1) {
-      showStatus('Attention — dernière place disponible.', 'warn', 4000);
-    }
 
     const prevSessionId = exam.sessionId;
     exam.sessionId = targetSessId;
