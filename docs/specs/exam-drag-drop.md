@@ -9,12 +9,11 @@
 
 ## 1. Contexte et objectif
 
-La planification des sessions d'examen nécessite d'affecter des examens écrits à des créneaux (sessions). Aujourd'hui cette opération se fait en éditant manuellement les cellules dans Grist. Ce widget offre une interface visuelle de type tableau kanban où les examens peuvent être glissés-déposés d'une colonne "Non affectés" vers une session d'examen, ou d'une session à une autre.
+La planification des sessions d'examen nécessite d'affecter des examens écrits à des créneaux (sessions). Aujourd'hui cette opération se fait en éditant manuellement les cellules dans Grist. Ce widget offre une interface visuelle de type tableau kanban où les examens peuvent être glissés-déposés d'une colonne "Non affectés" vers une session d'examen, ou inversement.
 
 ## 2. Utilisateurs cibles
 
 - Responsables de planification des examens
-- Coordinateurs de certifications
 
 ## 3. Modèle de données Grist
 
@@ -42,25 +41,23 @@ La planification des sessions d'examen nécessite d'affecter des examens écrits
 ### 4.1 Interface principale
 
 - Colonne de gauche : **Examens non affectés** (Session_id = null)
-- Colonnes suivantes : une colonne par **session d'examen** (triées par date)
-- Chaque carte examen affiche : nom du candidat, intitulé, éventuellement date souhaitée
+- Colonnes suivantes : la **session d'examen** qui a été sélectionnée dans la tables des sessions.
+- Chaque carte examen affiche : entreprise, nom et prénom du candidat, intitulé, éventuellement date souhaitée
 
 ### 4.2 Drag & drop
 
-- Glisser une carte depuis "Non affectés" vers une session → met à jour `Session_id`
-- Glisser d'une session vers une autre → réaffecte
+- Glisser une carte depuis "Non affectés" vers la session → met à jour `Session_id`
 - Glisser vers "Non affectés" → remet `Session_id` à null
 - Feedback visuel pendant le drag (ombre, zone de dépôt mise en évidence)
 
 ### 4.3 Indicateurs de capacité
 
-- Chaque colonne-session affiche : nombre de candidats affectés / capacité max
-- Couleur d'alerte si la session est pleine (rouge) ou presque pleine (orange)
+- Chaque colonne-session affiche : $Places_disponibles (que j'ai converti en entier)
+- Couleur d'alerte si $Places_disponibles = 0 (rouge) ou $Places_disponibles = 1 (orange)
 
 ### 4.4 Filtres
 
-- Barre de recherche pour filtrer les examens par candidat ou intitulé
-- Filtre par date de session
+- Barre de recherche pour filtrer les examens par candidat ou entreprise
 
 ### 4.5 Actions
 
