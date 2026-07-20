@@ -250,14 +250,12 @@
         if (typeof dateRaw === 'number' && dateRaw > 0) dateStr = fmtDate(dateRaw * 1000);
         else if (typeof dateRaw === 'string' && dateRaw) dateStr = dateRaw;
 
-        // Nom candidat : gristHelper_Display = valeur affichée de la Ref Candidat
-        // Entreprise   : nécessite une colonne formule dans Grist,
-        //   ex. : Entreprise_Nom = $Candidat.Entreprise.Nom_entreprise
+        // Nom candidat  : gristHelper_Display  = valeur affichée de la Ref Candidat
+        // Dénomination  : gristHelper_Display5 = valeur affichée de la Ref Denomination (Entreprises)
         allExams.push({
           id,
-          nom:        String(tbl.gristHelper_Display?.[i]       ?? ''),
-          entreprise: String(tbl.Entreprise_Nom?.[i]            ??
-                             tbl.Candidat_Entreprise_Nom?.[i]   ?? ''),
+          nom:        String(tbl.gristHelper_Display?.[i]  ?? ''),
+          entreprise: String(tbl.gristHelper_Display5?.[i] ?? ''),
           titre:      String(tbl.libelle_examen_ecrit?.[i]      ?? ''),
           sessionId,
           date: dateStr,
