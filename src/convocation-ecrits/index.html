@@ -333,12 +333,16 @@
     try {
       const st  = await grist.docApi.fetchTable('Sessions_examens_ecrits');
       const idx = st.id.indexOf(sid);
+      console.log('[convoc] Sessions_examens_ecrits — ligne sélectionnée : idx=', idx, '  id=', sid);
       if (idx !== -1) {
         const rawDate = st.Date?.[idx] || st.date?.[idx] || st.Date_session?.[idx] || 0;
         session.date = rawDate > 0 ? rawDate : null;
         session.lieu = String(
           st.gristHelper_Display?.[idx] ?? st.Centre?.[idx] ?? st.Lieu?.[idx] ?? ''
         );
+        console.log('[convoc] date brute (ts)=', rawDate,
+                    '  date affichée=', session.date ? fmtDate(session.date) : '(aucune)',
+                    '  lieu=', session.lieu);
       } else {
         console.warn('[convoc] session id', sid, 'introuvable dans fetchTable');
       }
@@ -373,8 +377,11 @@
           duration:   Number(et['Duree_minutes_']?.[i] || 100),
           dateHeure:  et.date_heure?.[i] > 0 ? et.date_heure[i] : null,
           programme:  String(et.gristHelper_Display10?.[i] ?? ''),
+          libelle:    String(et.gristHelper_Display?.[i]   ?? et.Libelle_examen_ecrit?.[i] ?? et.Libelle?.[i] ?? ''),
         });
       }
+      console.log('[convoc] examens de la session', sid, '(',  localExams.length, ') :',
+                  localExams.map(e => e.libelle || e.qual || `#${e.id}`));
     } catch (e) {
       console.warn('Examens_ecrits:', e);
       showStatus('Erreur chargement : ' + e.message, 'error');
