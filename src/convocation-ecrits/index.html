@@ -659,17 +659,46 @@
 
   /* ── Algorithme de planification ── */
   function computeSchedule(allExams) {
-    const schedule     = new Map(); // examId → minutes depuis minuit
-    const pacsHandled  = new Set(); // examIds traités par les règles PACS
+    const schedule    = new Map(); // examId → minutes depuis minuit
+    const pacsHandled = new Set();
 
-    // ── 1. Règles PACS (par candidat) ──
+    /* ── État par candidat : { freeAt, blockStart }
+       freeAt     = minute à partir de laquelle le candidat est libre
+       blockStart = début du bloc consécutif en cours (pour calcul pause) ── */
+    const cstate = new Map();
+    function st(candId) {
+      if (!cstate.has(candId))
+        cstate.set(candId, { freeAt: MORNING_START, blockStart: MORNING_START });
+      return cstate.get(candId);
+    }
+
+    /* Prochain créneau disponible : inclut la pause de 10 min après 1h30 consécutif */
+    function nextFree(candId) {
+      const s = st(candId);
+      let t = s.freeAt;
+      if (s.freeAt - s.blockStart >= 90) t += 10;
+      if (t > MORNING_END && t < AFTERNOON_START) t = AFTERNOON_START;
+      return t;
+    }
+
+    /* Assigner un examen et mettre à jour l'état du candidat */
+    function doAssign(examId, candId, startMin, dur) {
+      schedule.set(examId, startMin);
+      const s = st(candId);
+      // Nouveau bloc si gap ou si on vient de consommer une pause
+      if (startMin > s.freeAt || s.freeAt - s.blockStart >= 90)
+        s.blockStart = startMin;
+      s.freeAt = startMin + dur;
+    }
+
+    /* ── 1. Règles PACS (temps fixes, par candidat) ── */
     const byCandidat = new Map();
     allExams.forEach(e => {
       if (!byCandidat.has(e.candidatId)) byCandidat.set(e.candidatId, []);
       byCandidat.get(e.candidatId).push(e);
     });
 
-    for (const [, cExams] of byCandidat) {
+    for (const [candId, cExams] of byCandidat) {
       const hasPACS = cExams.some(e => e.qual.toUpperCase().includes('PACS'));
       if (!hasPACS) continue;
 
@@ -677,10 +706,7 @@
       const tc     = cExams.find(e => /PACS.TC/i.test(e.qual));
       const others = cExams.filter(e => /PACS_(GDR|CRISE|HOM)/i.test(e.qual));
 
-      if (archi) {
-        schedule.set(archi.id, MORNING_START); // 09h30
-        pacsHandled.add(archi.id);
-      }
+      if (archi) { schedule.set(archi.id, MORNING_START); pacsHandled.add(archi.id); }
 
       if (tc) {
         switch (others.length) {
@@ -688,18 +714,15 @@
             schedule.set(tc.id, MORNING_START);
             break;
           case 1:
-            // TC 09h30, l'autre à 12h30
             schedule.set(tc.id, MORNING_START);
             schedule.set(others[0].id, 12 * 60 + 30);
             break;
           case 2:
-            // TC 13h30, les 2 autres à 09h30 et 11h10
             schedule.set(tc.id, 13 * 60 + 30);
             schedule.set(others[0].id, MORNING_START);
             schedule.set(others[1].id, 11 * 60 + 10);
             break;
-          default:  // ≥ 3
-            // TC 13h30, 2 à 09h30 et 11h10, 3e à 15h40
+          default:
             schedule.set(tc.id, 13 * 60 + 30);
             schedule.set(others[0].id, MORNING_START);
             schedule.set(others[1].id, 11 * 60 + 10);
@@ -709,51 +732,48 @@
         pacsHandled.add(tc.id);
         others.forEach(e => pacsHandled.add(e.id));
       }
+
+      // Reconstruire l'état du candidat PACS à partir des temps assignés
+      const pacsExams = allExams.filter(e => pacsHandled.has(e.id) && e.candidatId === candId);
+      if (pacsExams.length) {
+        const lastEnd = Math.max(...pacsExams.map(e => (schedule.get(e.id) ?? 0) + e.duration));
+        const s = st(candId);
+        s.freeAt = lastEnd;
+        s.blockStart = lastEnd; // nouveau bloc après les PACS
+      }
     }
 
-    // ── 2. Examens non-PACS : grouper par qualification ──
-    const groups = new Map(); // qual → [exam]
+    /* ── 2. Non-PACS : scheduling par candidat ──
+       Départ du groupe = max des nextFree() de ses membres.
+       Chaque candidat progresse indépendamment ; pas de file globale. ── */
+    const groups = new Map();
     allExams.forEach(e => {
       if (pacsHandled.has(e.id)) return;
       if (!groups.has(e.qual)) groups.set(e.qual, []);
       groups.get(e.qual).push(e);
     });
-
-    // Trier : + de candidats → en premier
     const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
-
-    let tMorn = MORNING_START;   // curseur matin
-    let tAftn = AFTERNOON_START; // curseur après-midi
-    let lastMornStart = tMorn;
-    let lastAftnStart = tAftn;
 
     sorted.forEach(([, grp]) => {
       const dur = grp[0].duration || 100;
 
-      if (tMorn + dur <= MORNING_END) {
-        // Pause si bloc consécutif > 1h30
-        if (tMorn - lastMornStart > 90) {
-          tMorn += 10;
-          lastMornStart = tMorn;
-        }
-        grp.forEach(e => schedule.set(e.id, tMorn));
-        tMorn += dur;
-      } else {
-        if (tAftn - lastAftnStart > 90) {
-          tAftn += 10;
-          lastAftnStart = tAftn;
-        }
-        grp.forEach(e => schedule.set(e.id, tAftn));
-        tAftn += dur;
-      }
+      // Départ = plus tardif des créneaux libres de tous les candidats du groupe
+      let t = grp.reduce((mx, e) => Math.max(mx, nextFree(e.candidatId)), 0);
+
+      // Respecter la coupure déjeuner
+      if (t > MORNING_END && t < AFTERNOON_START) t = AFTERNOON_START;
+      if (t < MORNING_END && t + dur > MORNING_END) t = AFTERNOON_START;
+
+      grp.forEach(e => doAssign(e.id, e.candidatId, t, dur));
     });
 
-    // ── 3. PACS restants non couverts par les règles ──
+    /* ── 3. Rattrapages (examens non couverts) ── */
     allExams.forEach(e => {
-      if (!schedule.has(e.id)) {
-        schedule.set(e.id, tAftn);
-        tAftn += e.duration || 100;
-      }
+      if (schedule.has(e.id)) return;
+      let t = nextFree(e.candidatId);
+      if (t > MORNING_END && t < AFTERNOON_START) t = AFTERNOON_START;
+      if (t < MORNING_END && t + e.duration > MORNING_END) t = AFTERNOON_START;
+      doAssign(e.id, e.candidatId, t, e.duration);
     });
 
     return schedule;
