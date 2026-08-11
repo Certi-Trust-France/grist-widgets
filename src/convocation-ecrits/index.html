@@ -48,6 +48,12 @@
     .btn-calc:hover:not(:disabled) { background: #d97706; }
     .btn-send { background: #2563eb; color: #fff; }
     .btn-send:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-send-cand {
+      margin-top: 8px;
+      width: 100%;
+      font-size: 11px;
+      padding: 4px 8px;
+    }
 
     /* ── Message vide ── */
     .empty {
@@ -58,6 +64,14 @@
       color: #94a3b8;
       font-style: italic;
       font-size: 14px;
+    }
+    /* Message "aucun examen" dans la grille */
+    .no-exams-msg {
+      padding: 20px 24px;
+      color: #94a3b8;
+      font-style: italic;
+      font-size: 13px;
+      white-space: nowrap;
     }
 
     /* ── Zone principale ── */
@@ -247,7 +261,6 @@
 </div>
 
 <div class="footer">
-  <button class="btn btn-send" disabled title="Disponible dans une prochaine version">✉ Envoyer les convocations</button>
   <span class="statusbar" id="statusbar"></span>
 </div>
 
@@ -284,6 +297,7 @@
   let selectedSession = null;   // { id, num, date, lieu }
   let exams           = [];     // { id, candidatId, qual, duration, dateHeure, programme }
   let candidateMap    = new Map(); // candId → { firstName, lastName }
+  let currentReqId    = 0;      // anti-race : chaque clic reçoit un id unique
 
   /* ──────────────────────────────────────────
      API Grist — lié à Sessions_examens_ecrits
@@ -292,28 +306,37 @@
 
   grist.onRecord(async rec => {
     if (!rec?.id) { showEmpty(); return; }
-    // On ne lit que l'id ici ; date et lieu viennent de fetchTable (plus fiable)
-    selectedSession = { id: rec.id, num: rec.num ?? rec.id, date: null, lieu: '' };
-    await loadData();
+    // Chaque clic obtient son propre numéro ; on abandonne si un clic plus récent arrive
+    const reqId  = ++currentReqId;
+    const session = { id: rec.id, num: rec.num ?? rec.id, date: null, lieu: '' };
+
+    const localExams = await loadData(session);
+
+    // Un clic plus récent a pris la main — on ne touche plus à rien
+    if (reqId !== currentReqId) return;
+
+    selectedSession = session;
+    exams           = localExams;
     render();
   });
 
   /* ──────────────────────────────────────────
      Chargement des données
+     Reçoit l'objet session local à remplir ; retourne le tableau des examens.
+     N'écrit JAMAIS dans les variables globales (selectedSession / exams).
   ────────────────────────────────────────── */
-  async function loadData() {
-    const sid = selectedSession.id;   // snapshot pour éviter les races
+  async function loadData(session) {
+    const sid       = session.id;
+    const localExams = [];
 
-    // ── Session : date + lieu via fetchTable (évite le pb de nom de colonne) ──
+    // ── Session : date + lieu via fetchTable ──
     try {
-      const st = await grist.docApi.fetchTable('Sessions_examens_ecrits');
+      const st  = await grist.docApi.fetchTable('Sessions_examens_ecrits');
       const idx = st.id.indexOf(sid);
       if (idx !== -1) {
-        // Date : essayer Date, date, Date_session
         const rawDate = st.Date?.[idx] || st.date?.[idx] || st.Date_session?.[idx] || 0;
-        selectedSession.date = rawDate > 0 ? rawDate : null;
-        // Lieu : display helper ou colonne texte directe
-        selectedSession.lieu = String(
+        session.date = rawDate > 0 ? rawDate : null;
+        session.lieu = String(
           st.gristHelper_Display?.[idx] ?? st.Centre?.[idx] ?? st.Lieu?.[idx] ?? ''
         );
       } else {
@@ -338,22 +361,16 @@
     // ── Examens écrits de la session ──
     try {
       const et = await grist.docApi.fetchTable('Examens_ecrits');
-
-      exams = [];
       for (let i = 0; i < et.id.length; i++) {
         const id = et.id[i];
         if (!id || id < 0) continue;
-        // Comparaison en Number pour éviter tout écart de type
         if (Number(et.Sessions_examens_ecrits?.[i] ?? 0) !== Number(sid)) continue;
 
-        // Durée : "Durée (minutes)" → ID Grist sanitisé "Duree_minutes_"
-        const duration = et['Duree_minutes_']?.[i] || 100;
-
-        exams.push({
+        localExams.push({
           id,
-          candidatId: et.Candidat?.[i]            ?? 0,
-          qual:       String(et.gristHelper_Display4?.[i] ?? et.Qualification?.[i] ?? ''),
-          duration:   Number(duration),
+          candidatId: et.Candidat?.[i]   ?? 0,
+          qual:       String(et.gristHelper_Display4?.[i]  ?? et.Qualification?.[i] ?? ''),
+          duration:   Number(et['Duree_minutes_']?.[i] || 100),
           dateHeure:  et.date_heure?.[i] > 0 ? et.date_heure[i] : null,
           programme:  String(et.gristHelper_Display10?.[i] ?? ''),
         });
@@ -362,6 +379,8 @@
       console.warn('Examens_ecrits:', e);
       showStatus('Erreur chargement : ' + e.message, 'error');
     }
+
+    return localExams;
   }
 
   /* ──────────────────────────────────────────
@@ -369,11 +388,11 @@
   ────────────────────────────────────────── */
   function render() {
     if (!selectedSession) { showEmpty(); return; }
-    if (exams.length === 0) { showEmpty('Aucun examen pour cette session.'); return; }
 
     document.getElementById('empty').style.display = 'none';
     document.getElementById('scroll-x').style.display = 'flex';
-    document.getElementById('btn-calc').disabled = false;
+    // ⚡ disponible seulement si des examens existent
+    document.getElementById('btn-calc').disabled = exams.length === 0;
 
     const dateStr = selectedSession.date ? fmtDate(selectedSession.date) : '(date inconnue)';
     const lieuStr = selectedSession.lieu ? ` à ${selectedSession.lieu}` : '';
@@ -429,6 +448,14 @@
         col.appendChild(row);
       });
 
+      // Bouton "Envoyer" individuel (inactif — §4.3 à venir)
+      const sendBtn = document.createElement('button');
+      sendBtn.className = 'btn btn-send btn-send-cand';
+      sendBtn.textContent = '✉ Envoyer';
+      sendBtn.disabled = true;
+      sendBtn.title = 'Disponible dans une prochaine version';
+      col.appendChild(sendBtn);
+
       hdr.appendChild(col);
     });
   }
@@ -438,7 +465,7 @@
     const tl = document.getElementById('plan-tl');
     tl.innerHTML = '';
 
-    const gridW = candIds.length * COL_W;
+    const gridW = Math.max(candIds.length * COL_W, 20);
 
     // Axe des heures (sticky left)
     const axis = mk('div', 'time-axis');
@@ -477,6 +504,17 @@
       axis.appendChild(lbl);
     }
 
+    // Message si aucun examen
+    if (candIds.length === 0) {
+      const msg = mk('div', 'no-exams-msg');
+      msg.textContent = 'Aucun examen planifié pour cette session.';
+      grid.appendChild(msg);
+      tl.appendChild(axis);
+      tl.appendChild(grid);
+      tl.scrollTop = Math.max(0, (9 * 60 + 15 - TL_START_MIN) * PX_PER_MIN);
+      return;
+    }
+
     // Séparateurs de colonnes
     candIds.forEach((_, ci) => {
       if (ci === 0) return;
@@ -512,7 +550,8 @@
       candExams.forEach(exam => {
         if (!exam.dateHeure) return;
         const d   = new Date(exam.dateHeure * 1000);
-        const min = d.getUTCHours() * 60 + d.getUTCMinutes();
+        // date_heure stocké en heure locale dans Grist → getHours/getMinutes
+        const min = d.getHours() * 60 + d.getMinutes();
         const topY = (min - TL_START_MIN) * PX_PER_MIN;
         const hgt  = Math.max(22, exam.duration * PX_PER_MIN);
         const sty  = progStyle(exam.qual);
@@ -723,20 +762,22 @@
   }
 
   function tsToTime(ts) {
+    // date_heure est stocké en heure locale → getHours/getMinutes (pas UTC)
     const d = new Date(ts * 1000);
-    return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   }
 
   function timeStrToTs(timeStr, sessionDateTs) {
     const [h, m] = timeStr.split(':').map(Number);
+    // Minuit local du jour de la session (date Grist stockée en UTC → getUTCDate pour le jour)
     const d = new Date(sessionDateTs * 1000);
-    const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    const midnight = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).getTime();
     return Math.floor(midnight / 1000) + h * 3600 + m * 60;
   }
 
   function minutesToTs(minutes, sessionDateTs) {
     const d = new Date(sessionDateTs * 1000);
-    const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    const midnight = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).getTime();
     return Math.floor(midnight / 1000) + minutes * 60;
   }
 
