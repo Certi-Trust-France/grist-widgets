@@ -327,32 +327,46 @@
   ────────────────────────────────────────── */
   grist.ready({ requiredAccess: 'full' });
 
-  grist.onRecords(async records => {
-    cycles = records.map(parseCycle);
-    await Promise.all([loadEvals(), loadProgs()]);
+  // onRecords sert de déclencheur ; les données viennent de fetchTable
+  // (gristHelper_Display* ne remonte pas dans les records onRecords)
+  grist.onRecords(async () => {
+    await Promise.all([loadCycles(), loadEvals(), loadProgs()]);
     buildProgFilters();
     render();
   });
 
   /* ──────────────────────────────────────────
-     Parseurs
+     Chargement des cycles via fetchTable
   ────────────────────────────────────────── */
-  function parseCycle(r) {
-    return {
-      id:            r.id,
-      denomination:  String(r.gristHelper_Display  ?? ''),
-      programmeName: String(r.gristHelper_Display3 ?? ''),
-      programmeId:   r.Programme ?? 0,
-      dateCert:      r.date_certification  ?? null,  // Unix secondes
-      dateSurv:      r.Date_surveillance   ?? null,
-      dateFin:       r.date_fin            ?? null,
-      prochaine:     r.Prochaine_echeance  ?? null,
-      evalIds: [
-        ...parseRL(r.eval_initiale),
-        ...parseRL(r.eval_autres),
-        ...parseRL(r.eval_renouvellement),
-      ],
-    };
+  async function loadCycles() {
+    try {
+      const t = await grist.docApi.fetchTable('Cycles_services');
+      cycles = [];
+      for (let i = 0; i < t.id.length; i++) {
+        const id = t.id[i];
+        if (!id || id < 0) continue;
+        // ts > 0 : les dates Grist valent 0 quand non renseignées (pas null)
+        const ts = col => (t[col]?.[i] > 0 ? t[col][i] : null);
+        cycles.push({
+          id,
+          denomination:  String(t.gristHelper_Display?.[i]  ?? ''),
+          programmeName: String(t.gristHelper_Display3?.[i] ?? t.gristHelper_Display2?.[i] ?? ''),
+          programmeId:   t.Programme?.[i] > 0 ? t.Programme[i] : 0,
+          dateCert:  ts('date_certification'),
+          dateSurv:  ts('Date_surveillance'),
+          dateFin:   ts('date_fin'),
+          prochaine: ts('Prochaine_echeance'),
+          evalIds: [
+            ...parseRL(t.eval_initiale?.[i]),
+            ...parseRL(t.eval_autres?.[i]),
+            ...parseRL(t.eval_renouvellement?.[i]),
+          ],
+        });
+      }
+    } catch (e) {
+      console.warn('loadCycles:', e);
+      showStatus('Erreur chargement Cycles_services : ' + e.message, 'error');
+    }
   }
 
   // Parse une RefList Grist (array, JSON string, entier ou null)
@@ -406,12 +420,13 @@
   ────────────────────────────────────────── */
   function buildProgFilters() {
     const g = document.getElementById('prog-filters');
-    // Supprimer les boutons dynamiques précédents
     g.querySelectorAll('.fbtn:not([data-prog=""])').forEach(b => b.remove());
 
     const seen = new Set();
     cycles.forEach(c => {
-      const key = progKey(c.programmeName);
+      // Priorité : nom depuis progMap (chargé via fetchTable), sinon gristHelper
+      const nom = progMap.get(c.programmeId)?.nom ?? c.programmeName;
+      const key = progKey(nom);
       if (key && !seen.has(key)) {
         seen.add(key);
         const btn = document.createElement('button');
@@ -446,7 +461,11 @@
 
     // Trier + filtrer
     const list = cycles
-      .filter(c => !filterProg || progKey(c.programmeName) === filterProg)
+      .filter(c => {
+        if (!filterProg) return true;
+        const nom = progMap.get(c.programmeId)?.nom ?? c.programmeName;
+        return progKey(nom) === filterProg;
+      })
       .sort((a, b) => {
         if (sortMode === 'cert')     return (a.dateCert  ?? 1e15) - (b.dateCert  ?? 1e15);
         if (sortMode === 'echeance') return (a.prochaine ?? 1e15) - (b.prochaine ?? 1e15);
