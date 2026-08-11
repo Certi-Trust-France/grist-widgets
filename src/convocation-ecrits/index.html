@@ -329,13 +329,8 @@
         if (!id || id < 0) continue;
         if ((et.Sessions_examens_ecrits?.[i] ?? 0) !== selectedSession.id) continue;
 
-        // Durée : essayer plusieurs noms de colonne possibles
-        const duration =
-          et.Duree_minutes?.[i]    ||   // "Duree_minutes"
-          et['Durée_minutes']?.[i] || // "Durée_minutes"
-          et['Dur_e_minutes_']?.[i] ||  // colonne sanitisée Grist
-          et.Duree?.[i]            ||
-          100;                          // fallback 100 min
+        // Durée : colonne Grist "Durée (minutes)" → ID sanitisé "Duree_minutes_"
+        const duration = et['Duree_minutes_']?.[i] || 100;
 
         exams.push({
           id,
