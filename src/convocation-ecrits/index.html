@@ -294,8 +294,6 @@
     if (!rec?.id) { showEmpty(); return; }
     // On ne lit que l'id ici ; date et lieu viennent de fetchTable (plus fiable)
     selectedSession = { id: rec.id, num: rec.num ?? rec.id, date: null, lieu: '' };
-    console.log('[convoc] onRecord id=', rec.id, 'num=', rec.num,
-                'colonnes rec:', Object.keys(rec).join(', '));
     await loadData();
     render();
   });
@@ -318,8 +316,6 @@
         selectedSession.lieu = String(
           st.gristHelper_Display?.[idx] ?? st.Centre?.[idx] ?? st.Lieu?.[idx] ?? ''
         );
-        console.log('[convoc] session fetchTable idx=', idx,
-                    'date=', selectedSession.date, 'lieu=', selectedSession.lieu);
       } else {
         console.warn('[convoc] session id', sid, 'introuvable dans fetchTable');
       }
@@ -343,11 +339,6 @@
     try {
       const et = await grist.docApi.fetchTable('Examens_ecrits');
 
-      // Diagnostic : afficher les valeurs de la colonne session pour les 5 premiers examens
-      console.log('[convoc] filtre session id=', sid,
-                  '— Sessions_examens_ecrits[0..4]=',
-                  et.Sessions_examens_ecrits?.slice(0, 5));
-
       exams = [];
       for (let i = 0; i < et.id.length; i++) {
         const id = et.id[i];
@@ -367,7 +358,6 @@
           programme:  String(et.gristHelper_Display10?.[i] ?? ''),
         });
       }
-      console.log('[convoc]', exams.length, 'examen(s) trouvé(s) pour session', sid);
     } catch (e) {
       console.warn('Examens_ecrits:', e);
       showStatus('Erreur chargement : ' + e.message, 'error');
