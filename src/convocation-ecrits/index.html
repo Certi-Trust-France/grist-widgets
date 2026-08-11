@@ -268,7 +268,7 @@
   /* ──────────────────────────────────────────
      Constantes
   ────────────────────────────────────────── */
-  const PX_PER_MIN     = 2;
+  const PX_PER_MIN     = 1;
   const COL_W          = 180;          // px par colonne candidat
   const TIME_W         = 52;           // px pour l'axe des heures
   const HOUR_START     = 9;            // 09:00
@@ -672,11 +672,13 @@
       return cstate.get(candId);
     }
 
-    /* Prochain créneau disponible : inclut la pause de 10 min après 1h30 consécutif */
-    function nextFree(candId) {
+    /* Prochain créneau disponible pour un candidat.
+       dur : durée de l'examen à venir (permet d'anticiper si le bloc dépasserait 1h30).
+       Pause de 10 min insérée si le bloc consécutif AVEC ce prochain examen dépasse 1h30. */
+    function nextFree(candId, dur) {
       const s = st(candId);
       let t = s.freeAt;
-      if (s.freeAt - s.blockStart >= 90) t += 10;
+      if (s.freeAt - s.blockStart + (dur || 0) > 90) t += 10;
       if (t > MORNING_END && t < AFTERNOON_START) t = AFTERNOON_START;
       return t;
     }
@@ -685,9 +687,8 @@
     function doAssign(examId, candId, startMin, dur) {
       schedule.set(examId, startMin);
       const s = st(candId);
-      // Nouveau bloc si gap ou si on vient de consommer une pause
-      if (startMin > s.freeAt || s.freeAt - s.blockStart >= 90)
-        s.blockStart = startMin;
+      // Nouveau bloc si gap (pause insérée = startMin > freeAt) ou après > 1h30
+      if (startMin > s.freeAt) s.blockStart = startMin;
       s.freeAt = startMin + dur;
     }
 
@@ -758,7 +759,8 @@
       const dur = grp[0].duration || 100;
 
       // Départ = plus tardif des créneaux libres de tous les candidats du groupe
-      let t = grp.reduce((mx, e) => Math.max(mx, nextFree(e.candidatId)), 0);
+      // On passe dur pour anticiper la pause si le bloc dépasserait 1h30
+      let t = grp.reduce((mx, e) => Math.max(mx, nextFree(e.candidatId, dur)), 0);
 
       // Respecter la coupure déjeuner
       if (t > MORNING_END && t < AFTERNOON_START) t = AFTERNOON_START;
@@ -770,7 +772,7 @@
     /* ── 3. Rattrapages (examens non couverts) ── */
     allExams.forEach(e => {
       if (schedule.has(e.id)) return;
-      let t = nextFree(e.candidatId);
+      let t = nextFree(e.candidatId, e.duration);
       if (t > MORNING_END && t < AFTERNOON_START) t = AFTERNOON_START;
       if (t < MORNING_END && t + e.duration > MORNING_END) t = AFTERNOON_START;
       doAssign(e.id, e.candidatId, t, e.duration);
