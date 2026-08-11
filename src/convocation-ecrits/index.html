@@ -292,12 +292,10 @@
 
   grist.onRecord(async rec => {
     if (!rec?.id) { showEmpty(); return; }
-    selectedSession = {
-      id:   rec.id,
-      num:  rec.num ?? rec.id,
-      date: rec.Date > 0 ? rec.Date : null,         // Unix secondes
-      lieu: String(rec.gristHelper_Display ?? ''),   // Centre / lieu
-    };
+    // On ne lit que l'id ici ; date et lieu viennent de fetchTable (plus fiable)
+    selectedSession = { id: rec.id, num: rec.num ?? rec.id, date: null, lieu: '' };
+    console.log('[convoc] onRecord id=', rec.id, 'num=', rec.num,
+                'colonnes rec:', Object.keys(rec).join(', '));
     await loadData();
     render();
   });
@@ -306,7 +304,28 @@
      Chargement des données
   ────────────────────────────────────────── */
   async function loadData() {
-    // Prénoms / noms depuis la table Candidats
+    const sid = selectedSession.id;   // snapshot pour éviter les races
+
+    // ── Session : date + lieu via fetchTable (évite le pb de nom de colonne) ──
+    try {
+      const st = await grist.docApi.fetchTable('Sessions_examens_ecrits');
+      const idx = st.id.indexOf(sid);
+      if (idx !== -1) {
+        // Date : essayer Date, date, Date_session
+        const rawDate = st.Date?.[idx] || st.date?.[idx] || st.Date_session?.[idx] || 0;
+        selectedSession.date = rawDate > 0 ? rawDate : null;
+        // Lieu : display helper ou colonne texte directe
+        selectedSession.lieu = String(
+          st.gristHelper_Display?.[idx] ?? st.Centre?.[idx] ?? st.Lieu?.[idx] ?? ''
+        );
+        console.log('[convoc] session fetchTable idx=', idx,
+                    'date=', selectedSession.date, 'lieu=', selectedSession.lieu);
+      } else {
+        console.warn('[convoc] session id', sid, 'introuvable dans fetchTable');
+      }
+    } catch (e) { console.warn('Sessions_examens_ecrits:', e); }
+
+    // ── Candidats ──
     try {
       const ct = await grist.docApi.fetchTable('Candidats');
       candidateMap.clear();
@@ -320,29 +339,35 @@
       }
     } catch (e) { console.warn('Candidats:', e); }
 
-    // Examens écrits de la session
+    // ── Examens écrits de la session ──
     try {
       const et = await grist.docApi.fetchTable('Examens_ecrits');
+
+      // Diagnostic : afficher les valeurs de la colonne session pour les 5 premiers examens
+      console.log('[convoc] filtre session id=', sid,
+                  '— Sessions_examens_ecrits[0..4]=',
+                  et.Sessions_examens_ecrits?.slice(0, 5));
+
       exams = [];
       for (let i = 0; i < et.id.length; i++) {
         const id = et.id[i];
         if (!id || id < 0) continue;
-        if ((et.Sessions_examens_ecrits?.[i] ?? 0) !== selectedSession.id) continue;
+        // Comparaison en Number pour éviter tout écart de type
+        if (Number(et.Sessions_examens_ecrits?.[i] ?? 0) !== Number(sid)) continue;
 
-        // Durée : colonne Grist "Durée (minutes)" → ID sanitisé "Duree_minutes_"
+        // Durée : "Durée (minutes)" → ID Grist sanitisé "Duree_minutes_"
         const duration = et['Duree_minutes_']?.[i] || 100;
 
         exams.push({
           id,
           candidatId: et.Candidat?.[i]            ?? 0,
-          // Qualification : helper display ou colonne directe
           qual:       String(et.gristHelper_Display4?.[i] ?? et.Qualification?.[i] ?? ''),
           duration:   Number(duration),
-          // date_heure : DATETIME Grist (Unix secondes) — 0 = non renseigné
           dateHeure:  et.date_heure?.[i] > 0 ? et.date_heure[i] : null,
           programme:  String(et.gristHelper_Display10?.[i] ?? ''),
         });
       }
+      console.log('[convoc]', exams.length, 'examen(s) trouvé(s) pour session', sid);
     } catch (e) {
       console.warn('Examens_ecrits:', e);
       showStatus('Erreur chargement : ' + e.message, 'error');
@@ -360,9 +385,9 @@
     document.getElementById('scroll-x').style.display = 'flex';
     document.getElementById('btn-calc').disabled = false;
 
-    const dateStr = selectedSession.date ? fmtDate(selectedSession.date) : '?';
-    document.getElementById('session-label').textContent =
-      `Session n°${selectedSession.num} — ${dateStr}${selectedSession.lieu ? ' — ' + selectedSession.lieu : ''}`;
+    const dateStr = selectedSession.date ? fmtDate(selectedSession.date) : '(date inconnue)';
+    const lieuStr = selectedSession.lieu ? ` à ${selectedSession.lieu}` : '';
+    document.getElementById('session-label').textContent = `Session du ${dateStr}${lieuStr}`;
 
     // Candidats dans l'ordre d'apparition (stable)
     const candIds = [...new Map(exams.map(e => [e.candidatId, true])).keys()];
