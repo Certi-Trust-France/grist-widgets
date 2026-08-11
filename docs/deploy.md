@@ -9,14 +9,15 @@
 
 Chaque widget est un fichier `index.html` autonome servi statiquement par GitHub Pages.
 
-| Widget | URL |
-|--------|-----|
-| Planning | `https://certi-trust-france.github.io/grist-widgets/src/planning/` |
-| Drag & drop examens | `https://certi-trust-france.github.io/grist-widgets/src/exam-drag-drop/` |
-| Cycles de certification | `https://certi-trust-france.github.io/grist-widgets/src/cycles/` |
-| Demande de devis | `https://certi-trust-france.github.io/grist-widgets/src/demande-devis-examens/` |
-| CR oral | `https://certi-trust-france.github.io/grist-widgets/src/cr-oral/` |
-| Convocation e-mail | `https://certi-trust-france.github.io/grist-widgets/src/convocation-email/` |
+| Widget | Source Grist | URL |
+|--------|-------------|-----|
+| Planning | `Lots_audit` | `https://certi-trust-france.github.io/grist-widgets/src/planning/` |
+| Drag & drop examens | `Sessions_examens_ecrits` | `https://certi-trust-france.github.io/grist-widgets/src/exam-drag-drop/` |
+| Cycles de certification | `Cycles_services` | `https://certi-trust-france.github.io/grist-widgets/src/cycles/` |
+| Demande de devis | — | `https://certi-trust-france.github.io/grist-widgets/src/demande-devis-examens/` |
+| CR oral | — | `https://certi-trust-france.github.io/grist-widgets/src/cr-oral/` |
+| Convocation e-mail | — | `https://certi-trust-france.github.io/grist-widgets/src/convocation-email/` |
+| Planning convocations écrits | `Sessions_examens_ecrits` | `https://certi-trust-france.github.io/grist-widgets/src/convocation-ecrits/` |
 
 > Les URL sont stables : un widget référencé dans Grist n'a pas besoin d'être mis à jour lors d'un déploiement — il suffit de pousser sur `main`.
 
