@@ -129,15 +129,20 @@
       padding: 0 7px;
       overflow: hidden;
     }
-    .prog-badge {
-      flex-shrink: 0;
-      padding: 2px 5px;
-      border-radius: 3px;
+    /* Badge programme sur la timeline (juste avant la barre grise) */
+    .prog-badge-tl {
+      position: absolute;
+      top: 50%;
+      transform: translateX(calc(-100% - 5px)) translateY(-50%);
+      padding: 2px 6px;
+      border-radius: 4px;
       color: #fff;
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 800;
-      letter-spacing: .02em;
-      line-height: 1.4;
+      letter-spacing: .03em;
+      white-space: nowrap;
+      z-index: 3;
+      pointer-events: none;
     }
     .co-name {
       font-size: 11px;
@@ -353,8 +358,9 @@
           programmeName: String(t.gristHelper_Display3?.[i] ?? t.gristHelper_Display2?.[i] ?? ''),
           programmeId:   t.Programme?.[i] > 0 ? t.Programme[i] : 0,
           dateCert:  ts('date_certification'),
-          dateSurv:  ts('Date_surveillance'),
-          dateFin:   ts('date_fin'),
+          // Calcul de secours : +18 mois et +36 mois si les colonnes sont à 0
+          dateSurv:  ts('Date_surveillance') ?? (ts('date_certification') ? addMonths(ts('date_certification'), 18) : null),
+          dateFin:   ts('date_fin')           ?? (ts('date_certification') ? addMonths(ts('date_certification'), 36) : null),
           prochaine: ts('Prochaine_echeance'),
           evalIds: [
             ...parseRL(t.eval_initiale?.[i]),
@@ -367,6 +373,13 @@
       console.warn('loadCycles:', e);
       showStatus('Erreur chargement Cycles_services : ' + e.message, 'error');
     }
+  }
+
+  // Ajoute n mois à un timestamp Unix (secondes), retourne un timestamp Unix
+  function addMonths(tsSec, n) {
+    const d = new Date(tsSec * 1000);
+    d.setUTCMonth(d.getUTCMonth() + n);
+    return Math.floor(d.getTime() / 1000);
   }
 
   // Parse une RefList Grist (array, JSON string, entier ou null)
@@ -570,7 +583,7 @@
     const row = document.createElement('div');
     row.className = 'cycle-row';
 
-    // ── Colonne étiquette ──
+    // ── Colonne étiquette (nom de l'entreprise uniquement) ──
     const lbl = document.createElement('div');
     lbl.className = 'lbl-col';
 
@@ -578,14 +591,6 @@
     const color = info?.color ?? colorFromName(cycle.programmeName);
     const pname = info?.nom   ?? cycle.programmeName;
 
-    if (pname) {
-      const badge = document.createElement('span');
-      badge.className = 'prog-badge';
-      badge.style.background = color;
-      badge.title = pname;
-      badge.textContent = pShort(pname);
-      lbl.appendChild(badge);
-    }
     const nm = document.createElement('span');
     nm.className = 'co-name';
     nm.textContent = cycle.denomination || `#${cycle.id}`;
@@ -606,6 +611,18 @@
       bg.style.background = even ? '#f5f9ff' : '#eaf2ff';
       tl.appendChild(bg);
     });
+
+    // Badge programme sur la timeline, juste avant la barre grise
+    if (pname && cycle.dateCert) {
+      const bx = tsToX(cycle.dateCert, ppm);
+      const pbadge = document.createElement('div');
+      pbadge.className = 'prog-badge-tl';
+      pbadge.style.left       = `${bx}px`;
+      pbadge.style.background = color;
+      pbadge.title = pname;
+      pbadge.textContent = pShort(pname);
+      tl.appendChild(pbadge);
+    }
 
     // Barre grise du cycle (date_certification → date_fin)
     if (cycle.dateCert && cycle.dateFin) {
