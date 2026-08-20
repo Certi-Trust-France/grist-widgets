@@ -19,24 +19,67 @@
   button:disabled { background: #bbb; cursor: default; }
   #status { margin-top: 10px; font-size: 13px; min-height: 18px; }
   .ok { color: #16b378; } .err { color: #d0021b; } .warn { color: #b8860b; }
+
+  .gear { background: none; border: none; cursor: pointer; font-size: 14px; float: right; opacity: .5; }
+  .gear:hover { opacity: 1; }
+  .config-panel {
+    display: none; background: #fff; border: 1px solid #d9d9d9; border-radius: 6px;
+    padding: 10px; margin-bottom: 10px; font-size: 12px;
+  }
+  .config-panel input {
+    width: 100%; padding: 5px 7px; border: 1px solid #d9d9d9; border-radius: 4px;
+    font-size: 12px; margin: 6px 0 8px; box-sizing: border-box;
+  }
+  .config-panel button.secondary { background: #bbb; }
 </style>
 </head>
 <body>
-  <h3>Demande de devis — <span class="entreprise" id="ent">…</span></h3>
+  <h3>Demande de devis — <span class="entreprise" id="ent">…</span><button id="btn-gear" class="gear" title="Configuration">⚙</button></h3>
+
+  <div id="config-panel" class="config-panel">
+    <b>Configuration</b> — URL du flux Power Automate (jamais stockée dans le dépôt Git, seulement dans ce document Grist) :
+    <input id="config-url" type="text" placeholder="https://…invoke?api-version=1&sp=…&sv=1.0&sig=…" />
+    <button id="config-save">Enregistrer</button>
+    <button id="config-cancel" class="secondary">Annuler</button>
+  </div>
+
   <div id="recap">Sélectionne une entreprise.</div>
   <button id="btn" disabled>📧 Demander le devis</button>
   <div id="status"></div>
 
 <script>
-/* ============ CONFIGURATION ============ */
-const WEBHOOK_URL = "https://defaultab19d3a2768f490892a5efad8e43de.3a.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/04/workflows/962918e28e914d50bb4af106968bfd2c/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=eFd_cH4aEQMQiP-xNKvTYIGpA9omk4wOjcP1I7DAM48";
-/* ======================================= */
+// URL du flux Power Automate — stockée dans les options du widget (côté document
+// Grist), jamais en dur dans ce fichier : ce dépôt est public sur GitHub, et cette
+// URL contient un jeton d'authentification (paramètre sig=…) qui suffirait à
+// n'importe qui pour déclencher cet envoi de mail.
+let webhookUrl = '';
 
 let entreprise = null;   // { id, nom }
 let lignes = [];         // aperçu courant
 let idsEcrits = [], idsOraux = [];
 
-grist.ready({ requiredAccess: 'full' });
+grist.ready({ requiredAccess: 'full', onEditOptions: openConfigPanel });
+
+grist.onOptions((options) => {
+  webhookUrl = options?.webhookUrl || '';
+  if (entreprise) rafraichir();
+});
+
+function openConfigPanel() {
+  document.getElementById('config-url').value = webhookUrl;
+  document.getElementById('config-panel').style.display = 'block';
+}
+document.getElementById('btn-gear').addEventListener('click', openConfigPanel);
+document.getElementById('config-cancel').addEventListener('click', () => {
+  document.getElementById('config-panel').style.display = 'none';
+});
+document.getElementById('config-save').addEventListener('click', () => {
+  const val = document.getElementById('config-url').value.trim();
+  grist.setOption('webhookUrl', val);
+  webhookUrl = val;
+  document.getElementById('config-panel').style.display = 'none';
+  if (entreprise) rafraichir();
+});
 
 // Widget lié à la table Entreprises (Select by : sélecteur de la page)
 grist.onRecord(async rec => {
@@ -112,14 +155,15 @@ async function rafraichir() {
     '<table><tr><th>Nom</th><th>Qualifications</th><th>Montant</th></tr>' +
     lignes.map(l => `<tr><td>${l.nom}</td><td>${l.qualifications}</td>` +
                     `<td class="num">${l.montant.toFixed(2)} €</td></tr>`).join('') +
-    `<tr><th colspan="2">Total</th><th class="num">${total.toFixed(2)} €</th></tr></table>`;
-  btn.disabled = false;
+    `<tr><th colspan="2">Total</th><th class="num">${total.toFixed(2)} €</th></tr></table>` +
+    (webhookUrl ? '' : '<div class="warn">⚠️ URL du flux Power Automate non configurée — clique sur ⚙ ci-dessus.</div>');
+  btn.disabled = !webhookUrl;
 }
 
 document.getElementById('btn').addEventListener('click', async () => {
   const btn = document.getElementById('btn');
   const status = document.getElementById('status');
-  if (!entreprise || !lignes.length) return;
+  if (!entreprise || !lignes.length || !webhookUrl) return;
 
   btn.disabled = true;
   status.textContent = 'Envoi en cours…';
@@ -153,7 +197,7 @@ document.getElementById('btn').addEventListener('click', async () => {
     '</tr></table>';
 
   try {
-    const resp = await fetch(WEBHOOK_URL, {
+    const resp = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

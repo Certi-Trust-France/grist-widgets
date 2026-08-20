@@ -100,14 +100,50 @@
   .statusbar { font-size: 12px; }
   .statusbar.ok    { color: #059669; }
   .statusbar.error { color: #b91c1c; }
+
+  .gear {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    float: right;
+    opacity: .5;
+  }
+  .gear:hover { opacity: 1; }
+
+  .config-panel {
+    display: none;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+  .config-panel input {
+    width: 100%;
+    padding: 5px 7px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    font-size: 12px;
+    margin: 6px 0 8px;
+    box-sizing: border-box;
+  }
 </style>
 </head>
 <body>
 
 <div id="empty" class="empty">Sélectionnez un examen oral.</div>
 
+<div id="config-panel" class="config-panel">
+  <b>Configuration</b> — URL du flux Power Automate (jamais stockée dans le dépôt Git, seulement dans ce document Grist) :
+  <input id="config-url" type="text" placeholder="https://…invoke?api-version=1&sp=…&sv=1.0&sig=…" />
+  <button id="config-save" class="btn">Enregistrer</button>
+  <button id="config-cancel" class="btn" style="background:#94a3b8">Annuler</button>
+</div>
+
 <div id="main" style="display:none">
-  <h3>Compte rendu d'oral <span id="statut" class="statut"></span></h3>
+  <h3>Compte rendu d'oral <span id="statut" class="statut"></span><button id="btn-gear" class="gear" title="Configuration">⚙</button></h3>
   <div id="recap" class="recap"></div>
 
   <div id="destinataires" class="destinataires"></div>
@@ -125,9 +161,11 @@
 </div>
 
 <script>
-/* ============ CONFIGURATION ============ */
-const WEBHOOK_URL = "https://defaultab19d3a2768f490892a5efad8e43de.3a.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/12/workflows/e93c26f77a8043afaac0a3749749609f/triggers/manual/paths/invoke?api-version=1"; // flux "CR oral" — envoi depuis examens@certi-trust.com
-/* ======================================= */
+// URL du flux Power Automate — stockée dans les options du widget (côté document
+// Grist), jamais en dur dans ce fichier : ce dépôt est public sur GitHub, et cette
+// URL contient un jeton d'authentification (paramètre sig=…) qui suffirait à
+// n'importe qui pour déclencher un envoi de mail au nom de examens@certi-trust.com.
+let webhookUrl = '';
 
 // Couleurs de notes — reprises des choiceOptions Grist (Notes_Qualifications / Notes_Competences)
 const NOTE_COLOR = { '1': '#FECBCC', '2': '#FEE7C3', '3': '#CCFEFE', '4': '#E1FEDE' };
@@ -141,7 +179,30 @@ const COMPETENCES_LABELS = [
 let currentReqId = 0; // anti-race : chaque sélection reçoit son propre id
 let current = null;   // { examId, to, cc, objet, corpsHtml, dateEnvoye, isSent, blocking }
 
-grist.ready({ requiredAccess: 'full' });
+grist.ready({ requiredAccess: 'full', onEditOptions: openConfigPanel });
+
+// Options propres à cette instance de widget, stockées dans le document Grist.
+grist.onOptions((options) => {
+  webhookUrl = options?.webhookUrl || '';
+  if (current) render(); // ré-évalue l'état du bouton si la config change en cours d'usage
+});
+
+function openConfigPanel() {
+  document.getElementById('config-url').value = webhookUrl;
+  document.getElementById('config-panel').style.display = 'block';
+}
+
+document.getElementById('btn-gear').addEventListener('click', openConfigPanel);
+document.getElementById('config-cancel').addEventListener('click', () => {
+  document.getElementById('config-panel').style.display = 'none';
+});
+document.getElementById('config-save').addEventListener('click', () => {
+  const val = document.getElementById('config-url').value.trim();
+  grist.setOption('webhookUrl', val);
+  webhookUrl = val;
+  document.getElementById('config-panel').style.display = 'none';
+  if (current) render();
+});
 
 grist.onRecord(async rec => {
   const reqId = ++currentReqId;
@@ -377,12 +438,13 @@ function render() {
   const msgBox = document.getElementById('messages');
   msgBox.innerHTML =
     current.errors.map(m => `<div class="msg error">⛔ ${esc(m)}</div>`).join('') +
-    current.warnings.map(m => `<div class="msg warn">⚠️ ${esc(m)}</div>`).join('');
+    current.warnings.map(m => `<div class="msg warn">⚠️ ${esc(m)}</div>`).join('') +
+    (webhookUrl ? '' : '<div class="msg warn">⚠️ URL du flux Power Automate non configurée — clique sur ⚙ ci-dessus.</div>');
 
   document.getElementById('preview').srcdoc = current.corpsHtml;
 
   const btn = document.getElementById('btn-send');
-  btn.disabled = current.errors.length > 0 || current.isSent;
+  btn.disabled = current.errors.length > 0 || current.isSent || !webhookUrl;
   btn.textContent = current.isSent ? '✅ CR déjà envoyé'
     : current.dateEnvoye ? '🔁 Renvoyer le CR'
     : '✉ Envoyer le CR';
@@ -405,7 +467,7 @@ function showEmpty(msg) {
    Envoi du CR
 ────────────────────────────────────────── */
 document.getElementById('btn-send').addEventListener('click', async () => {
-  if (!current || current.errors.length > 0 || current.isSent) return;
+  if (!current || current.errors.length > 0 || current.isSent || !webhookUrl) return;
 
   const btn = document.getElementById('btn-send');
   const status = document.getElementById('status');
@@ -414,7 +476,7 @@ document.getElementById('btn-send').addEventListener('click', async () => {
   status.className = 'statusbar';
 
   try {
-    const resp = await fetch(WEBHOOK_URL, {
+    const resp = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
