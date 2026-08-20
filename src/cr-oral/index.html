@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CR d'oral</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    color: #1e293b;
+    margin: 0;
+    padding: 14px;
+    background: #f8fafc;
+  }
+
+  .empty {
+    padding: 40px 0;
+    text-align: center;
+    color: #94a3b8;
+    font-style: italic;
+  }
+
+  h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    color: #1e3a8a;
+  }
+  .recap {
+    font-size: 12px;
+    color: #475569;
+    margin-bottom: 10px;
+  }
+  .recap b { color: #1e293b; }
+  .statut {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .statut.envoye  { background: #d1fae5; color: #065f46; }
+  .statut.attente { background: #fef3c7; color: #78350f; }
+  .statut.modifie { background: #fee2e2; color: #991b1b; }
+
+  .sent-info {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 6px;
+  }
+
+  .destinataires {
+    font-size: 12px;
+    margin-bottom: 10px;
+    line-height: 1.6;
+  }
+  .destinataires .lbl { color: #64748b; display: inline-block; width: 44px; }
+
+  .msg-list { margin-bottom: 10px; }
+  .msg {
+    padding: 6px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .msg.error { background: #fee2e2; color: #991b1b; border-left: 3px solid #dc2626; }
+  .msg.warn  { background: #fef3c7; color: #78350f; border-left: 3px solid #d97706; }
+
+  .preview-frame {
+    width: 100%;
+    height: 420px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    background: #2563eb;
+    color: #fff;
+  }
+  .btn:hover:not(:disabled) { background: #1d4ed8; }
+  .btn:disabled { opacity: .4; cursor: default; }
+
+  .statusbar { font-size: 12px; }
+  .statusbar.ok    { color: #059669; }
+  .statusbar.error { color: #b91c1c; }
+</style>
+</head>
+<body>
+
+<div id="empty" class="empty">Sélectionnez un examen oral.</div>
+
+<div id="main" style="display:none">
+  <h3>Compte rendu d'oral <span id="statut" class="statut"></span></h3>
+  <div id="recap" class="recap"></div>
+
+  <div id="destinataires" class="destinataires"></div>
+  <div id="objet" class="destinataires"></div>
+
+  <div id="messages" class="msg-list"></div>
+
+  <iframe id="preview" class="preview-frame" title="Aperçu du corps de l'e-mail"></iframe>
+
+  <div class="actions">
+    <button id="btn-send" class="btn">✉ Envoyer le CR</button>
+    <span id="status" class="statusbar"></span>
+  </div>
+  <div id="sent-info" class="sent-info"></div>
+</div>
+
+<script>
+/* ============ CONFIGURATION ============ */
+const WEBHOOK_URL = "TODO_URL_POWER_AUTOMATE"; // flux "CR oral" — envoi depuis examens@certi-trust.com
+/* ======================================= */
+
+// Couleurs de notes — reprises des choiceOptions Grist (Notes_Qualifications / Notes_Competences)
+const NOTE_COLOR = { '1': '#FECBCC', '2': '#FEE7C3', '3': '#CCFEFE', '4': '#E1FEDE' };
+const COMPETENCES_LABELS = [
+  'Capacité de mise en situation',
+  'Capacité d’analyse',
+  'Capacité à formuler des recommandations',
+  'Capacité d’expression orale et de vulgarisation',
+];
+
+let currentReqId = 0; // anti-race : chaque sélection reçoit son propre id
+let current = null;   // { examId, to, cc, objet, corpsHtml, crEnvoye, isSent, blocking }
+
+// Empreinte du corps HTML au moment du dernier envoi connu, par examen.
+// CR_envoye ne stocke que la date d'envoi ; c'est cette empreinte qui permet
+// de savoir si les données ont changé depuis, sans colonne Grist supplémentaire.
+const sentSignatures = new Map(); // examId -> corpsHtml envoyé
+
+grist.ready({ requiredAccess: 'full' });
+
+grist.onRecord(async rec => {
+  const reqId = ++currentReqId;
+  if (!rec?.id) { showEmpty(); return; }
+
+  const data = await loadData(rec.id);
+  if (reqId !== currentReqId) return; // une sélection plus récente a pris le relais
+
+  if (!data) { showEmpty('Examen introuvable.'); return; }
+
+  // Première vue de cet examen dans la session avec un CR déjà envoyé :
+  // on suppose que les données actuelles sont celles qui ont été envoyées.
+  if (data.crEnvoye && !sentSignatures.has(data.examId)) {
+    sentSignatures.set(data.examId, data.corpsHtml);
+  }
+  data.isSent = data.crEnvoye ? sentSignatures.get(data.examId) === data.corpsHtml : false;
+
+  current = data;
+  render();
+});
+
+/* ──────────────────────────────────────────
+   Chargement + calcul de toutes les données du CR
+────────────────────────────────────────── */
+async function loadData(examId) {
+  const [oraux, candidats, programmes, qualifs, evaluateurs, entreprises, contacts] = await Promise.all([
+    grist.docApi.fetchTable('Examens_oraux'),
+    grist.docApi.fetchTable('Candidats'),
+    grist.docApi.fetchTable('Programmes'),
+    grist.docApi.fetchTable('Qualifications_List'),
+    grist.docApi.fetchTable('Evaluateurs'),
+    grist.docApi.fetchTable('Entreprises'),
+    grist.docApi.fetchTable('Contacts'),
+  ]);
+
+  const i = oraux.id.indexOf(examId);
+  if (i === -1) return null;
+
+  const asList = raw => Array.isArray(raw) ? raw.slice(1) : []; // RefList/ChoiceList Grist : ['L', v1, v2…]
+  const rowOf  = (table, id) => { const idx = table.id.indexOf(id); return idx === -1 ? null : idx; };
+
+  const candId  = oraux.Candidat[i]      || 0;
+  const progId  = oraux.Programme[i]     || 0;
+  const ex1Id   = oraux.Examinateur_1[i] || 0;
+  const ex2Id   = oraux.Examinateur_2[i] || 0;
+  const entId   = oraux.Denomination[i]  || 0;
+  const qualIds = asList(oraux.Qualifications[i]);
+  const notesQ  = asList(oraux.Notes_Qualifications[i]);
+  const notesC  = asList(oraux.Notes_Competences[i]);
+
+  const ci = rowOf(candidats, candId);
+  const pi = rowOf(programmes, progId);
+  const e1 = rowOf(evaluateurs, ex1Id);
+  const e2 = rowOf(evaluateurs, ex2Id);
+  const enti = rowOf(entreprises, entId);
+
+  const candidat = ci !== null ? {
+    prenom: String(candidats.First_Name[ci] || ''),
+    nom:    String(candidats.Last_Name[ci]  || ''),
+    email:  String(candidats.Courriel[ci]   || ''),
+  } : null;
+
+  const programme = pi !== null ? String(programmes.Nom_du_programme[pi] || '') : '';
+
+  const examinateur = idx => idx !== null ? {
+    prenom: String(evaluateurs.Evaluateur_Prenom[idx] || ''),
+    nom:    String(evaluateurs.Evaluateur_Nom[idx]     || ''),
+    email:  String(evaluateurs.Evaluateur_Courriel[idx] || ''),
+  } : null;
+  const examinateur1 = examinateur(e1);
+  const examinateur2 = examinateur(e2);
+
+  const entreprise = enti !== null ? String(entreprises.Denomination[enti] || '') : '';
+
+  // Responsable examens de l'entreprise (Contacts.Entreprise == entId && Responsable_examens)
+  let responsable = null;
+  for (let k = 0; k < contacts.id.length; k++) {
+    if (contacts.Entreprise[k] === entId && contacts.Responsable_examens[k]) {
+      responsable = { prenom: String(contacts.Prenom[k] || ''), nom: String(contacts.Nom[k] || ''), email: String(contacts.Courriel[k] || '') };
+      break;
+    }
+  }
+
+  const qualifications = qualIds.map((qid, idx) => {
+    const qi = rowOf(qualifs, qid);
+    const libelle = qi !== null ? String(qualifs.Qualifications[qi] || '') : `#${qid}`;
+    const note = idx < notesQ.length ? String(notesQ[idx]) : '';
+    const avis = note ? (Number(note) > 2 ? 'Favorable' : 'Défavorable') : '';
+    return { libelle, note, avis };
+  });
+
+  return buildCR({
+    examId,
+    dateHeure: oraux.date_heure[i] || 0,
+    duree: Number(oraux.Duree[i] || 0),
+    observations: String(oraux.Observations[i] || 's.o.'),
+    crEnvoye: oraux.CR_envoye?.[i] || null, // timestamp (s) de l'envoi, ou null si jamais envoyé
+    candidat, programme, entreprise, examinateur1, examinateur2, responsable,
+    qualifications, notesCompetences: notesC.map(String),
+  });
+}
+
+/* ──────────────────────────────────────────
+   Construction du CR : validations + destinataires + HTML du corps
+────────────────────────────────────────── */
+function buildCR(d) {
+  const errors = [], warnings = [];
+
+  if (!d.candidat)               errors.push('Candidat manquant.');
+  else if (!d.candidat.email)    errors.push('E-mail du candidat manquant.');
+  if (!d.programme)              errors.push('Programme manquant.');
+  if (!d.dateHeure)              errors.push('Date et heure de l’examen manquantes.');
+  if (!d.examinateur1 || !d.examinateur2)
+    errors.push('Il manque un examinateur — il en faut deux.');
+  if (d.qualifications.length === 0)
+    warnings.push('Aucune qualification associée à cet examen.');
+  if (d.qualifications.some(q => !q.note))
+    errors.push(`Note manquante : ${d.qualifications.filter(q => !q.note).length} qualification(s) sans note sur ${d.qualifications.length}.`);
+  if (d.notesCompetences.length < 4)
+    warnings.push('Évaluation des compétences générales incomplète (4 attendues).');
+  if (!d.responsable)
+    warnings.push('Aucun responsable examens trouvé pour l’entreprise — il ne sera pas en copie.');
+  if (d.examinateur1 && !d.examinateur1.email) errors.push('E-mail de l’examinateur 1 manquant.');
+  if (d.examinateur2 && !d.examinateur2.email) errors.push('E-mail de l’examinateur 2 manquant.');
+
+  const to = d.candidat?.email || '';
+  const cc = [d.examinateur1?.email, d.examinateur2?.email, d.responsable?.email]
+    .filter(Boolean);
+
+  const objet = `CR d'oral ${d.programme || '?'}`;
+  const corpsHtml = renderCorpsHtml(d);
+
+  return { examId: d.examId, to, cc, objet, corpsHtml, crEnvoye: d.crEnvoye, errors, warnings, d };
+}
+
+/* ── Corps HTML de l'e-mail (styles inline — compatible Outlook) ──
+   Modèle : docs/specs/TEM-420_CR_evaluation_Oral_PACS_V5_publipostage.docx */
+function renderCorpsHtml(d) {
+  const td = 'border:1px solid #999;padding:4px 8px;font-size:13px;';
+  const th = `${td}background:#eee;text-align:left;`;
+  const h  = 'font-family:Segoe UI,Arial,sans-serif;color:#1e3a8a;margin:16px 0 4px;font-size:14px;';
+  const p  = 'font-family:Segoe UI,Arial,sans-serif;color:#1a1a1a;font-size:13px;margin:2px 0;';
+
+  const noteBadge = note => note
+    ? `<span style="background:${NOTE_COLOR[note] || '#eee'};padding:1px 8px;border-radius:3px;">${esc(note)}</span>`
+    : '<span style="color:#b91c1c;">manquante</span>';
+
+  const resultRows = d.qualifications.map(q => `
+    <tr>
+      <td style="${td}">${esc(q.libelle)}</td>
+      <td style="${td}">${noteBadge(q.note)}</td>
+      <td style="${td}${q.avis === 'Défavorable' ? 'color:#b91c1c;font-weight:600;' : ''}">${esc(q.avis || '—')}</td>
+    </tr>`).join('');
+
+  const competRows = COMPETENCES_LABELS.map((lbl, idx) => `
+    <tr>
+      <td style="${td}">${esc(lbl)}</td>
+      <td style="${td}">${noteBadge(d.notesCompetences[idx] || '')}</td>
+    </tr>`).join('');
+
+  const examinateurLigne = ex => ex ? esc(`${ex.prenom} ${ex.nom}`.trim()) : '<span style="color:#b91c1c;">manquant</span>';
+
+  return `
+<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#1a1a1a;max-width:640px;">
+  <h2 style="font-family:Segoe UI,Arial,sans-serif;color:#1e3a8a;margin:0 0 10px;">Compte rendu d'évaluation d'examen oral</h2>
+  <p style="${p}"><b>Programme :</b> ${esc(d.programme)}</p>
+
+  <h3 style="${h}">Informations sur l'examen</h3>
+  <p style="${p}">Date et heure : ${fmtDateHeure(d.dateHeure)}<br>Durée : ${d.duree} minutes</p>
+
+  <h3 style="${h}">Informations sur le candidat</h3>
+  <p style="${p}">
+    Prénom : ${esc(d.candidat?.prenom || '')}<br>
+    Nom : ${esc(d.candidat?.nom || '')}<br>
+    Société : ${esc(d.entreprise || '')}
+  </p>
+
+  <h3 style="${h}">Légende</h3>
+  <p style="${p}">
+    4 – A su démontrer un excellent niveau d'expertise<br>
+    3 – A su démontrer un niveau d'expertise suffisant<br>
+    2 – Présente des faiblesses<br>
+    1 – N'a pas su démontrer un niveau d'expertise suffisant
+  </p>
+
+  <h3 style="${h}">Résultats</h3>
+  <table style="border-collapse:collapse;">
+    <tr><th style="${th}">Qualifications</th><th style="${th}">Niveau d'expertise</th><th style="${th}">Avis</th></tr>
+    ${resultRows || `<tr><td style="${td}" colspan="3">Aucune qualification.</td></tr>`}
+  </table>
+
+  <h3 style="${h}">Évaluation des compétences générales</h3>
+  <table style="border-collapse:collapse;">
+    <tr><th style="${th}">Compétences</th><th style="${th}">Niveau d'expertise</th></tr>
+    ${competRows}
+  </table>
+
+  <h3 style="${h}">Observations (obligatoires si avis défavorable)</h3>
+  <p style="${p}">${esc(d.observations)}</p>
+
+  <h3 style="${h}">Évaluateurs</h3>
+  <p style="${p}">${examinateurLigne(d.examinateur1)}<br>${examinateurLigne(d.examinateur2)}</p>
+</div>`;
+}
+
+/* ──────────────────────────────────────────
+   Rendu du widget
+────────────────────────────────────────── */
+function render() {
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('main').style.display = 'block';
+
+  const d = current.d;
+  const statutEl = document.getElementById('statut');
+  if (!current.crEnvoye)      { statutEl.textContent = 'en attente';  statutEl.className = 'statut attente'; }
+  else if (current.isSent)    { statutEl.textContent = 'envoyé';      statutEl.className = 'statut envoye'; }
+  else                        { statutEl.textContent = 'à renvoyer';  statutEl.className = 'statut modifie'; }
+
+  document.getElementById('recap').innerHTML =
+    `<b>${esc(d.candidat ? `${d.candidat.prenom} ${d.candidat.nom}` : '?')}</b> — ${esc(d.programme || '?')} — ${fmtDateHeure(d.dateHeure)}`;
+
+  document.getElementById('destinataires').innerHTML =
+    `<span class="lbl">À :</span> ${esc(current.to || '(manquant)')}<br>` +
+    `<span class="lbl">Cc :</span> ${esc(current.cc.join(', ') || '(aucun)')}`;
+
+  document.getElementById('objet').innerHTML = `<span class="lbl">Objet :</span> ${esc(current.objet)}`;
+
+  const msgBox = document.getElementById('messages');
+  msgBox.innerHTML =
+    current.errors.map(m => `<div class="msg error">⛔ ${esc(m)}</div>`).join('') +
+    current.warnings.map(m => `<div class="msg warn">⚠️ ${esc(m)}</div>`).join('');
+
+  document.getElementById('preview').srcdoc = current.corpsHtml;
+
+  const btn = document.getElementById('btn-send');
+  btn.disabled = current.errors.length > 0 || current.isSent;
+  btn.textContent = current.isSent ? '✅ CR déjà envoyé'
+    : current.crEnvoye ? '🔁 Renvoyer le CR'
+    : '✉ Envoyer le CR';
+
+  document.getElementById('sent-info').textContent =
+    current.crEnvoye ? `CR envoyé le ${fmtDateHeure(current.crEnvoye)}` : '';
+
+  document.getElementById('status').textContent = '';
+  document.getElementById('status').className = 'statusbar';
+}
+
+function showEmpty(msg) {
+  document.getElementById('empty').textContent = msg || 'Sélectionnez un examen oral.';
+  document.getElementById('empty').style.display = 'block';
+  document.getElementById('main').style.display = 'none';
+  current = null;
+}
+
+/* ──────────────────────────────────────────
+   Envoi du CR
+────────────────────────────────────────── */
+document.getElementById('btn-send').addEventListener('click', async () => {
+  if (!current || current.errors.length > 0 || current.isSent) return;
+
+  const btn = document.getElementById('btn-send');
+  const status = document.getElementById('status');
+  btn.disabled = true;
+  status.textContent = 'Envoi en cours…';
+  status.className = 'statusbar';
+
+  try {
+    const resp = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'examens@certi-trust.com',
+        to: current.to,
+        cc: current.cc,
+        objet: current.objet,
+        corps_html: current.corpsHtml,
+      }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+    const now = Math.floor(Date.now() / 1000);
+    await grist.docApi.applyUserActions([
+      ['UpdateRecord', 'Examens_oraux', current.examId, { CR_envoye: now }],
+    ]);
+    current.crEnvoye = now;
+    sentSignatures.set(current.examId, current.corpsHtml);
+    current.isSent = true;
+
+    status.textContent = '✅ CR envoyé.';
+    status.className = 'statusbar ok';
+    render();
+  } catch (e) {
+    status.textContent = '❌ Échec de l’envoi : ' + e.message;
+    status.className = 'statusbar error';
+    btn.disabled = false;
+  }
+});
+
+/* ──────────────────────────────────────────
+   Utilitaires
+────────────────────────────────────────── */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function fmtDateHeure(ts) {
+  if (!ts) return '(date inconnue)';
+  const d = new Date(ts * 1000);
+  const parts = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  }).formatToParts(d);
+  const get = t => parts.find(p => p.type === t)?.value ?? '';
+  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}`;
+}
+</script>
+</body>
+</html>
