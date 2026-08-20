@@ -101,13 +101,17 @@
   .statusbar.ok    { color: #059669; }
   .statusbar.error { color: #b91c1c; }
 
+  .header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .gear {
-    background: none;
-    border: none;
+    background: #eee;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
-    float: right;
-    opacity: .5;
+    font-size: 12px;
+    line-height: 1;
+    padding: 4px 7px;
+    opacity: .7;
+    flex-shrink: 0;
   }
   .gear:hover { opacity: 1; }
 
@@ -143,7 +147,10 @@
 </div>
 
 <div id="main" style="display:none">
-  <h3>Compte rendu d'oral <span id="statut" class="statut"></span><button id="btn-gear" class="gear" title="Configuration">⚙</button></h3>
+  <div class="header">
+    <h3>Compte rendu d'oral <span id="statut" class="statut"></span></h3>
+    <button id="btn-gear" class="gear" title="Configuration">⚙ Configuration</button>
+  </div>
   <div id="recap" class="recap"></div>
 
   <div id="destinataires" class="destinataires"></div>

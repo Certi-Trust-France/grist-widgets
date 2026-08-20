@@ -20,7 +20,11 @@
   #status { margin-top: 10px; font-size: 13px; min-height: 18px; }
   .ok { color: #16b378; } .err { color: #d0021b; } .warn { color: #b8860b; }
 
-  .gear { background: none; border: none; cursor: pointer; font-size: 14px; float: right; opacity: .5; }
+  .header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .gear {
+    background: #eee; border: 1px solid #d9d9d9; border-radius: 4px; cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 4px 7px; opacity: .7; flex-shrink: 0;
+  }
   .gear:hover { opacity: 1; }
   .config-panel {
     display: none; background: #fff; border: 1px solid #d9d9d9; border-radius: 6px;
@@ -34,7 +38,10 @@
 </style>
 </head>
 <body>
-  <h3>Demande de devis — <span class="entreprise" id="ent">…</span><button id="btn-gear" class="gear" title="Configuration">⚙</button></h3>
+  <div class="header">
+    <h3>Demande de devis — <span class="entreprise" id="ent">…</span></h3>
+    <button id="btn-gear" class="gear" title="Configuration">⚙ Configuration</button>
+  </div>
 
   <div id="config-panel" class="config-panel">
     <b>Configuration</b> — URL du flux Power Automate (jamais stockée dans le dépôt Git, seulement dans ce document Grist) :
