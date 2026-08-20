@@ -227,11 +227,11 @@ async function loadData(examId) {
 
   const observations = String(oraux.Observations[i] || 's.o.');
 
-  // Empreinte des données couvertes par le CR déjà envoyé : notes, observations,
-  // examinateurs (par id, pas par e-mail — un changement d'adresse seul ne doit
-  // pas redéclencher un renvoi, cf. §6). Comparée à contenu_du_CR_envoye pour
-  // savoir si les données ont changé depuis le dernier envoi.
-  const signature = [notesQ.join(','), notesC.join(','), observations, ex1Id, ex2Id].join(';');
+  // Empreinte des données couvertes par le CR déjà envoyé : qualifications, notes,
+  // observations, examinateurs (par id, pas par e-mail — un changement d'adresse
+  // seul ne doit pas redéclencher un renvoi, cf. §6). Comparée à contenu_du_CR_envoye
+  // pour savoir si les données ont changé depuis le dernier envoi.
+  const signature = [qualIds.join(','), notesQ.join(','), notesC.join(','), observations, ex1Id, ex2Id].join(';');
   const dateEnvoye = oraux.date_du_CR_envoye?.[i] || null;
   const contenuEnvoye = String(oraux.contenu_du_CR_envoye?.[i] || '');
   const isSent = !!dateEnvoye && contenuEnvoye === signature;
