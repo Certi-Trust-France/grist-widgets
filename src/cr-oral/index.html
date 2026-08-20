@@ -139,12 +139,7 @@ const COMPETENCES_LABELS = [
 ];
 
 let currentReqId = 0; // anti-race : chaque sélection reçoit son propre id
-let current = null;   // { examId, to, cc, objet, corpsHtml, crEnvoye, isSent, blocking }
-
-// Empreinte du corps HTML au moment du dernier envoi connu, par examen.
-// CR_envoye ne stocke que la date d'envoi ; c'est cette empreinte qui permet
-// de savoir si les données ont changé depuis, sans colonne Grist supplémentaire.
-const sentSignatures = new Map(); // examId -> corpsHtml envoyé
+let current = null;   // { examId, to, cc, objet, corpsHtml, dateEnvoye, isSent, blocking }
 
 grist.ready({ requiredAccess: 'full' });
 
@@ -156,14 +151,6 @@ grist.onRecord(async rec => {
   if (reqId !== currentReqId) return; // une sélection plus récente a pris le relais
 
   if (!data) { showEmpty('Examen introuvable.'); return; }
-
-  // Première vue de cet examen dans la session avec un CR déjà envoyé :
-  // on suppose que les données actuelles sont celles qui ont été envoyées.
-  if (data.crEnvoye && !sentSignatures.has(data.examId)) {
-    sentSignatures.set(data.examId, data.corpsHtml);
-  }
-  data.isSent = data.crEnvoye ? sentSignatures.get(data.examId) === data.corpsHtml : false;
-
   current = data;
   render();
 });
@@ -238,12 +225,22 @@ async function loadData(examId) {
     return { libelle, note, avis };
   });
 
+  const observations = String(oraux.Observations[i] || 's.o.');
+
+  // Empreinte des données couvertes par le CR déjà envoyé : notes, observations,
+  // examinateurs (par id, pas par e-mail — un changement d'adresse seul ne doit
+  // pas redéclencher un renvoi, cf. §6). Comparée à contenu_du_CR_envoye pour
+  // savoir si les données ont changé depuis le dernier envoi.
+  const signature = [notesQ.join(','), notesC.join(','), observations, ex1Id, ex2Id].join(';');
+  const dateEnvoye = oraux.date_du_CR_envoye?.[i] || null;
+  const contenuEnvoye = String(oraux.contenu_du_CR_envoye?.[i] || '');
+  const isSent = !!dateEnvoye && contenuEnvoye === signature;
+
   return buildCR({
-    examId,
+    examId, signature, dateEnvoye, isSent,
     dateHeure: oraux.date_heure[i] || 0,
     duree: Number(oraux.Duree[i] || 0),
-    observations: String(oraux.Observations[i] || 's.o.'),
-    crEnvoye: oraux.CR_envoye?.[i] || null, // timestamp (s) de l'envoi, ou null si jamais envoyé
+    observations,
     candidat, programme, entreprise, examinateur1, examinateur2, responsable,
     qualifications, notesCompetences: notesC.map(String),
   });
@@ -279,7 +276,10 @@ function buildCR(d) {
   const objet = `CR d'oral ${d.programme || '?'}`;
   const corpsHtml = renderCorpsHtml(d);
 
-  return { examId: d.examId, to, cc, objet, corpsHtml, crEnvoye: d.crEnvoye, errors, warnings, d };
+  return {
+    examId: d.examId, to, cc, objet, corpsHtml, errors, warnings, d,
+    signature: d.signature, dateEnvoye: d.dateEnvoye, isSent: d.isSent,
+  };
 }
 
 /* ── Corps HTML de l'e-mail (styles inline — compatible Outlook) ──
@@ -298,7 +298,7 @@ function renderCorpsHtml(d) {
     <tr>
       <td style="${td}">${esc(q.libelle)}</td>
       <td style="${td}">${noteBadge(q.note)}</td>
-      <td style="${td}${q.avis === 'Défavorable' ? 'color:#b91c1c;font-weight:600;' : ''}">${esc(q.avis || '—')}</td>
+      <td style="${td}">${esc(q.avis || '—')}</td>
     </tr>`).join('');
 
   const competRows = COMPETENCES_LABELS.map((lbl, idx) => `
@@ -361,7 +361,7 @@ function render() {
 
   const d = current.d;
   const statutEl = document.getElementById('statut');
-  if (!current.crEnvoye)      { statutEl.textContent = 'en attente';  statutEl.className = 'statut attente'; }
+  if (!current.dateEnvoye)    { statutEl.textContent = 'en attente';  statutEl.className = 'statut attente'; }
   else if (current.isSent)    { statutEl.textContent = 'envoyé';      statutEl.className = 'statut envoye'; }
   else                        { statutEl.textContent = 'à renvoyer';  statutEl.className = 'statut modifie'; }
 
@@ -384,11 +384,11 @@ function render() {
   const btn = document.getElementById('btn-send');
   btn.disabled = current.errors.length > 0 || current.isSent;
   btn.textContent = current.isSent ? '✅ CR déjà envoyé'
-    : current.crEnvoye ? '🔁 Renvoyer le CR'
+    : current.dateEnvoye ? '🔁 Renvoyer le CR'
     : '✉ Envoyer le CR';
 
   document.getElementById('sent-info').textContent =
-    current.crEnvoye ? `CR envoyé le ${fmtDateHeure(current.crEnvoye)}` : '';
+    current.dateEnvoye ? `CR envoyé le ${fmtDateHeure(current.dateEnvoye)}` : '';
 
   document.getElementById('status').textContent = '';
   document.getElementById('status').className = 'statusbar';
@@ -429,10 +429,12 @@ document.getElementById('btn-send').addEventListener('click', async () => {
 
     const now = Math.floor(Date.now() / 1000);
     await grist.docApi.applyUserActions([
-      ['UpdateRecord', 'Examens_oraux', current.examId, { CR_envoye: now }],
+      ['UpdateRecord', 'Examens_oraux', current.examId, {
+        date_du_CR_envoye: now,
+        contenu_du_CR_envoye: current.signature,
+      }],
     ]);
-    current.crEnvoye = now;
-    sentSignatures.set(current.examId, current.corpsHtml);
+    current.dateEnvoye = now;
     current.isSent = true;
 
     status.textContent = '✅ CR envoyé.';
