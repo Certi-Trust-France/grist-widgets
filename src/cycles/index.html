@@ -56,6 +56,15 @@
     .tbtn.active { background: #fff; color: #1e3a8a; border-color: #fff; }
     .fbtn.active { background: var(--c, #3b82f6); color: #fff; border-color: var(--c, #3b82f6); }
     .fbtn[data-prog=""].active { background: #fff; color: #1e3a8a; border-color: #fff; }
+    /* Pastille de couleur programme — visible en permanence, comme la légende du planning */
+    .fbtn-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
 
     /* ── Corps principal ── */
     .widget-body {
@@ -278,6 +287,10 @@
     <span class="toolbar-label">Programme&nbsp;:</span>
     <button class="fbtn active" data-prog="">Tous</button>
   </div>
+  <div class="btn-group" id="resp-filters">
+    <span class="toolbar-label">Responsable compte&nbsp;:</span>
+    <button class="fbtn active" data-resp="">Tous</button>
+  </div>
 </div>
 
 <div class="widget-body" id="widget-body">
@@ -324,8 +337,10 @@
   let cycles    = [];
   let evalMap   = new Map();   // id → { date, lib, type }
   let progMap   = new Map();   // id → { nom, color }
+  let entMap    = new Map();   // id → { denomination, responsable }
   let sortMode  = 'alpha';
   let filterProg = '';
+  let filterResp = '';
 
   /* ──────────────────────────────────────────
      API Grist
@@ -335,8 +350,9 @@
   // onRecords sert de déclencheur ; les données viennent de fetchTable
   // (gristHelper_Display* ne remonte pas dans les records onRecords)
   grist.onRecords(async () => {
-    await Promise.all([loadCycles(), loadEvals(), loadProgs()]);
+    await Promise.all([loadCycles(), loadEvals(), loadProgs(), loadEntreprises()]);
     buildProgFilters();
+    buildRespFilters();
     render();
   });
 
@@ -355,6 +371,7 @@
         cycles.push({
           id,
           denomination:  String(t.gristHelper_Display?.[i]  ?? ''),
+          entId:         t.Denomination?.[i] > 0 ? t.Denomination[i] : 0,
           programmeName: String(t.gristHelper_Display3?.[i] ?? t.gristHelper_Display2?.[i] ?? ''),
           programmeId:   t.Programme?.[i] > 0 ? t.Programme[i] : 0,
           dateCert:  ts('date_certification'),
@@ -428,6 +445,21 @@
     } catch (e) { console.warn('loadProgs:', e); }
   }
 
+  async function loadEntreprises() {
+    try {
+      const t = await grist.docApi.fetchTable('Entreprises');
+      entMap.clear();
+      for (let i = 0; i < t.id.length; i++) {
+        const id = t.id[i];
+        if (!id) continue;
+        entMap.set(id, {
+          denomination: String(t.Denomination?.[i] ?? ''),
+          responsable:  String(t.Responsable_de_compte?.[i] ?? ''),
+        });
+      }
+    } catch (e) { console.warn('loadEntreprises:', e); }
+  }
+
   /* ──────────────────────────────────────────
      Filtres programme
   ────────────────────────────────────────── */
@@ -442,21 +474,42 @@
       const key = progKey(nom);
       if (key && !seen.has(key)) {
         seen.add(key);
+        const color = PROG_COLORS[key] ?? '#6b7280';
         const btn = document.createElement('button');
         btn.className = 'fbtn';
         btn.dataset.prog = key;
-        btn.textContent  = key === 'SECNUMCLOUD' ? 'SNC' : key;
-        btn.style.setProperty('--c', PROG_COLORS[key] ?? '#6b7280');
+        // Pastille toujours visible (comme la légende du planning), pas seulement à l'état actif
+        btn.innerHTML = `<span class="fbtn-dot" style="background:${color}"></span>${key === 'SECNUMCLOUD' ? 'SNC' : key}`;
+        btn.style.setProperty('--c', color);
         g.appendChild(btn);
       }
     });
-    updateFBtns();
+    updateGroupBtns('prog-filters', 'prog', filterProg);
   }
 
-  function updateFBtns() {
-    document.querySelectorAll('.fbtn').forEach(b => {
-      const active = b.dataset.prog === filterProg
-                  || (b.dataset.prog === '' && !filterProg);
+  function buildRespFilters() {
+    const g = document.getElementById('resp-filters');
+    g.querySelectorAll('.fbtn:not([data-resp=""])').forEach(b => b.remove());
+
+    const seen = new Set();
+    cycles.forEach(c => {
+      const resp = entMap.get(c.entId)?.responsable ?? '';
+      if (resp && !seen.has(resp)) {
+        seen.add(resp);
+        const btn = document.createElement('button');
+        btn.className = 'fbtn';
+        btn.dataset.resp = resp;
+        btn.textContent = resp;
+        g.appendChild(btn);
+      }
+    });
+    updateGroupBtns('resp-filters', 'resp', filterResp);
+  }
+
+  function updateGroupBtns(groupId, attr, value) {
+    document.querySelectorAll(`#${groupId} .fbtn`).forEach(b => {
+      const btnVal = b.dataset[attr] ?? '';
+      const active = btnVal === value;
       b.classList.toggle('active', active);
     });
   }
@@ -475,9 +528,15 @@
     // Trier + filtrer
     const list = cycles
       .filter(c => {
-        if (!filterProg) return true;
-        const nom = progMap.get(c.programmeId)?.nom ?? c.programmeName;
-        return progKey(nom) === filterProg;
+        if (filterProg) {
+          const nom = progMap.get(c.programmeId)?.nom ?? c.programmeName;
+          if (progKey(nom) !== filterProg) return false;
+        }
+        if (filterResp) {
+          const resp = entMap.get(c.entId)?.responsable ?? '';
+          if (resp !== filterResp) return false;
+        }
+        return true;
       })
       .sort((a, b) => {
         if (sortMode === 'cert')     return (a.dateCert  ?? 1e15) - (b.dateCert  ?? 1e15);
@@ -500,7 +559,8 @@
       list.forEach(c => area.appendChild(buildRow(c, ppm, yearBands)));
     }
 
-    showStatus(`${list.length} cycle(s) affiché(s)${filterProg ? ' — ' + filterProg : ''}`);
+    const activeFilters = [filterProg, filterResp].filter(Boolean).join(' — ');
+    showStatus(`${list.length} cycle(s) affiché(s)${activeFilters ? ' — ' + activeFilters : ''}`);
   }
 
   /* ──────────────────────────────────────────
@@ -750,7 +810,15 @@
     const btn = e.target.closest('.fbtn');
     if (!btn) return;
     filterProg = btn.dataset.prog === filterProg ? '' : btn.dataset.prog;
-    updateFBtns();
+    updateGroupBtns('prog-filters', 'prog', filterProg);
+    render();
+  });
+
+  document.getElementById('resp-filters').addEventListener('click', e => {
+    const btn = e.target.closest('.fbtn');
+    if (!btn) return;
+    filterResp = btn.dataset.resp === filterResp ? '' : btn.dataset.resp;
+    updateGroupBtns('resp-filters', 'resp', filterResp);
     render();
   });
 
