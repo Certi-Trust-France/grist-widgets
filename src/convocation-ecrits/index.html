@@ -673,17 +673,22 @@
     return `
 <div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#1a1a1a;max-width:640px;">
   <p style="${p}">Madame, Monsieur ${esc(cand.firstName)} ${esc(cand.lastName)},</p>
+  <br>
   <p style="${p}">Nous avons le plaisir de vous convoquer aux examens suivants :</p>
   <p style="${p}">
     Date&nbsp;: ${esc(dateStr)}<br>
     Lieu&nbsp;: ${esc(lieu || '?')}
   </p>
+  <br>
   <table style="border-collapse:collapse;margin:8px 0;">
     <tr><th style="${th}">Qualification</th><th style="${th}">Heure début</th><th style="${th}">Durée</th></tr>
     ${rows}
   </table>
+  <br>
   <p style="${p}">Merci de vous présenter 15 minutes avant l'heure de convocation,<br>
   muni(e) d'une pièce d'identité en cours de validité.</p>
+  <p style="${p}">Merci de présenter cette convocation sur votre mobile ou imprimée.</p>
+  <br>
   <p style="${p}">Cordialement,<br>Certi-Trust FRANCE SAS</p>
 </div>`;
   }
@@ -881,8 +886,10 @@
       await grist.docApi.applyUserActions([
         ['UpdateRecord', 'Examens_ecrits', examId, { date_heure: newTs }]
       ]);
-      const candIds = [...new Map(exams.map(ex => [ex.candidatId, true])).keys()];
-      buildTimeline(candIds);
+      // render() reconstruit aussi l'en-tête : le bouton Envoyer/Renvoyer et sa
+      // donnée (candidateSend) doivent être recalculés après tout changement
+      // d'heure, pas seulement la timeline visuelle.
+      render();
       showStatus('Heure enregistrée.', 'ok', 2000);
     } catch (err) {
       showStatus('Erreur sauvegarde : ' + err.message, 'error');
@@ -906,16 +913,11 @@
       actions.push(['UpdateRecord', 'Examens_ecrits', exam.id, { date_heure: newTs }]);
     });
 
-    // Mettre à jour les champs heure
-    exams.forEach(exam => {
-      const inp = document.querySelector(`.time-inp[data-exam-id="${exam.id}"]`);
-      if (inp) { inp.value = exam.dateHeure ? tsToTime(exam.dateHeure) : ''; inp.classList.remove('modified'); }
-    });
-
     try {
       await grist.docApi.applyUserActions(actions);
-      const candIds = [...new Map(exams.map(e => [e.candidatId, true])).keys()];
-      buildTimeline(candIds);
+      // render() reconstruit aussi l'en-tête (champs heure + bouton Envoyer/Renvoyer
+      // avec sa donnée candidateSend recalculée), pas seulement la timeline visuelle.
+      render();
       showStatus('Horaires calculés et enregistrés.', 'ok', 3000);
     } catch (err) {
       showStatus('Erreur sauvegarde : ' + err.message, 'error');
