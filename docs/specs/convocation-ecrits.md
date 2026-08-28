@@ -53,19 +53,25 @@ Exemple : Si 2 candidats passent PASSI_AUDIT et PASSI_CODE, on planifie PASSI_AU
 les examens du matin ne doivent pas dépasser 12h30.
 Puis on planifie à partir de 13h.
 
-### 4.3 Génération de l'e-mail (dans un second temps)
+### 4.3 Génération de l'e-mail
 
-Template par défaut (personnalisable dans le widget) :
+Template par défaut (personnalisable dans power automate) :
 
 ```
+destinataires :
+- le surveillant du centre d'examens
+- le responsable examens de l'entreprise du candidat
+- le candidat
+
 Objet : Convocation aux examens — [Programmes] du [Date_examen]
 
 Madame, Monsieur [Prénom] [Nom],
 
-Nous avons le plaisir de vous convoquer à l'examen :
+Nous avons le plaisir de vous convoquer aux examens suivants :
   Date      : [Date_examen]
-  Heure     : [Heure_debut] du premier examen écrit de la journée
-  Lieu      : [Lieu]
+  Lieu      : [nom du centre], [adresse du centre d'examen]
+
+Tableau des examens :
   [Qualification] : [Heure début], [Durée]
 
 Merci de vous présenter 15 minutes avant l'heure de convocation,
@@ -77,9 +83,13 @@ Certi-Trust FRANCE SAS
 
 ### 4.4 Envoi
 
-- Appel à une API d'envoi configurable (endpoint paramétrable dans le widget)
-- En cas de succès : mise à jour de `Statut_convocation` → `"Envoyé le JJ/MM/AAAA"`
-- En cas d'erreur : affichage du message d'erreur, `Statut_convocation` → `"Erreur"`
+- si la colonne "convocation_envoyee" de tous les examens d'un candidat est vide ou que la qualification ne correspond pas ou la date_heure ne correspond pas ou que le nom du "centre" de session_examens_ecrits ne correspond pas, le bouton "envoyer" est accessible
+- Le bouton "envoyer" permet d'envoyer les informations à Power automate pour émission de l'email (comme le fait déjà src\demande-devis-examens\demande_devis_widget.html et src\convocation-ecrits)
+- En cas de succès :
+  - dans la colonne "convocation_envoyee" de chaque examen écrit du candidat, stocker en format texte le nom de la qualification, et la date_heure (de début) et le nom du "centre" de la "sessions_examens_ecrits" de l'examen.
+  - le bouton envoyer la convocation n'est plus accessible
+  - si la qualification de l'examen change ou la date_heure début ou le centre change, et qu'ils ne correspondent plus à la convocation qui a été envoyée, le bouton "Envoyer" devient de nouveau accessible pour renvoyer la convocation à tous les examens du candidat de cette session.
+- En cas d'erreur : affichage du message d'erreur
 
 
 ## 5. Contraintes techniques
@@ -99,5 +109,4 @@ Comme src\demande-devis-examens\demande_devis_widget.html
 
 - [ ] L'e-mail de convocation est envoyé avec les données correctes du candidat sélectionné
 - [ ] Le statut d'envoi est mis à jour dans Grist après chaque envoi
-- [ ] La prévisualisation correspond exactement à l'e-mail envoyé
 - [ ] Les erreurs d'envoi sont visibles et tracées
