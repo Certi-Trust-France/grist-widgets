@@ -54,6 +54,43 @@
       font-size: 11px;
       padding: 4px 8px;
     }
+    .cand-name.warn { color: #f87171; }
+
+    .gear {
+      background: rgba(255,255,255,.18);
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      border-radius: 5px;
+      padding: 5px 9px;
+      opacity: .85;
+    }
+    .gear:hover { opacity: 1; background: rgba(255,255,255,.3); }
+    .config-panel {
+      display: none;
+      position: absolute;
+      top: 42px;
+      right: 12px;
+      z-index: 40;
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 10px;
+      width: 320px;
+      font-size: 12px;
+      color: #1e293b;
+      box-shadow: 0 4px 14px rgba(0,0,0,.15);
+    }
+    .config-panel input {
+      width: 100%;
+      padding: 5px 7px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      font-size: 12px;
+      margin: 6px 0 8px;
+      box-sizing: border-box;
+    }
 
     /* ── Message vide ── */
     .empty {
@@ -245,10 +282,18 @@
 </head>
 <body>
 
-<div class="toolbar">
+<div class="toolbar" style="position:relative">
   <span class="session-label" id="session-label">—</span>
   <div style="flex:1"></div>
   <button class="btn btn-calc" id="btn-calc" disabled>⚡ Calculer les horaires</button>
+  <button class="gear" id="btn-gear" title="Configuration">⚙</button>
+
+  <div id="config-panel" class="config-panel">
+    <b>Configuration</b> — URL du flux Power Automate (jamais stockée dans le dépôt Git, seulement dans ce document Grist) :
+    <input id="config-url" type="text" placeholder="https://…invoke?api-version=1&sp=…&sv=1.0&sig=…" />
+    <button id="config-save" class="btn btn-send">Enregistrer</button>
+    <button id="config-cancel" class="btn" style="background:#94a3b8;color:#fff">Annuler</button>
+  </div>
 </div>
 
 <div class="main" id="main">
@@ -294,15 +339,44 @@
   /* ──────────────────────────────────────────
      État
   ────────────────────────────────────────── */
-  let selectedSession = null;   // { id, num, date, lieu }
-  let exams           = [];     // { id, candidatId, qual, duration, dateHeure, programme }
-  let candidateMap    = new Map(); // candId → { firstName, lastName }
+  let selectedSession = null;   // { id, num, date, lieu, centreNom, centreAdresse, surveillantEmail, surveillantNom }
+  let exams           = [];     // { id, candidatId, entrepriseId, qual, duration, dateHeure, programme, convocationEnvoyee }
+  let candidateMap    = new Map(); // candId → { firstName, lastName, email }
+  let entContactMap   = new Map(); // entrepriseId → { email, nom } (responsable examens)
+  let candidateSend   = new Map(); // candId → résultat de computeCandidateSend (recalculé à chaque buildHeader)
   let currentReqId    = 0;      // anti-race : chaque clic reçoit un id unique
+
+  // URL du flux Power Automate — stockée dans les options du widget (côté document
+  // Grist), jamais en dur dans ce fichier : ce dépôt est public sur GitHub, et cette
+  // URL contient un jeton d'authentification qui suffirait à n'importe qui pour
+  // déclencher l'envoi d'une convocation.
+  let webhookUrl = '';
 
   /* ──────────────────────────────────────────
      API Grist — lié à Sessions_examens_ecrits
   ────────────────────────────────────────── */
-  grist.ready({ requiredAccess: 'full' });
+  grist.ready({ requiredAccess: 'full', onEditOptions: openConfigPanel });
+
+  grist.onOptions((options) => {
+    webhookUrl = options?.webhookUrl || '';
+    if (selectedSession) render(); // ré-évalue la disponibilité des boutons Envoyer
+  });
+
+  function openConfigPanel() {
+    document.getElementById('config-url').value = webhookUrl;
+    document.getElementById('config-panel').style.display = 'block';
+  }
+  document.getElementById('btn-gear').addEventListener('click', openConfigPanel);
+  document.getElementById('config-cancel').addEventListener('click', () => {
+    document.getElementById('config-panel').style.display = 'none';
+  });
+  document.getElementById('config-save').addEventListener('click', () => {
+    const val = document.getElementById('config-url').value.trim();
+    grist.setOption('webhookUrl', val);
+    webhookUrl = val;
+    document.getElementById('config-panel').style.display = 'none';
+    if (selectedSession) render();
+  });
 
   grist.onRecord(async rec => {
     if (!rec?.id) { showEmpty(); return; }
@@ -329,7 +403,8 @@
     const sid       = session.id;
     const localExams = [];
 
-    // ── Session : date + lieu via fetchTable ──
+    // ── Session : date + lieu + centre + surveillant via fetchTable ──
+    let centreId = 0, surveillantId = 0;
     try {
       const st  = await grist.docApi.fetchTable('Sessions_examens_ecrits');
       const idx = st.id.indexOf(sid);
@@ -340,6 +415,8 @@
         session.lieu = String(
           st.gristHelper_Display?.[idx] ?? st.Centre?.[idx] ?? st.Lieu?.[idx] ?? ''
         );
+        centreId      = st.Centre?.[idx]      > 0 ? st.Centre[idx]      : 0;
+        surveillantId = st.Surveillant?.[idx] > 0 ? st.Surveillant[idx] : 0;
         console.log('[convoc] date brute (ts)=', rawDate,
                     '  date affichée=', session.date ? fmtDate(session.date) : '(aucune)',
                     '  lieu=', session.lieu);
@@ -347,6 +424,35 @@
         console.warn('[convoc] session id', sid, 'introuvable dans fetchTable');
       }
     } catch (e) { console.warn('Sessions_examens_ecrits:', e); }
+
+    // ── Centre d'examen (nom + adresse, pour l'objet/le corps du mail) ──
+    session.centreNom = '';
+    session.centreAdresse = '';
+    if (centreId) {
+      try {
+        const ce  = await grist.docApi.fetchTable('Centres_examen');
+        const idx = ce.id.indexOf(centreId);
+        if (idx !== -1) {
+          session.centreNom = String(ce.Nom_centre_examen?.[idx] ?? '');
+          session.centreAdresse = [ce.Adresse_ligne_1?.[idx], ce.code_postal?.[idx], ce.Ville?.[idx]]
+            .filter(Boolean).join(' ');
+        }
+      } catch (e) { console.warn('Centres_examen:', e); }
+    }
+
+    // ── Surveillant du centre (destinataire en copie) ──
+    session.surveillantEmail = '';
+    session.surveillantNom   = '';
+    if (surveillantId) {
+      try {
+        const sv  = await grist.docApi.fetchTable('Surveillants');
+        const idx = sv.id.indexOf(surveillantId);
+        if (idx !== -1) {
+          session.surveillantEmail = String(sv.Courriel?.[idx] ?? '');
+          session.surveillantNom   = `${sv.Prenom?.[idx] ?? ''} ${sv.Nom?.[idx] ?? ''}`.trim();
+        }
+      } catch (e) { console.warn('Surveillants:', e); }
+    }
 
     // ── Candidats ──
     try {
@@ -358,9 +464,25 @@
         candidateMap.set(id, {
           firstName: String(ct.First_Name?.[i] ?? ''),
           lastName:  String(ct.Last_Name?.[i]  ?? ''),
+          email:     String(ct.Courriel?.[i]   ?? ''),
         });
       }
     } catch (e) { console.warn('Candidats:', e); }
+
+    // ── Contacts : responsable examens par entreprise (destinataire en copie) ──
+    entContactMap.clear();
+    try {
+      const co = await grist.docApi.fetchTable('Contacts');
+      for (let i = 0; i < co.id.length; i++) {
+        if (!co.Responsable_examens?.[i]) continue;
+        const entId = co.Entreprise?.[i];
+        if (!entId || entContactMap.has(entId)) continue; // premier responsable trouvé par entreprise
+        entContactMap.set(entId, {
+          email: String(co.Courriel?.[i] ?? ''),
+          nom:   `${co.Prenom?.[i] ?? ''} ${co.Nom?.[i] ?? ''}`.trim(),
+        });
+      }
+    } catch (e) { console.warn('Contacts:', e); }
 
     // ── Examens écrits de la session ──
     try {
@@ -372,12 +494,14 @@
 
         localExams.push({
           id,
-          candidatId: et.Candidat?.[i]   ?? 0,
-          qual:       String(et.gristHelper_Display4?.[i]  ?? et.Qualification?.[i] ?? ''),
-          duration:   Number(et['Duree_minutes_']?.[i] || 100),
-          dateHeure:  et.date_heure?.[i] > 0 ? et.date_heure[i] : null,
-          programme:  String(et.gristHelper_Display10?.[i] ?? ''),
-          libelle:    String(et.gristHelper_Display?.[i]   ?? et.Libelle_examen_ecrit?.[i] ?? et.Libelle?.[i] ?? ''),
+          candidatId:   et.Candidat?.[i]    ?? 0,
+          entrepriseId: et.Denomination?.[i] > 0 ? et.Denomination[i] : 0,
+          qual:         String(et.gristHelper_Display4?.[i]  ?? et.Qualification?.[i] ?? ''),
+          duration:     Number(et['Duree_minutes_']?.[i] || 100),
+          dateHeure:    et.date_heure?.[i] > 0 ? et.date_heure[i] : null,
+          programme:    String(et.gristHelper_Display10?.[i] ?? ''),
+          libelle:      String(et.gristHelper_Display?.[i]   ?? et.Libelle_examen_ecrit?.[i] ?? et.Libelle?.[i] ?? ''),
+          convocationEnvoyee: String(et.convocation_envoyee?.[i] ?? ''),
         });
       }
       console.log('[convoc] examens de la session', sid, '(',  localExams.length, ') :',
@@ -431,8 +555,11 @@
       const col = mk('div', 'hdr-col');
       col.style.width = COL_W + 'px';
 
-      const nm = mk('div', 'cand-name');
-      nm.textContent = name;
+      const sendData = computeCandidateSend(candId, candExams, selectedSession);
+      candidateSend.set(candId, sendData);
+
+      const nm = mk('div', 'cand-name' + (sendData.errors.length ? ' warn' : ''));
+      nm.textContent = name + (sendData.errors.length ? ' ⚠' : '');
       nm.title = name;
       col.appendChild(nm);
 
@@ -455,16 +582,154 @@
         col.appendChild(row);
       });
 
-      // Bouton "Envoyer" individuel (inactif — §4.3 à venir)
+      // Bouton "Envoyer" individuel — §4.3/§4.4
       const sendBtn = document.createElement('button');
       sendBtn.className = 'btn btn-send btn-send-cand';
-      sendBtn.textContent = '✉ Envoyer';
-      sendBtn.disabled = true;
-      sendBtn.title = 'Disponible dans une prochaine version';
+      const wasSentBefore = candExams.some(e => e.convocationEnvoyee);
+      sendBtn.textContent = sendData.allSent ? '✅ Convocation envoyée'
+        : wasSentBefore ? '🔁 Renvoyer'
+        : '✉ Envoyer';
+      sendBtn.disabled = sendData.errors.length > 0 || sendData.allSent || !webhookUrl;
+
+      const titleParts = [];
+      if (!webhookUrl) titleParts.push('URL du flux Power Automate non configurée (⚙)');
+      titleParts.push(...sendData.errors, ...sendData.warnings);
+      titleParts.push(`À : ${sendData.to || '(manquant)'}`);
+      if (sendData.cc.length) titleParts.push(`Cc : ${sendData.cc.join(', ')}`);
+      titleParts.push(`Objet : ${sendData.objet}`);
+      sendBtn.title = titleParts.join('\n');
+
+      sendBtn.addEventListener('click', () => sendConvocation(candId, sendBtn));
       col.appendChild(sendBtn);
 
       hdr.appendChild(col);
     });
+  }
+
+  /* ──────────────────────────────────────────
+     Convocation — calcul par candidat (§4.3/§4.4)
+  ────────────────────────────────────────── */
+
+  // Empreinte d'un examen : sert à savoir si la convocation déjà envoyée pour
+  // cet examen correspond toujours à ses données actuelles (qualification,
+  // horaire, centre) — cf. §4.4, dernier point.
+  function examSignature(exam, centreNom) {
+    return `${exam.qual}|${exam.dateHeure ?? ''}|${centreNom || ''}`;
+  }
+
+  function computeCandidateSend(candId, candExams, session) {
+    const cand = candidateMap.get(candId) || {};
+    const errors = [], warnings = [];
+
+    if (!cand.email) errors.push('E-mail du candidat manquant.');
+    if (!session?.centreNom) warnings.push('Centre de session inconnu.');
+    if (!session?.surveillantEmail) warnings.push('Surveillant du centre inconnu — absent de la copie.');
+    if (candExams.some(e => !e.dateHeure)) errors.push('Horaire manquant pour au moins un examen.');
+
+    const entId = candExams.find(e => e.entrepriseId)?.entrepriseId || 0;
+    const responsable = entContactMap.get(entId) || null;
+    if (!responsable) warnings.push('Aucun responsable examens trouvé pour l’entreprise — absent de la copie.');
+
+    const to = cand.email || '';
+    const cc = [session?.surveillantEmail, responsable?.email].filter(Boolean);
+
+    const programmes = [...new Set(candExams.map(e => e.programme).filter(Boolean))];
+    const dateStr = session?.date ? fmtDate(session.date) : '?';
+    const objet = `Convocation aux examens — ${programmes.join('/') || '?'} du ${dateStr}`;
+
+    // Une signature par examen ; la convocation est considérée "à jour" seulement
+    // si TOUS les examens du candidat ont déjà une empreinte enregistrée qui
+    // correspond exactement à leurs données actuelles.
+    const examSigs = new Map();
+    let allSent = candExams.length > 0;
+    candExams.forEach(e => {
+      const sig = examSignature(e, session?.centreNom);
+      examSigs.set(e.id, sig);
+      if (e.convocationEnvoyee !== sig) allSent = false;
+    });
+
+    const corpsHtml = renderConvocationHtml({ cand, candExams, session, programmes, dateStr });
+
+    return { to, cc, objet, corpsHtml, examSigs, allSent, errors, warnings };
+  }
+
+  /* ── Corps HTML de l'e-mail (styles inline — compatible Outlook) — modèle §4.3 ── */
+  function renderConvocationHtml({ cand, candExams, session, dateStr }) {
+    const p  = 'font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:4px 0;';
+    const td = 'border:1px solid #999;padding:4px 8px;font-size:13px;';
+    const th = `${td}background:#eee;text-align:left;`;
+
+    const lieu = [session?.centreNom, session?.centreAdresse].filter(Boolean).join(', ');
+
+    const rows = candExams.slice()
+      .sort((a, b) => (a.dateHeure ?? 0) - (b.dateHeure ?? 0))
+      .map(e => `
+        <tr>
+          <td style="${td}">${esc(e.qual)}</td>
+          <td style="${td}">${e.dateHeure ? tsToTime(e.dateHeure) : '?'}</td>
+          <td style="${td}">${e.duration} min</td>
+        </tr>`).join('');
+
+    return `
+<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#1a1a1a;max-width:640px;">
+  <p style="${p}">Madame, Monsieur ${esc(cand.firstName)} ${esc(cand.lastName)},</p>
+  <p style="${p}">Nous avons le plaisir de vous convoquer aux examens suivants :</p>
+  <p style="${p}">
+    Date&nbsp;: ${esc(dateStr)}<br>
+    Lieu&nbsp;: ${esc(lieu || '?')}
+  </p>
+  <table style="border-collapse:collapse;margin:8px 0;">
+    <tr><th style="${th}">Qualification</th><th style="${th}">Heure début</th><th style="${th}">Durée</th></tr>
+    ${rows}
+  </table>
+  <p style="${p}">Merci de vous présenter 15 minutes avant l'heure de convocation,<br>
+  muni(e) d'une pièce d'identité en cours de validité.</p>
+  <p style="${p}">Cordialement,<br>Certi-Trust FRANCE SAS</p>
+</div>`;
+  }
+
+  /* ── Envoi de la convocation d'un candidat ── */
+  async function sendConvocation(candId, btn) {
+    const data = candidateSend.get(candId);
+    if (!data || data.errors.length > 0 || data.allSent || !webhookUrl) return;
+
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    showStatus('Envoi de la convocation en cours…');
+
+    try {
+      const resp = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: data.to,
+          cc: data.cc,
+          objet: data.objet,
+          corps_html: data.corpsHtml,
+        }),
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+      const updates = [...data.examSigs.entries()]; // [examId, signature]
+      await grist.docApi.applyUserActions(
+        updates.map(([examId, sig]) => ['UpdateRecord', 'Examens_ecrits', examId, { convocation_envoyee: sig }])
+      );
+
+      // Mise à jour locale sans recharger toute la session
+      updates.forEach(([examId, sig]) => {
+        const exam = exams.find(ex => ex.id === examId);
+        if (exam) exam.convocationEnvoyee = sig;
+      });
+
+      showStatus(`Convocation envoyée à ${data.to}.`, 'ok', 4000);
+      const candIds = [...new Map(exams.map(e => [e.candidatId, true])).keys()];
+      buildHeader(candIds); // recalcule candidateSend et réaffiche les boutons à jour
+    } catch (e) {
+      showStatus('Échec de l’envoi : ' + e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = prevText;
+    }
   }
 
   /* ── Timeline visuelle ── */
@@ -788,6 +1053,10 @@
     const e = document.createElement(tag);
     if (cls) e.className = cls;
     return e;
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   }
 
   function tsToTime(ts) {
