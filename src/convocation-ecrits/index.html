@@ -434,7 +434,7 @@
         const idx = ce.id.indexOf(centreId);
         if (idx !== -1) {
           session.centreNom = String(ce.Nom_centre_examen?.[idx] ?? '');
-          session.centreAdresse = [ce.Adresse_ligne_1?.[idx], ce.code_postal?.[idx], ce.Ville?.[idx]]
+          session.centreAdresse = [ce.Adresse_ligne_1?.[idx], ce.Adresse_ligne_2?.[idx], ce.code_postal?.[idx], ce.Ville?.[idx]]
             .filter(Boolean).join(' ');
         }
       } catch (e) { console.warn('Centres_examen:', e); }
