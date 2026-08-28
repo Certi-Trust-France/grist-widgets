@@ -441,15 +441,17 @@
     }
 
     // ── Surveillant du centre (destinataire en copie) ──
-    session.surveillantEmail = '';
-    session.surveillantNom   = '';
+    session.surveillantEmail     = '';
+    session.surveillantNom       = '';
+    session.surveillantTelephone = '';
     if (surveillantId) {
       try {
         const sv  = await grist.docApi.fetchTable('Surveillants');
         const idx = sv.id.indexOf(surveillantId);
         if (idx !== -1) {
-          session.surveillantEmail = String(sv.Courriel?.[idx] ?? '');
-          session.surveillantNom   = `${sv.Prenom?.[idx] ?? ''} ${sv.Nom?.[idx] ?? ''}`.trim();
+          session.surveillantEmail     = String(sv.Courriel?.[idx]   ?? '');
+          session.surveillantNom       = `${sv.Prenom?.[idx] ?? ''} ${sv.Nom?.[idx] ?? ''}`.trim();
+          session.surveillantTelephone = String(sv.Telephone?.[idx] ?? '');
         }
       } catch (e) { console.warn('Surveillants:', e); }
     }
@@ -624,6 +626,7 @@
     if (!cand.email) errors.push('E-mail du candidat manquant.');
     if (!session?.centreNom) warnings.push('Centre de session inconnu.');
     if (!session?.surveillantEmail) warnings.push('Surveillant du centre inconnu — absent de la copie.');
+    if (!session?.surveillantTelephone) warnings.push('Téléphone du surveillant manquant dans le corps du mail.');
     if (candExams.some(e => !e.dateHeure)) errors.push('Horaire manquant pour au moins un examen.');
 
     const entId = candExams.find(e => e.entrepriseId)?.entrepriseId || 0;
@@ -685,9 +688,9 @@
     ${rows}
   </table>
   <br>
-  <p style="${p}">Merci de vous présenter 15 minutes avant l'heure de convocation,<br>
-  muni(e) d'une pièce d'identité en cours de validité.</p>
-  <p style="${p}">Merci de présenter cette convocation sur votre mobile ou imprimée.</p>
+  <p style="${p}">Merci de vous présenter 10 minutes avant l'heure de convocation et d'appeler le surveillant au ${esc(session?.surveillantTelephone || '?')} à votre arrivée.<br>
+  </p>
+  <p style="${p}">Merci de présenter cette convocation sur votre mobile ou imprimée ainsi qu'une pièce d'identité en cours de validité.</p>
   <br>
   <p style="${p}">Cordialement,<br>Certi-Trust</p>
 </div>`;
