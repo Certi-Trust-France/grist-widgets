@@ -972,9 +972,23 @@
       const tc     = cExams.find(e => /PACS.TC/i.test(e.qual));
       const others = cExams.filter(e => /PACS_(GDR|CRISE|HOM)/i.test(e.qual));
 
-      if (archi) { schedule.set(archi.id, MORNING_START); pacsHandled.add(archi.id); }
+      if (archi) {
+        // PACS_ARCHI occupe seul le créneau du matin (09h30) — TC et les autres
+        // PACS de ce candidat partent l'après-midi, à la suite les uns des autres
+        // (jamais en même temps que ARCHI, contrairement à l'ancien code qui les
+        // plaçait tous les deux à 09h30).
+        schedule.set(archi.id, MORNING_START);
+        pacsHandled.add(archi.id);
 
-      if (tc) {
+        let t = AFTERNOON_START;
+        const blockStart = AFTERNOON_START;
+        [tc, ...others].filter(Boolean).forEach(e => {
+          if (t - blockStart + e.duration > 90) t += 10; // pause si le bloc dépasserait 1h30
+          schedule.set(e.id, t);
+          pacsHandled.add(e.id);
+          t += e.duration;
+        });
+      } else if (tc) {
         switch (others.length) {
           case 0:
             schedule.set(tc.id, MORNING_START);
