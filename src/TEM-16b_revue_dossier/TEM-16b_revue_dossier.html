@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TEM-16b — Formulaire de revue de dossier de qualification PASSI</title>
+<style>
+:root{
+  --bord:#000000;
+  --grisligne:#BFBFBF;
+  --entete:#F2F2F2;
+  --titre:#2F5496;
+  --fond:#8A8A8A;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--fond);
+  font-family:Calibri,"Carlito","Segoe UI",sans-serif;
+  font-size:11pt;color:#000;line-height:1.25;
+}
+.barre{
+  position:sticky;top:0;z-index:5;background:#3B3B3B;color:#fff;
+  padding:8px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:10.5pt}
+.barre span{margin-right:auto;opacity:.75}
+.barre button{font:inherit;font-size:10.5pt;background:#fff;border:0;border-radius:2px;padding:5px 12px;cursor:pointer}
+.barre button:hover{background:#E4E4E4}
+.barre input[type=file]{display:none}
+
+.page{
+  width:21cm;min-height:29.7cm;margin:18px auto;background:#fff;
+  padding:2cm 2.2cm 2.4cm;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
+@media(max-width:22cm){.page{width:100%;padding:1.2cm}}
+
+h1.doc{font-size:12pt;font-weight:bold;margin:0 0 14pt}
+h2.sec{color:var(--titre);font-size:14pt;font-weight:normal;margin:20pt 0 8pt;
+  border-bottom:1px solid #A9BEDC;padding-bottom:2pt}
+p{margin:0 0 8pt}
+p.itc{font-style:italic;font-weight:bold;margin:0 0 8pt}
+p.lbl{font-weight:bold;margin:14pt 0 4pt}
+.small{font-size:9pt}
+
+table{border-collapse:collapse;width:100%;margin:0 0 10pt}
+td,th{border:1px solid var(--grisligne);padding:3pt 5pt;vertical-align:top;font-size:10.5pt}
+th{background:var(--entete);font-weight:bold;text-align:left}
+.props td:first-child,.props th:first-child{width:auto}
+.cl td:nth-child(2),.cl td:nth-child(3),.cl th:nth-child(2),.cl th:nth-child(3){width:2.9cm;text-align:center}
+.cl th{font-size:9.5pt;font-weight:bold;vertical-align:bottom}
+.cl th i{display:block;font-weight:normal;font-size:8.5pt}
+.cl td.grp{font-style:italic;font-weight:bold;background:#FAFAFA}
+.cl td.vide{height:8pt;background:#FAFAFA}
+.cl td.etape{background:#FFFFFF;border:1px solid var(--grisligne);color:var(--titre);
+  font-size:13pt;padding:8pt 5pt}
+.info td:first-child{width:6.6cm;font-weight:bold}
+.hist th,.hist td{font-size:10pt}
+.hist th:nth-child(1),.hist td:nth-child(1){width:2cm}
+.hist th:nth-child(2),.hist td:nth-child(2){width:3cm}
+.hist th:nth-child(3),.hist td:nth-child(3){width:2.4cm}
+.sig td:first-child{width:6.6cm;font-weight:bold}
+
+input[type=text],textarea{
+  width:100%;font:inherit;font-size:10.5pt;border:0;border-bottom:1px dotted #B9B9B9;
+  background:transparent;padding:1pt 2pt;color:#00306B}
+input.on{width:100%;text-align:center;text-transform:uppercase;font-weight:bold;border-bottom:0}
+textarea{resize:vertical;min-height:1.4cm;border-bottom:0}
+input:focus,textarea:focus{outline:2px solid #9FC5E8;outline-offset:0;background:#F4FAFF}
+label.ck{display:block;margin:0 0 2pt;cursor:pointer;font-size:10.5pt}
+label.ck input{margin:0 5px 0 0;vertical-align:-1px}
+.picto{display:flex;align-items:center;gap:8px;margin:14pt 0 6pt;font-weight:bold;font-size:11pt}
+.picto img{width:0.68cm;height:0.68cm}
+.ouinon{margin:0 0 8pt;font-size:11pt}
+.ouinon b{cursor:pointer;padding:1pt 6pt;border:1px solid transparent;border-radius:12px}
+.ouinon b[aria-pressed=true]{border-color:#000;background:#EFEFEF}
+.notes{margin-top:14pt;font-size:9.5pt}
+.notes p{margin:0 0 4pt;font-style:italic;font-weight:bold}
+.mentions{margin-top:12pt;font-weight:bold;font-size:10.5pt}
+.pied{margin-top:22pt;padding-top:5pt;border-top:1px solid var(--grisligne);
+  display:flex;justify-content:space-between;font-size:8.5pt;color:#555}
+
+@media print{
+  body{background:#fff}
+  .barre{display:none}
+  .page{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  @page{size:A4;margin:2cm 2.2cm}
+  tr{break-inside:avoid}
+  input,textarea{color:#000}
+  input[type=text]{border-bottom:0}
+}
+</style>
+</head>
+<body>
+
+<div class="barre">
+  <span>TEM-16b — réplique du gabarit Word, version 4.0</span>
+  <button id="b-load">Charger</button>
+  <button id="b-save">Enregistrer</button>
+  <button id="b-print">Imprimer</button>
+  <button id="b-clear">Vider</button>
+  <input type="file" id="f" accept=".json">
+</div>
+
+<div class="page" id="page">
+
+<h1 class="doc">Formulaire de revue de dossier de qualification PASSI</h1>
+
+<p class="lbl">Propriétés du document :</p>
+<table class="info">
+  <tr><td>Version :</td><td>4.0</td></tr>
+  <tr><td>Niveau de confidentialité :</td><td>Confidentiel</td></tr>
+  <tr><td>Type de document :</td><td>Gabarit</td></tr>
+  <tr><td>Approuvé par :</td><td>RSG</td></tr>
+</table>
+
+<p class="lbl">Historique des versions :</p>
+<table class="hist">
+  <tr><th>Version</th><th>Date</th><th>Auteur</th><th>Change</th></tr>
+  <tr><td>0.1</td><td>05/05/2023</td><td>GCA</td><td>Création</td></tr>
+  <tr><td>1.0</td><td>01/06/2023</td><td>RST</td><td>Approbation</td></tr>
+  <tr><td>2.0</td><td>25/03/2025</td><td>DDR</td><td>MAJ PASSI V2.2</td></tr>
+  <tr><td>3.0</td><td>09/02/2026</td><td>DDR</td><td>Suppression notion de condition (NC MDOV1)</td></tr>
+  <tr><td>4.0</td><td>15/03/2026</td><td>DDR</td><td>Ajout d'une ligne pour vérifier la cohérence des sites</td></tr>
+</table>
+
+<h2 class="sec">Informations relatives au client</h2>
+<p class="itc">Partie à renseigner par le responsable du suivi du dossier</p>
+
+<table class="info">
+  <tr><td>Nom du prestataire :</td><td><input type="text" data-f="prestataire"></td></tr>
+  <tr><td>SIREN</td><td><input type="text" data-f="siren"></td></tr>
+  <tr><td>Référentiel / périmètre :</td><td>
+    <label class="ck"><input type="checkbox" data-f="ref_rgs">PASSI 2.0 - RGS</label>
+    <label class="ck"><input type="checkbox" data-f="ref_subst">PASSI 2.2 - Substantiel</label>
+    <label class="ck"><input type="checkbox" data-f="ref_eleve">PASSI 2.2 - Élevé</label>
+    <label class="ck"><input type="checkbox" data-f="ref_autre">Autre : <input type="text" data-f="ref_autre_txt" style="width:60%"></label>
+  </td></tr>
+  <tr><td>Portée(s) dans le périmètre</td><td>
+    <label class="ck"><input type="checkbox" data-f="p_orga">Audit organisationnel et physique</label>
+    <label class="ck"><input type="checkbox" data-f="p_archi">Audit d'architecture</label>
+    <label class="ck"><input type="checkbox" data-f="p_conf">Audit de configuration</label>
+    <label class="ck"><input type="checkbox" data-f="p_code">Audit de codes sources</label>
+    <label class="ck"><input type="checkbox" data-f="p_intru">Test d'intrusion</label>
+  </td></tr>
+  <tr><td>Date(s) début et fin de l'évaluation :</td><td><input type="text" data-f="dates"></td></tr>
+  <tr><td>Lieu(x) de l'évaluation :</td><td><input type="text" data-f="lieux"></td></tr>
+  <tr><td>Type d'évaluation :</td><td>
+    <label class="ck"><input type="checkbox" data-f="t_init">Évaluation initiale</label>
+    <label class="ck"><input type="checkbox" data-f="t_surv">Évaluation de surveillance 18 mois</label>
+    <label class="ck"><input type="checkbox" data-f="t_renouv">Évaluation de renouvellement</label>
+    <label class="ck"><input type="checkbox" data-f="t_autre">Autre: ex. évaluation d'extension, évaluation de changements significatifs</label>
+    <div style="margin-top:3pt">Préciser (si autre) : <input type="text" data-f="t_autre_txt" style="width:60%"></div>
+  </td></tr>
+  <tr><td>Équipe d'évaluation :</td><td>
+    Responsable d'évaluation : <input type="text" data-f="re" style="width:60%">
+    <div style="margin-top:3pt">Autre(s) évaluateur(s) : <input type="text" data-f="et" style="width:60%"></div>
+  </td></tr>
+</table>
+
+<h2 class="sec">Étape 1 - Activités préalables à l'évaluation</h2>
+
+<table>
+  <tr>
+    <td style="width:50%"><b>Nom du responsable du suivi du dossier :</b><br><input type="text" data-f="resp_suivi"></td>
+    <td><b>Nom du responsable de la revue technique du dossier :</b><br><input type="text" data-f="resp_revue"></td>
+  </tr>
+</table>
+
+<table class="cl" data-cl="e1">
+  <tr><th></th>
+      <th>Présent dans le dossier client :<br>O/N<i>A renseigner par le resp. du suivi</i></th>
+      <th>Conforme :<br>O/N<i>A renseigner par le resp. de la revue</i></th></tr>
+</table>
+
+<div class="picto">
+  <img alt="" src="data:image/jpeg;base64,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">
+  Décision d'établir l'offre commerciale et poursuite du processus de certification ?
+</div>
+<p class="ouinon" data-dec="offre">
+  <b data-v="OUI" aria-pressed="false">OUI</b> / <b data-v="NON" aria-pressed="false">NON</b>
+</p>
+
+<table class="info">
+  <tr><td>Justifications</td><td><textarea data-f="just_offre"></textarea></td></tr>
+  <tr><td>Revu par (Nom + fonction) :</td><td><input type="text" data-f="offre_par"></td></tr>
+  <tr><td>Date :</td><td><input type="text" data-f="offre_date"></td></tr>
+</table>
+
+<h2 class="sec">Etape 2 – Planification de l'évaluation</h2>
+
+<table class="cl" data-cl="e2">
+  <tr><th></th>
+      <th>Présent dans le dossier client :<br>O/N<i>A renseigner par le resp. du suivi</i></th>
+      <th>Conforme :<br>O/N<i>A renseigner par le resp. de la revue</i></th></tr>
+</table>
+
+<table class="cl" data-cl="e4">
+  <tr><td class="etape" colspan="3">Etape 4 – Décision de qualification</td></tr>
+</table>
+
+<div class="picto">
+  <img alt="" src="data:image/jpeg;base64,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">
+  Décision de délivrer la certification / qualification ?
+</div>
+
+<table class="props">
+  <tr><th style="width:3.4cm"></th><th>Proposition <sup>(1)</sup></th><th style="width:1.6cm"></th></tr>
+  <tbody id="props"></tbody>
+  <tr><td><b>Justifications <sup>(2)</sup></b></td><td colspan="2"><textarea data-f="just_finale"></textarea></td></tr>
+  <tr><td><b>Communication de la décision de qualification à l'ANSSI</b></td>
+      <td>Envoi email au bureau de qualification avec dossier</td>
+      <td style="text-align:center"><input type="checkbox" data-f="anssi"></td></tr>
+</table>
+
+<table class="sig">
+  <tr><td>Décision émise par (Nom + fonction) :</td><td><input type="text" data-f="dec_par"></td></tr>
+  <tr><td>Date :</td><td><input type="text" data-f="dec_date"></td></tr>
+  <tr><td>Signature :</td><td><input type="text" data-f="dec_sig"></td></tr>
+</table>
+
+<div class="notes">
+  <p>(1) Cocher la case</p>
+  <p>(2) A remplir si nécessaire</p>
+</div>
+
+<div class="mentions">
+  <p>Date d'entrée en vigueur du certificat ≥ jour de la date de décision</p>
+  <p>La délivrance de l'attestation de qualification / certificat n'est autorisée qu'après la réalisation et la validation par le personnel qualifié, de l'ensemble des étapes ci-dessus.</p>
+</div>
+
+<div class="pied">
+  <span>Formulaire de revue de dossier de qualification PASSI — Version : 4.0</span>
+  <span>Confidential — Certi-Trust</span>
+</div>
+
+</div>
+
+<script>
+/* ---- contenu des tableaux de contrôle, repris du gabarit ---- */
+const CL = {
+  e1:[
+    ["Formulaire d'application complet – TEM-404"],
+    ["Revue de la demande :"],
+    ["Organisation française admissible à la qualification ?"],
+    ["Portées demandées conformes et il y a, au moins, un auditeur présenté par portée ainsi qu'un responsable d'audit"],
+    ["Calcul de la durée d'évaluation (ANSSI + justifications enregistrées et disponibles si applicables)"],
+    ["Échantillonnage multisite ? Si oui, application des dispositions"],
+    ["Transfert de qualification ? Si oui, application des dispositions (examen pour le transfert documenté et enregistré)"]
+  ],
+  e2:[
+    ["Contrat juridiquement exécutoire signé avec tous les sites concernés du candidat"],
+    ["Constitution de l'équipe d'évaluation et affectation des missions – évaluateur(s) qualifié(s) ANSSI – Dossier(s) évaluateur(s) complet(s) et contrat(s) signé(s)"],
+    ["Mise à disposition de l'équipe d'évaluateurs et du prestataire de la version du règlement applicable et de la Trame d'évaluation"],
+    ["Détermination des objectifs, du périmètre et des critères de l'évaluation – Plan d'évaluation complet"],
+    ["PASSI 2.2 : Plan d'audit et stratégie d'évaluation envoyé à l'ANSSI"],
+    ["Etape 3 – Réalisation de l'évaluation","etape"],
+    ["Évaluation réalisée sur site et/ou à distance (en suivant les règles de l'ANSSI)"],
+    ["Réunions d'ouverture et de clôture compètes (indiquées dans le plan d'évaluation)"],
+    ["Nombre de jours d'évaluation est identique au programme d'évaluation indiqué dans le contrat et le plan d'évaluation"],
+    ["La liste des sites est cohérente entre le TEM-404, plan et rapport."],
+    ["","vide"],
+    ["Évaluation initiale :","grp"],
+    ["Étude de recevabilité"],
+    ["Recevabilité communiquée au prestataire"],
+    ["Journée de lancement et de présentation"],
+    ["Étude documentaire"],
+    ["Évaluation siège"],
+    ["Observation d'une prestation témoin"],
+    ["Attestation(s) de compétence émise(s) (au moins, une par portée sous qualification) – Si niveau élevé"],
+    ["","vide"],
+    ["Activités de surveillance :","grp"],
+    ["Prise en compte des changements chez le prestataire"],
+    ["Audits de surveillance dans les délais de 18 mois"],
+    ["Évaluation couvre, au moins, 1/3 des mesures à évaluer"],
+    ["Vérification des plaintes reçues"],
+    ["Surveillance de l'usage des visas de sécurité ANSSI, marque Certi-Trust et COFRAC"],
+    ["","vide"],
+    ["Renouvellement de la qualification :","grp"],
+    ["Évaluation de renouvellement sur site réalisé avant échéance de l'attestation de qualification"],
+    ["Mise en œuvre et vérification des corrections et actions correctives avant expiration de la qualification"],
+    ["Surveillance de l'usage de la certification et de la marque associée"],
+    ["Surveillance de l'usage des visas de sécurité ANSSI, marque Certi-Trust et COFRAC"],
+    ["","vide"],
+    ["Rapport d'évaluation :","grp"],
+    ["Rapport d'évaluation complet (Rapport et Trame ANSSI)"],
+    ["Tous les documents sont cohérents (Nb de NC, Sites, effectifs, etc.)"],
+    ["Absence de formulation de conseil ou solution spécifique au client"],
+    ["Pondération appropriée des constats et accord du client"],
+    ["Traitement approprié des constats (réponse du client et appréciation Certi-Trust)"]
+  ],
+  e4:[
+    ["Réalisation de toutes les actions préalables à la décision"],
+    ["En cas de refus de qualification, information au candidat"],
+    ["Vérification de la mise en œuvre des corrections et actions correctives pour les NC majeures < 6 mois du dernier jour de l'évaluation."],
+    ["Absence de conflit d'intérêt pour le décideur"]
+  ]
+};
+
+const PROPS = [
+  ["Favorable", ["Certification/qualification initiale immédiate","Maintien de la qualification",
+    "Renouvellement de la qualification","Rétablissement de la qualification",
+    "Évaluation de surveillance rapprochée (délai à préciser)"]],
+  ["Défavorable", ["Évaluation complémentaire","Suspension de la qualification (durée à indiquer)",
+    "Refus de la qualification","Retrait de la qualification","Non-renouvellement de la qualification",
+    "Suivi documentaire sur des points particuliers",
+    "Vérification documentaire des preuves de l'exécution des corrections /actions correctives"]]
+];
+
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* lignes de contrôle */
+document.querySelectorAll("[data-cl]").forEach(tb=>{
+  const k = tb.dataset.cl;
+  let h = "";
+  CL[k].forEach((row,i)=>{
+    const [txt,cls] = row;
+    if(cls==="vide"){ h += `<tr><td class="vide"></td><td class="vide"></td><td class="vide"></td></tr>`; return; }
+    if(cls==="etape"){ h += `<tr><td class="etape" colspan="3">${esc(txt)}</td></tr>`; return; }
+    h += `<tr><td class="${cls==="grp"?"grp":""}">${esc(txt)}</td>`
+       + `<td><input class="on" type="text" maxlength="2" data-f="${k}_${i}_p"></td>`
+       + `<td><input class="on" type="text" maxlength="2" data-f="${k}_${i}_c"></td></tr>`;
+  });
+  tb.querySelector("tr").insertAdjacentHTML("afterend", h);
+});
+
+/* propositions de décision */
+document.getElementById("props").innerHTML = PROPS.map(([lbl,list])=>
+  list.map((p,i)=>`<tr>${i===0?`<td rowspan="${list.length}"><b>${lbl}</b></td>`:""}`
+    +`<td>${esc(p)}</td>`
+    +`<td style="text-align:center"><input type="checkbox" data-f="prop_${esc(lbl)}_${i}"></td></tr>`).join("")
+).join("");
+
+/* OUI / NON */
+document.querySelectorAll("[data-dec] b").forEach(b=>{
+  b.onclick = ()=>{
+    const p = b.parentElement, on = b.getAttribute("aria-pressed")==="true";
+    p.querySelectorAll("b").forEach(x=>x.setAttribute("aria-pressed","false"));
+    b.setAttribute("aria-pressed", on?"false":"true");
+  };
+});
+
+/* enregistrer / charger / vider / imprimer */
+const collect = ()=>{
+  const d = {champs:{}, dec:{}};
+  document.querySelectorAll("[data-f]").forEach(el=>{
+    d.champs[el.dataset.f] = el.type==="checkbox" ? el.checked : el.value;
+  });
+  document.querySelectorAll("[data-dec]").forEach(p=>{
+    const on = p.querySelector('b[aria-pressed=true]');
+    d.dec[p.dataset.dec] = on ? on.dataset.v : null;
+  });
+  return d;
+};
+const apply = d=>{
+  document.querySelectorAll("[data-f]").forEach(el=>{
+    const v = (d.champs||{})[el.dataset.f];
+    if(el.type==="checkbox") el.checked = !!v; else el.value = v==null?"":v;
+  });
+  document.querySelectorAll("[data-dec]").forEach(p=>{
+    const v = (d.dec||{})[p.dataset.dec];
+    p.querySelectorAll("b").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.v===v)));
+  });
+};
+
+document.getElementById("b-save").onclick = ()=>{
+  const d = collect();
+  const nom = (d.champs.prestataire||"dossier").replace(/[^\w\-]+/g,"_");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({gabarit:"TEM-16b",version:"4.0",...d},null,2)],{type:"application/json"}));
+  a.download = `TEM-16b_${nom}.json`; a.click(); URL.revokeObjectURL(a.href);
+};
+document.getElementById("b-load").onclick = ()=> document.getElementById("f").click();
+document.getElementById("f").onchange = e=>{
+  const file = e.target.files[0]; if(!file) return;
+  const r = new FileReader();
+  r.onload = ()=>{ try{ apply(JSON.parse(r.result)); }catch(_){ alert("Fichier illisible — JSON attendu."); } };
+  r.readAsText(file); e.target.value="";
+};
+document.getElementById("b-print").onclick = ()=> window.print();
+document.getElementById("b-clear").onclick = ()=>{ if(confirm("Vider le formulaire ?")) apply({champs:{},dec:{}}); };
+</script>
+</body>
+</html>
