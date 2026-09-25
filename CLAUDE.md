@@ -1,5 +1,28 @@
 # CLAUDE.md — Grist Widgets (Certi-Trust FRANCE SAS)
 
+## Security Rules for Grist Development with MCP
+
+### MCP Grist Permissions
+
+- **NEVER** call `grist_remove_table`, `grist_remove_table_column`, or `grist_create_table` unless I explicitly say "destroy table" or "create new table".
+- **ALWAYS** show me a diff before calling `grist_update_records`, `grist_add_records`, or `grist_replace_records`.
+- Read-only tools are safe: `grist_list_*`, `grist_get_*`, `grist_query_*`.
+
+### Workflow
+
+1. Read Grist schema with `grist_get_tables` and `grist_get_page_widgets`.
+2. Code widgets locally in the `/widgets` directory.
+3. Ask for confirmation before deploying any changes to Grist.
+4. Push to GitHub only after I confirm.
+
+### Files
+
+- `.mcp.json` → MCP Grist configuration (do not commit)
+- `.mcp.json.example` → Template for team onboarding
+- `src/` → Local widget code (commit here)
+- `grist_schema.json` → Exported Grist structure (commit here)
+
+
 ## Contexte du projet
 
 Widgets HTML personnalisés pour Grist, intégrés dans le système de gestion des examens et certifications de Certi-Trust FRANCE SAS. Chaque widget est un fichier `index.html` **autonome** (pas de build, pas de bundler) servi en statique.
