@@ -15,6 +15,7 @@ build/
 .env.*.local
 *.key
 *.pem
+.mcp.json
 
 # CT doc
 docs/specs/Evaluations(**).grist
@@ -43,3 +44,4 @@ npm-debug.log*
 .parcel-cache/
 *.tmp
 *.bak
+.claude/settings.json
