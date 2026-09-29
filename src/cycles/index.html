@@ -280,7 +280,7 @@
   <div class="btn-group">
     <span class="toolbar-label">Trier&nbsp;:</span>
     <button class="tbtn active" data-sort="alpha">A–Z</button>
-    <button class="tbtn" data-sort="cert">Certification</button>
+    <button class="tbtn" data-sort="debut">Début de cycle</button>
     <button class="tbtn" data-sort="echeance">Échéance</button>
   </div>
   <div class="btn-group" id="prog-filters">
@@ -374,10 +374,10 @@
           entId:         t.Denomination?.[i] > 0 ? t.Denomination[i] : 0,
           programmeName: String(t.gristHelper_Display3?.[i] ?? t.gristHelper_Display2?.[i] ?? ''),
           programmeId:   t.Programme?.[i] > 0 ? t.Programme[i] : 0,
-          dateCert:  ts('date_certification'),
+          dateDebut: ts('date_debut_cycle'),
           // Calcul de secours : +18 mois et +36 mois si les colonnes sont à 0
-          dateSurv:  ts('Date_surveillance') ?? (ts('date_certification') ? addMonths(ts('date_certification'), 18) : null),
-          dateFin:   ts('date_fin')           ?? (ts('date_certification') ? addMonths(ts('date_certification'), 36) : null),
+          dateSurv:  ts('Date_surveillance_certification') ?? (ts('date_debut_cycle') ? addMonths(ts('date_debut_cycle'), 18) : null),
+          dateFin:   ts('date_fin_certification')          ?? (ts('date_debut_cycle') ? addMonths(ts('date_debut_cycle'), 36) : null),
           prochaine: ts('Prochaine_echeance'),
           evalIds: [
             ...parseRL(t.eval_initiale?.[i]),
@@ -539,7 +539,7 @@
         return true;
       })
       .sort((a, b) => {
-        if (sortMode === 'cert')     return (a.dateCert  ?? 1e15) - (b.dateCert  ?? 1e15);
+        if (sortMode === 'debut')    return (a.dateDebut ?? 1e15) - (b.dateDebut ?? 1e15);
         if (sortMode === 'echeance') return (a.prochaine ?? 1e15) - (b.prochaine ?? 1e15);
         return a.denomination.localeCompare(b.denomination, 'fr', { sensitivity: 'base' });
       });
@@ -673,8 +673,8 @@
     });
 
     // Badge programme sur la timeline, juste avant la barre grise
-    if (pname && cycle.dateCert) {
-      const bx = tsToX(cycle.dateCert, ppm);
+    if (pname && cycle.dateDebut) {
+      const bx = tsToX(cycle.dateDebut, ppm);
       const pbadge = document.createElement('div');
       pbadge.className = 'prog-badge-tl';
       pbadge.style.left       = `${bx}px`;
@@ -684,23 +684,23 @@
       tl.appendChild(pbadge);
     }
 
-    // Barre grise du cycle (date_certification → date_fin)
-    if (cycle.dateCert && cycle.dateFin) {
-      const bx  = tsToX(cycle.dateCert, ppm);
+    // Barre grise du cycle (date_debut_cycle → date_fin_certification)
+    if (cycle.dateDebut && cycle.dateFin) {
+      const bx  = tsToX(cycle.dateDebut, ppm);
       const bw  = tsToX(cycle.dateFin,  ppm) - bx;
       if (bw > 0) {
         const bar = document.createElement('div');
         bar.className = 'cycle-bar';
         bar.style.left  = `${bx}px`;
         bar.style.width = `${bw}px`;
-        bar.title = `${fmtDate(cycle.dateCert)} → ${fmtDate(cycle.dateFin)}`;
+        bar.title = `${fmtDate(cycle.dateDebut)} → ${fmtDate(cycle.dateFin)}`;
         tl.appendChild(bar);
       }
     }
 
-    // Trois traits jaunes (certification, surveillance, fin/renouvellement)
+    // Trois traits jaunes (début de cycle, surveillance, fin/renouvellement)
     [
-      [cycle.dateCert, 'Certification'],
+      [cycle.dateDebut, 'Début de cycle'],
       [cycle.dateSurv, 'Surveillance'],
       [cycle.dateFin,  'Renouvellement'],
     ].forEach(([ts, label]) => {

@@ -1,4 +1,4 @@
-# Cahier des charges — Widget Demande d'un devis examens
+# Cahier des charges — Widget Cycles
 
 **Projet :** Grist Widgets — Certi-Trust FRANCE SAS  
 **Widget :** `src/cycles/`  
