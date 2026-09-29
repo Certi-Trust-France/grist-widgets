@@ -21,6 +21,10 @@ build/
 docs/specs/Evaluations(**).grist
 docs/specs/Plan_de_charge_Certitrust_V11.xlsx
 
+# Imports externes (CRM, facturation…) — jamais versionnés, dossier entier ignoré
+/import-externe/*
+!/import-externe/README.md
+
 # IDE
 .vscode/settings.json
 .idea/
