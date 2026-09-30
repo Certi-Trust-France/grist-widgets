@@ -180,6 +180,17 @@
       z-index: 2;
       cursor: default;
     }
+    /* Cycle futur : pas encore de certificat, l'évaluation initiale n'est pas terminée */
+    .cycle-bar.future {
+      background: repeating-linear-gradient(
+        45deg,
+        rgba(148, 163, 184, .45),
+        rgba(148, 163, 184, .45) 6px,
+        rgba(148, 163, 184, .15) 6px,
+        rgba(148, 163, 184, .15) 12px
+      );
+      border: 1px dashed rgba(100, 116, 139, .6);
+    }
 
     /* ── Traits jaunes (marqueurs de date) ── */
     .date-marker {
@@ -193,11 +204,9 @@
       cursor: help;
     }
 
-    /* ── Badges EVA ── */
+    /* ── Badges EVA (barre date de début → date de fin) ── */
     .eva-badge {
       position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
       height: 19px;
       padding: 0 5px;
       background: #fef08a;
@@ -208,6 +217,7 @@
       color: #78350f;
       display: flex;
       align-items: center;
+      overflow: hidden;
       cursor: help;
       z-index: 4;
       white-space: nowrap;
@@ -374,6 +384,7 @@
           entId:         t.Denomination?.[i] > 0 ? t.Denomination[i] : 0,
           programmeName: String(t.gristHelper_Display3?.[i] ?? t.gristHelper_Display2?.[i] ?? ''),
           programmeId:   t.Programme?.[i] > 0 ? t.Programme[i] : 0,
+          hasCertificat: t.Certificat?.[i] > 0,
           dateDebut: ts('date_debut_cycle'),
           // Calcul de secours : +18 mois et +36 mois si les colonnes sont à 0
           dateSurv:  ts('Date_surveillance_certification') ?? (ts('date_debut_cycle') ? addMonths(ts('date_debut_cycle'), 18) : null),
@@ -417,14 +428,32 @@
   }
 
   async function loadEvals() {
+    // Date de "Journée de lancement" par évaluation (première trouvée), pour la
+    // priorité de la date de début de l'étiquette évaluation dans le widget.
+    const lancementMap = new Map(); // evalId → date_debut_incluse
+    try {
+      const lots = await grist.docApi.fetchTable('Unites_d_oeuvre');
+      for (let i = 0; i < lots.id.length; i++) {
+        if (lots.Plan_Eval?.[i] !== 'Journée de lancement') continue;
+        const evalId = lots.Evaluation?.[i];
+        const d = lots.date_debut_incluse?.[i];
+        if (evalId > 0 && d > 0 && !lancementMap.has(evalId)) lancementMap.set(evalId, d);
+      }
+    } catch (e) { console.warn('loadLots:', e); }
+
     try {
       const t = await grist.docApi.fetchTable('Evaluations');
       evalMap.clear();
       for (let i = 0; i < t.id.length; i++) {
         const id = t.id[i];
         if (!id || id < 0) continue;
+        const debutPrevue = t.Date_Debut_prevue?.[i] > 0 ? t.Date_Debut_prevue[i] : null;
+        const finPrevue   = t.Date_fin_prevue?.[i]   > 0 ? t.Date_fin_prevue[i]   : null;
         evalMap.set(id, {
-          date: t.Date_Debut_prevue?.[i] ?? null,   // Unix secondes
+          // 1. Journée de lancement si présente, sinon Date_Debut_prevue
+          dateStart: lancementMap.get(id) ?? debutPrevue,
+          // se termine à la date de fin, comme précédemment
+          dateEnd:   finPrevue,
           lib:  String(t.Libelle?.[i] ?? ''),
           type: String(t.Type_d_evaluation?.[i] ?? ''),
         });
@@ -685,15 +714,18 @@
     }
 
     // Barre grise du cycle (date_debut_cycle → date_fin_certification)
+    // Pleine si le cycle a un certificat, en hachuré (rubalise) si c'est un cycle
+    // futur qui ne démarrera vraiment qu'une fois l'évaluation initiale terminée.
     if (cycle.dateDebut && cycle.dateFin) {
       const bx  = tsToX(cycle.dateDebut, ppm);
       const bw  = tsToX(cycle.dateFin,  ppm) - bx;
       if (bw > 0) {
         const bar = document.createElement('div');
-        bar.className = 'cycle-bar';
+        bar.className = 'cycle-bar' + (cycle.hasCertificat ? '' : ' future');
         bar.style.left  = `${bx}px`;
         bar.style.width = `${bw}px`;
-        bar.title = `${fmtDate(cycle.dateDebut)} → ${fmtDate(cycle.dateFin)}`;
+        bar.title = `${fmtDate(cycle.dateDebut)} → ${fmtDate(cycle.dateFin)}`
+          + (cycle.hasCertificat ? '' : ' (cycle futur — pas encore de certificat)');
         tl.appendChild(bar);
       }
     }
@@ -714,20 +746,30 @@
       tl.appendChild(m);
     });
 
-    // Badges EVA (évaluations liées)
-    const posCount = new Map();  // position arrondie → nb badges déjà placés (décalage)
+    // Badges EVA (évaluations liées) : barre de la date de début à la date de fin.
+    // Anti-chevauchement simple : 2 files (haut/bas) selon que la barre précédente
+    // sur la même file se termine avant le début de celle-ci.
+    const laneEnd = [-Infinity, -Infinity]; // fin (px) de la dernière barre de chaque file
+    const CENTER_Y = 18; // moitié de RH (36px)
     cycle.evalIds.forEach(eid => {
       const ev = evalMap.get(eid);
-      if (!ev?.date) return;
-      const ex = tsToX(ev.date, ppm);
-      if (ex < -25 || ex > 9999) return;
-      const key = Math.round(ex / 5) * 5;
-      const offset = posCount.get(key) ?? 0;
-      posCount.set(key, offset + 1);
+      if (!ev?.dateStart) return;
+      const x1 = tsToX(ev.dateStart, ppm);
+      const x2 = ev.dateEnd ? tsToX(ev.dateEnd, ppm) : x1;
+      const w  = Math.max(30, x2 - x1);
+      if (x1 + w < -25 || x1 > 9999) return;
+
+      const lane = x1 >= laneEnd[0] + 4 ? 0 : (x1 >= laneEnd[1] + 4 ? 1 : 0);
+      laneEnd[lane] = x1 + w;
+
       const badge = document.createElement('div');
       badge.className = 'eva-badge';
-      badge.style.left = `${ex + offset * 26}px`;
-      badge.title = ev.lib || ev.type || `Évaluation #${eid}`;
+      badge.style.left = `${x1}px`;
+      badge.style.width = `${w}px`;
+      badge.style.top = `${CENTER_Y + (lane === 0 ? -10 : 10)}px`;
+      badge.style.transform = 'translateY(-50%)';
+      badge.title = (ev.lib || ev.type || `Évaluation #${eid}`)
+        + (ev.dateEnd ? ` — ${fmtDate(ev.dateStart)} → ${fmtDate(ev.dateEnd)}` : ` — ${fmtDate(ev.dateStart)}`);
       badge.textContent = 'EVA';
       tl.appendChild(badge);
     });

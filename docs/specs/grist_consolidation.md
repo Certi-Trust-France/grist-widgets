@@ -28,13 +28,13 @@ Tout est expliqué dans docs\grist_structure.md
 
 ## tâches à exécuter
 
-1. Dans un premier temps, il faut comparer :
+1. ✅ terminée — Dans un premier temps, il faut comparer :
    - catalogue de l'ANSSI
    - LIS_12
    - import-externe\20260929_liste.xlsx (produit par le directeur de centre)
 ça a normalement déjà été fait, voir docs\grist_structure.md
 
-2. Vérifier que GRIST contient les meilleures informations
+2. ✅ terminée Vérifier que GRIST contient les meilleures informations dans Cycles
 Voir le dernier paragraphe de docs\grist_structure.md
 Il faut bien aligner les cycles sur les dates de fin de qualification (sauf pour PASSI)
 
@@ -50,4 +50,40 @@ Apixit	PASSI	PASSI_2.0
 Ornisec	PASSI	PASSI_2.2
 n'ont pas de Qualifications ni de niveau ni de sécurité nationale ?
 
+### Tâche complexe sur les cycles
+Les cycles ne vont plus faire référence à une entreprise mais à LIS-12. Normalement les dates sont les mêmes puisque nous avons consolidés.
+Certificat renseigné :
+Le programme et la date_debut_cycle et denomination doivent être une référence à la ligne LIS-12.
+PAs de certificat renseigné :
+Si pas de référence dans LIS-12, la dénomination et le programme doivent être une référence à l'évaluation présente dans eval_initiale ou eval_autres ou eval_renouvellement.
+1. ✅ terminée - commençons par renseigner le certificat si tu le trouves
+   - ajoute une colonne certificat
+   - Si tu trouves le certificat, tu y fais référence.
+   - rends-moi compte
+2. ✅ terminée - formules
+   - remplace date_debut_cycle par une formule qui pointe vers la date deubt_cycle_actuel de LIS-12
+   - si pas de certificat, il faut qu'il y ait une eval initiale
+     - Pour ceux qui ont une éval initiale tu renseignes la **date defin** :
+       - 1. la date_terminee de l'éval sinon
+       - 2. la date du lot  "Rédaction du rapport" si présente dans les lots, sinon
+       - 3. la date_fin_prevue sinon
+       - 4. la date de la réunion d'ouverture si présente dans les lots sinon
+       - 5. la date prévue début + 3 mois
+   - sinon on ajoute une colonne date_debut_anssi et on met la date d'expiration de l'anssi moins 3 ans (pour Cloud Temple on verra plus tard)
+
+## amélioration du widget 1
+- L'étiquette évaluation doit commencer à :
+  - 1. la date de la "Journée de lancement" ou
+  - 2. à la Date_Debut_prevue
+- et se terminer à la **date de fin**, comme précédemment.
+- Cycles : en gris comme existant si certificat, en hachuré (type rubalise gris et transparent) si future cycle quand l'évalaution initiale sera terminée.
+
+### Tâche complexe de consolidation des évaluations
+TODO: consolider la table évaluations avec import-externe\20260929_liste.xlsx ou version plus récente sur le sharepoint.
+
+### Tâche complexe de consolidation des propositions commerciales
+Consolider la table Purchase_orders avec import-externe\Synthese_propositions_factures_ANSSI_selection_reel.xlsx ou une extraction doolibar plus récente
+
+### amélioration du widget 1
+Afficher les dates débuts et fin des évaluations, afficher 
 
