@@ -138,11 +138,11 @@
       padding: 0 7px;
       overflow: hidden;
     }
-    /* Badge programme sur la timeline (juste avant la barre grise) */
+    /* Badge programme sur la timeline, à droite du trait de début de cycle, sur la barre */
     .prog-badge-tl {
       position: absolute;
       top: 50%;
-      transform: translateX(calc(-100% - 5px)) translateY(-50%);
+      transform: translateY(-50%);
       padding: 2px 6px;
       border-radius: 4px;
       color: #fff;
@@ -211,7 +211,7 @@
       height: 19px;
       padding: 0 5px;
       border-radius: 4px;
-      font-size: 9px;
+      font-size: 11px;
       font-weight: 800;
       display: flex;
       align-items: center;
@@ -429,19 +429,22 @@
   }
 
   async function loadEvals() {
-    // Dates de lots par évaluation (première trouvée pour chaque type), pour les
-    // chaînes de priorité de début/fin de l'étiquette évaluation dans le widget —
-    // mêmes règles que la formule Grist Cycles_services.date_debut_cycle.
-    const lancementMap = new Map(); // evalId → date_debut_incluse ("Journée de lancement")
-    const rapportMap   = new Map(); // evalId → date_debut_incluse ("Rédaction du rapport")
+    // Dates de lots par évaluation, pour les chaînes de priorité de début/fin de
+    // l'étiquette évaluation dans le widget — mêmes règles que la formule Grist
+    // Cycles_services.date_debut_cycle. Une évaluation peut avoir plusieurs lots du
+    // même type (ex. plusieurs séances de "Rédaction du rapport") : on prend la
+    // première date pour le début (lancement) et la dernière pour la fin (rapport),
+    // pas juste le premier lot rencontré dans la table.
+    const lancementMap = new Map(); // evalId → date_debut_incluse la plus ancienne ("Journée de lancement")
+    const rapportMap   = new Map(); // evalId → date_debut_incluse la plus récente ("Rédaction du rapport")
     try {
       const lots = await grist.docApi.fetchTable('Unites_d_oeuvre');
       for (let i = 0; i < lots.id.length; i++) {
         const evalId = lots.Evaluation?.[i];
         const d = lots.date_debut_incluse?.[i];
         if (!(evalId > 0) || !(d > 0)) continue;
-        if (lots.Plan_Eval?.[i] === 'Journée de lancement' && !lancementMap.has(evalId)) lancementMap.set(evalId, d);
-        if (lots.Plan_Eval?.[i] === 'Rédaction du rapport' && !rapportMap.has(evalId))   rapportMap.set(evalId, d);
+        if (lots.Plan_Eval?.[i] === 'Journée de lancement' && !(lancementMap.get(evalId) <= d)) lancementMap.set(evalId, d);
+        if (lots.Plan_Eval?.[i] === 'Rédaction du rapport' && !(rapportMap.get(evalId) >= d))   rapportMap.set(evalId, d);
       }
     } catch (e) { console.warn('loadLots:', e); }
 
@@ -715,7 +718,7 @@
       const bx = tsToX(cycle.dateDebut, ppm);
       const pbadge = document.createElement('div');
       pbadge.className = 'prog-badge-tl';
-      pbadge.style.left       = `${bx}px`;
+      pbadge.style.left       = `${bx + 5}px`;
       pbadge.style.background = color;
       pbadge.title = pname;
       pbadge.textContent = pShort(pname);
@@ -757,9 +760,13 @@
 
     // Badges EVA (évaluations liées) : barre de la date de début à la date de fin.
     // Anti-chevauchement simple : 2 files (haut/bas) selon que la barre précédente
-    // sur la même file se termine avant le début de celle-ci.
+    // sur la même file se termine avant le début de celle-ci. 1ère passe : calcule
+    // les positions et détermine si une 2e file a vraiment été nécessaire — si non,
+    // les badges restent centrés en hauteur au lieu d'être décalés pour rien.
     const laneEnd = [-Infinity, -Infinity]; // fin (px) de la dernière barre de chaque file
     const CENTER_Y = 18; // moitié de RH (36px)
+    const badgesToPlace = [];
+    let lane1Used = false;
     cycle.evalIds.forEach(eid => {
       const ev = evalMap.get(eid);
       if (!ev?.dateStart) return;
@@ -772,19 +779,25 @@
 
       const lane = x1 >= laneEnd[0] + 4 ? 0 : (x1 >= laneEnd[1] + 4 ? 1 : 0);
       laneEnd[lane] = x1 + w;
+      if (lane === 1) lane1Used = true;
 
+      badgesToPlace.push({ eid, ev, x1, w, lane });
+    });
+
+    badgesToPlace.forEach(({ eid, ev, x1, w, lane }) => {
       const stateClass = !ev.hasRE ? 'no-re' : (ev.terminee ? 'terminee' : 'en-cours');
       const label = ev.lib || ev.type || `Évaluation #${eid}`;
+      const yOffset = lane1Used ? (lane === 0 ? -10 : 10) : 0;
 
       const badge = document.createElement('div');
       badge.className = `eva-badge ${stateClass}`;
       badge.style.left = `${x1}px`;
       badge.style.width = `${w}px`;
-      badge.style.top = `${CENTER_Y + (lane === 0 ? -10 : 10)}px`;
+      badge.style.top = `${CENTER_Y + yOffset}px`;
       badge.style.transform = 'translateY(-50%)';
       badge.title = label
         + (ev.dateEnd ? ` — ${fmtDate(ev.dateStart)} → ${fmtDate(ev.dateEnd)}` : ` — ${fmtDate(ev.dateStart)}`);
-      badge.textContent = label.length > 10 ? label.slice(0, 10) + '…' : label;
+      badge.textContent = label;
       tl.appendChild(badge);
     });
 
