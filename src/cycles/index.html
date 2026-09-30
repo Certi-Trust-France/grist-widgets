@@ -424,7 +424,7 @@
         const id = t.id[i];
         if (!id || id < 0) continue;
         evalMap.set(id, {
-          date: t.Date_Debut?.[i] ?? null,   // Unix secondes
+          date: t.Date_Debut_prevue?.[i] ?? null,   // Unix secondes
           lib:  String(t.Libelle?.[i] ?? ''),
           type: String(t.Type_d_evaluation?.[i] ?? ''),
         });
