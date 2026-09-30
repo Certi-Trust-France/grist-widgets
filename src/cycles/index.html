@@ -429,16 +429,19 @@
   }
 
   async function loadEvals() {
-    // Date de "Journée de lancement" par évaluation (première trouvée), pour la
-    // priorité de la date de début de l'étiquette évaluation dans le widget.
-    const lancementMap = new Map(); // evalId → date_debut_incluse
+    // Dates de lots par évaluation (première trouvée pour chaque type), pour les
+    // chaînes de priorité de début/fin de l'étiquette évaluation dans le widget —
+    // mêmes règles que la formule Grist Cycles_services.date_debut_cycle.
+    const lancementMap = new Map(); // evalId → date_debut_incluse ("Journée de lancement")
+    const rapportMap   = new Map(); // evalId → date_debut_incluse ("Rédaction du rapport")
     try {
       const lots = await grist.docApi.fetchTable('Unites_d_oeuvre');
       for (let i = 0; i < lots.id.length; i++) {
-        if (lots.Plan_Eval?.[i] !== 'Journée de lancement') continue;
         const evalId = lots.Evaluation?.[i];
         const d = lots.date_debut_incluse?.[i];
-        if (evalId > 0 && d > 0 && !lancementMap.has(evalId)) lancementMap.set(evalId, d);
+        if (!(evalId > 0) || !(d > 0)) continue;
+        if (lots.Plan_Eval?.[i] === 'Journée de lancement' && !lancementMap.has(evalId)) lancementMap.set(evalId, d);
+        if (lots.Plan_Eval?.[i] === 'Rédaction du rapport' && !rapportMap.has(evalId))   rapportMap.set(evalId, d);
       }
     } catch (e) { console.warn('loadLots:', e); }
 
@@ -448,13 +451,16 @@
       for (let i = 0; i < t.id.length; i++) {
         const id = t.id[i];
         if (!id || id < 0) continue;
-        const debutPrevue = t.Date_Debut_prevue?.[i] > 0 ? t.Date_Debut_prevue[i] : null;
-        const finPrevue   = t.Date_fin_prevue?.[i]   > 0 ? t.Date_fin_prevue[i]   : null;
+        const debutPrevue  = t.Date_Debut_prevue?.[i] > 0 ? t.Date_Debut_prevue[i] : null;
+        const finPrevue    = t.Date_fin_prevue?.[i]   > 0 ? t.Date_fin_prevue[i]   : null;
+        const termineDate  = t.Termine_date?.[i]      > 0 ? t.Termine_date[i]      : null;
         evalMap.set(id, {
           // 1. Journée de lancement si présente, sinon Date_Debut_prevue
           dateStart: lancementMap.get(id) ?? debutPrevue,
-          // se termine à la date de fin, comme précédemment
-          dateEnd:   finPrevue,
+          // 1. date_terminee, 2. lot "Rédaction du rapport", 3. Date_fin_prevue,
+          // 4. lot "Journée de lancement", 5. Date_Debut_prevue + 3 mois
+          dateEnd: termineDate ?? rapportMap.get(id) ?? finPrevue ?? lancementMap.get(id)
+                   ?? (debutPrevue ? addMonths(debutPrevue, 3) : null),
           lib:      String(t.Libelle?.[i] ?? ''),
           type:     String(t.Type_d_evaluation?.[i] ?? ''),
           hasRE:    t.RE?.[i] > 0,
