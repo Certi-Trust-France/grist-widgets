@@ -67,7 +67,7 @@ Si pas de référence dans LIS-12, la dénomination et le programme doivent êtr
        - 1. la date_terminee de l'éval sinon
        - 2. la date du lot  "Rédaction du rapport" si présente dans les lots, sinon
        - 3. la date_fin_prevue sinon
-       - 4. la date de la réunion d'ouverture si présente dans les lots sinon
+       - 4. la date de la "Journée de lancement" si présente dans les lots + 3 mois, sinon
        - 5. la date prévue début + 3 mois
    - sinon on ajoute une colonne date_debut_anssi et on met la date d'expiration de l'anssi moins 3 ans (pour Cloud Temple on verra plus tard)
 
