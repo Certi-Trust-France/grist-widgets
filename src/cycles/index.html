@@ -138,12 +138,17 @@
       padding: 0 7px;
       overflow: hidden;
     }
-    /* Badge programme sur la timeline, à droite du trait de début de cycle, sur la barre */
+    /* Badge programme sur la timeline, à gauche du trait de début de cycle.
+       Plus haut que .eva-badge (19px) pour rester visible même quand une
+       étiquette d'évaluation se superpose dessus. */
     .prog-badge-tl {
       position: absolute;
       top: 50%;
-      transform: translateY(-50%);
-      padding: 2px 6px;
+      transform: translate(calc(-100% - 5px), -50%);
+      height: 27px;
+      display: flex;
+      align-items: center;
+      padding: 0 6px;
       border-radius: 4px;
       color: #fff;
       font-size: 10px;
@@ -461,8 +466,9 @@
           // 1. Journée de lancement si présente, sinon Date_Debut_prevue
           dateStart: lancementMap.get(id) ?? debutPrevue,
           // 1. date_terminee, 2. lot "Rédaction du rapport", 3. Date_fin_prevue,
-          // 4. lot "Journée de lancement", 5. Date_Debut_prevue + 3 mois
-          dateEnd: termineDate ?? rapportMap.get(id) ?? finPrevue ?? lancementMap.get(id)
+          // 4. lot "Journée de lancement" + 3 mois, 5. Date_Debut_prevue + 3 mois
+          dateEnd: termineDate ?? rapportMap.get(id) ?? finPrevue
+                   ?? (lancementMap.get(id) ? addMonths(lancementMap.get(id), 3) : null)
                    ?? (debutPrevue ? addMonths(debutPrevue, 3) : null),
           lib:      String(t.Libelle?.[i] ?? ''),
           type:     String(t.Type_d_evaluation?.[i] ?? ''),
@@ -718,7 +724,7 @@
       const bx = tsToX(cycle.dateDebut, ppm);
       const pbadge = document.createElement('div');
       pbadge.className = 'prog-badge-tl';
-      pbadge.style.left       = `${bx + 5}px`;
+      pbadge.style.left       = `${bx}px`;
       pbadge.style.background = color;
       pbadge.title = pname;
       pbadge.textContent = pShort(pname);
