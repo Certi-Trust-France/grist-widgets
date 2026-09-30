@@ -204,17 +204,15 @@
       cursor: help;
     }
 
-    /* ── Badges EVA (barre date de début → date de fin) ── */
+    /* ── Badges EVA (barre date de début → date de fin) ──
+       Couleur : pas de RE → orange ; RE mais pas terminée → vert ; terminée → gris */
     .eva-badge {
       position: absolute;
       height: 19px;
       padding: 0 5px;
-      background: #fef08a;
-      border: 1.5px solid #d97706;
       border-radius: 4px;
       font-size: 9px;
       font-weight: 800;
-      color: #78350f;
       display: flex;
       align-items: center;
       overflow: hidden;
@@ -223,6 +221,9 @@
       white-space: nowrap;
       letter-spacing: .02em;
     }
+    .eva-badge.no-re    { background: #fef08a; border: 1.5px solid #d97706; color: #78350f; }
+    .eva-badge.en-cours { background: #d1fae5; border: 1.5px solid #059669; color: #065f46; }
+    .eva-badge.terminee { background: #e2e8f0; border: 1.5px solid #94a3b8; color: #475569; }
 
     /* ── Ligne aujourd'hui ── */
     .today-line {
@@ -454,8 +455,10 @@
           dateStart: lancementMap.get(id) ?? debutPrevue,
           // se termine à la date de fin, comme précédemment
           dateEnd:   finPrevue,
-          lib:  String(t.Libelle?.[i] ?? ''),
-          type: String(t.Type_d_evaluation?.[i] ?? ''),
+          lib:      String(t.Libelle?.[i] ?? ''),
+          type:     String(t.Type_d_evaluation?.[i] ?? ''),
+          hasRE:    t.RE?.[i] > 0,
+          terminee: !!t.Terminee?.[i],
         });
       }
     } catch (e) { console.warn('loadEvals:', e); }
@@ -756,21 +759,26 @@
       if (!ev?.dateStart) return;
       const x1 = tsToX(ev.dateStart, ppm);
       const x2 = ev.dateEnd ? tsToX(ev.dateEnd, ppm) : x1;
-      const w  = Math.max(30, x2 - x1);
+      // Bornes exactes (pas d'élargissement artificiel) : seul un plancher minuscule
+      // évite une largeur nulle/négative si les dates sont inversées.
+      const w = Math.max(2, x2 - x1);
       if (x1 + w < -25 || x1 > 9999) return;
 
       const lane = x1 >= laneEnd[0] + 4 ? 0 : (x1 >= laneEnd[1] + 4 ? 1 : 0);
       laneEnd[lane] = x1 + w;
 
+      const stateClass = !ev.hasRE ? 'no-re' : (ev.terminee ? 'terminee' : 'en-cours');
+      const label = ev.lib || ev.type || `Évaluation #${eid}`;
+
       const badge = document.createElement('div');
-      badge.className = 'eva-badge';
+      badge.className = `eva-badge ${stateClass}`;
       badge.style.left = `${x1}px`;
       badge.style.width = `${w}px`;
       badge.style.top = `${CENTER_Y + (lane === 0 ? -10 : 10)}px`;
       badge.style.transform = 'translateY(-50%)';
-      badge.title = (ev.lib || ev.type || `Évaluation #${eid}`)
+      badge.title = label
         + (ev.dateEnd ? ` — ${fmtDate(ev.dateStart)} → ${fmtDate(ev.dateEnd)}` : ` — ${fmtDate(ev.dateStart)}`);
-      badge.textContent = 'EVA';
+      badge.textContent = label.length > 10 ? label.slice(0, 10) + '…' : label;
       tl.appendChild(badge);
     });
 
