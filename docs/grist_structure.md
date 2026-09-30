@@ -37,6 +37,10 @@ Anciennement `Programmes_de_qualification2`, renommée le 2026-09-29. Page Grist
 
 **Origine des données actuelles :** import du catalogue ANSSI (une ligne par décision de qualification). La table brute `Programmes_de_qualification`, strictement identique, a été supprimée.
 
+**Dates : ce sont celles des certificats Certi-Trust, pas celles de l'ANSSI.** Le 2026-09-29, les certificats PASSI présents dans le fichier Excel LIS-12 ont été alignés sur ce fichier (22 mis à jour, 11 ajoutés) : `Date_Delivrance` ← Issue date, `Date_Fin` ← Expiry date, `Qualifie_depuis_le` ← Registered since, `Referentiel` ← Standard. Les certificats absents du fichier (autres programmes, PASSI sans certificat Certi-Trust connu, renouvellements 2026 de Headmind et OWN) portent encore les dates du catalogue ANSSI et restent à vérifier.
+
+**Règle de cycle :** un cycle commence à `Debut_Cycle_Actuel` (= `Date_Fin` − 3 ans), surveillance à + 18 mois, fin = `Date_Fin`. Quand un certificat expire la veille de l'anniversaire, le cycle démarre un jour avant l'émission ; c'est accepté.
+
 **`Referentiel` :** renseigné le 2026-09-29 pour 25 lignes PASSI (21 × `PASSI_2.0`, 4 × `PASSI_2.2`) d'après le fichier LIS-12 et la colonne « Programme au certificat » de l'Excel de suivi. Ziwit, Algosecure (2.0) et Headmind (2.2) ont été déduits du cycle concerné. Restent vides : les programmes autres que PASSI (aucune version dans les sources) et les PASSI sans certificat Certi-Trust connu.
 
 **Règle :** pour un couple (entreprise, programme), le certificat en vigueur est la ligne de `LIS_12` dont `Date_Delivrance` est la plus récente.
