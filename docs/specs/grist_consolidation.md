@@ -76,7 +76,13 @@ Si pas de référence dans LIS-12, la dénomination et le programme doivent êtr
   - 1. la date de la "Journée de lancement" ou
   - 2. à la Date_Debut_prevue
 - et se terminer à la **date de fin**, comme précédemment.
-- Cycles : en gris comme existant si certificat, en hachuré (type rubalise gris et transparent) si future cycle quand l'évalaution initiale sera terminée.
+- couleur :
+  - pas de RE : orange
+  - RE mais pas terminée : vert
+  - terminée : gris
+- contenu : libellé de l'évaluation tronquée à 10 caractère
+- en survolant : libellé complet
+- ✅ terminée - Cycles : en gris comme existant si certificat, en hachuré (type rubalise gris et transparent) si future cycle quand l'évalaution initiale sera terminée.
 
 ### Tâche complexe de consolidation des évaluations
 TODO: consolider la table évaluations avec import-externe\20260929_liste.xlsx ou version plus récente sur le sharepoint.
@@ -84,6 +90,6 @@ TODO: consolider la table évaluations avec import-externe\20260929_liste.xlsx o
 ### Tâche complexe de consolidation des propositions commerciales
 Consolider la table Purchase_orders avec import-externe\Synthese_propositions_factures_ANSSI_selection_reel.xlsx ou une extraction doolibar plus récente
 
-### amélioration du widget 1
-Afficher les dates débuts et fin des évaluations, afficher 
+### amélioration du widget 2
+Afficher les propales sur les cycles.
 
