@@ -371,7 +371,7 @@ function getField(record, widgetName) {
     Evaluateurs_col: 'evaluateurs',
     DateDebut:       'date_debut_incluse',
     Jours:           'Jours',
-    PlanEval:        'Plan_Eval',
+    PlanEval:        'Unite_d_oeuvre',
   };
   return record[FALLBACK[widgetName]];
 }
@@ -394,7 +394,7 @@ function parseLot(r) {
   const evalIds   = parseRawEvalIds(evalRaw);    // cas : Grist envoie les IDs bruts
   const evalNames = parseRawEvalNames(evalRaw);  // cas : Grist envoie les noms affichés
 
-  const planEval = String(getField(r, 'PlanEval') ?? r.Plan_Eval ?? '');
+  const planEval = String(getField(r, 'PlanEval') ?? r.Unite_d_oeuvre ?? '');
 
   return { id: r.id, denomination, programme, evalIds, evalNames, dateDebut, jours, planEval };
 }
