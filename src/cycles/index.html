@@ -448,8 +448,8 @@
         const evalId = lots.Evaluation?.[i];
         const d = lots.date_debut_incluse?.[i];
         if (!(evalId > 0) || !(d > 0)) continue;
-        if (lots.Plan_Eval?.[i] === 'Journée de lancement' && !(lancementMap.get(evalId) <= d)) lancementMap.set(evalId, d);
-        if (lots.Plan_Eval?.[i] === 'Rédaction du rapport' && !(rapportMap.get(evalId) >= d))   rapportMap.set(evalId, d);
+        if (lots.Unite_d_oeuvre?.[i] === 'Journée de lancement' && !(lancementMap.get(evalId) <= d)) lancementMap.set(evalId, d);
+        if (lots.Unite_d_oeuvre?.[i] === 'Rédaction du rapport' && !(rapportMap.get(evalId) >= d))   rapportMap.set(evalId, d);
       }
     } catch (e) { console.warn('loadLots:', e); }
 
