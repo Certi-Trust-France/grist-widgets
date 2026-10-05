@@ -3,11 +3,19 @@ objet: architecture du processus de génération du formulaire TEM-404 depuis un
 maj: 2026-10-05
 ---
 # stack
+
+à mettre à jour:
+
 - vscode
+- pypdf ?
+- reportlab ?
+- jinja2 ?
+- Playwright ?
 
 # format du front matter du tem-404 au format md
 
-perplexity propose :
+## perplexity propose :
+
 `---
 form:
   id: demande_client
@@ -53,7 +61,29 @@ fields:
     required: true
 `---
 
-claude propose:
+Les propriétés importantes sont :
+    form.id : identité fonctionnelle du formulaire.
+    schema_version : version du contrat de données.
+    document_version : version publiée du document.
+    pdf_name : nom exact du champ AcroForm.
+    grist_column : colonne cible, si vous choisissez un mapping explicite.
+    type : type logique indépendant du type PDF.
+    required : obligatoire ou non.
+    source : rempli par le client, généré, calculé ou réservé.
+    deprecated : champ conservé pour lire les anciennes versions.
+    introduced_in et removed_after : gestion de cycle de vie.
+
+Par exemple :
+  - id: client.ancien_nom
+    pdf_name: client.ancien_nom
+    grist_column: Client_AncienNom
+    type: text
+    deprecated: true
+    replaced_by: client.nom
+    read_only: true
+
+## claude propose:
+
 `---
 form_id: demande-certification
 version: 1.3.0            # semver : majeur = rupture de compatibilité
@@ -77,9 +107,9 @@ fields:
 
 Il faut compléter avec le modèle de formulaire pdf import-externe\TEM-404_Formulaire_application_cadrage_V6_0.pdf
 
-écrire ci-dessous ce qui est retenu:
+## Ce qui a été retenu :
 
-**à compléter par Claude**
+écrire ci-dessous ce qui est retenu: **à compléter par Claude**
 
 # processus de générarion du formulaire au format pdf
 
@@ -128,11 +158,16 @@ Python
     ├── validation des champs avec pypdf
     └── ajout ou contrôle des champs AcroForm
 
+## solution retenue :
+
+**à compléter par Claude**
+
 # gestion de retro-compatibilité
 
 le widget grist src\tem-404_widget doit pouvoir lire un ancien formulaire.
 
-Claude a notamment mentionné:
+## Claude a notamment mentionné:
+
 "La compatibilité du widget avec les anciennes versions
 Le PDF indique sa propre version. Le build ajoute deux champs cachés en lecture seule, _form_id et _form_version, et copie aussi ces informations dans les métadonnées du PDF. La version est également imprimée en pied de page.
 Le widget embarque tous les schémas (v1.0.0.json, v1.2.0.json…). Il lit _form_version, charge le schéma correspondant, puis associe chaque champ à sa colonne grist_column.
@@ -142,3 +177,17 @@ un champ ne se supprime pas, on le marque deprecated et on indique replaced_by p
 ajouter un champ fait monter la version mineure ;
 seule une rupture assumée fait monter la version majeure, et elle demande une mise à jour du widget.
 Si la version est inconnue ou si _form_version manque, le widget affiche une erreur claire. C'est notamment le cas d'un PDF « aplati » par une impression en PDF : ses champs ont disparu."
+
+## Perplexity a notamment mentionné:
+
+"Principes :
+    Ne jamais renommer silencieusement un ancien champ.
+    Conserver les anciens noms en lecture.
+    Ajouter les nouveaux champs comme optionnels au début.
+    Faire les migrations dans le widget ou dans une couche de normalisation.
+    Ne supprimer un champ qu’après une période de transition.
+    Tester chaque version avec un PDF réel."
+
+## Règles et architecture retenues pour assurer la rétrocompatibilité :
+
+**à compléter par claude**
