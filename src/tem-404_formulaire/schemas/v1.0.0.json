@@ -345,7 +345,7 @@
     {
       "id": "si.1.nom",
       "type": "text",
-      "label": "Nom du système d'information",
+      "label": "SI n° 1 - Nom",
       "grist_column": "Nom",
       "grist_table": "Systemes_Information",
       "required": false,
