@@ -122,12 +122,14 @@
 
     .field-item { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
     .field-item span { color: #64748b; }
-    .field-item input, .field-item select {
+    .field-item input, .field-item select, .field-item textarea {
       padding: 5px 7px;
       border: 1px solid #cbd5e1;
       border-radius: 4px;
       font-size: 12px;
+      font-family: inherit;
     }
+    .field-item textarea { resize: vertical; }
 
     .cand-field { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; }
     .cand-field span { color: #64748b; }
@@ -167,6 +169,10 @@
     }
     .field-row:last-child { margin-bottom: 0; }
     .field-row .field-item { flex: 1 1 160px; max-width: 240px; }
+    /* Champ pleine largeur (cf. WIDE_FIELD_IDS / f.lines) : spécificité égale à la règle
+       ci-dessus (même combinateur descendant) + classe supplémentaire, pour être sûr de
+       l'emporter indépendamment de l'ordre des règles. */
+    .field-row .field-item.field-item-wide { flex: 1 1 100%; max-width: 100%; }
 
     /* ── Pied de page : statut + enregistrer ── */
     .footer {
@@ -259,7 +265,7 @@
   // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
   // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
   // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
-  const WIDGET_VERSION = '1.5.0';
+  const WIDGET_VERSION = '1.6.0';
   document.getElementById('widgetTitle').textContent =
     `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
@@ -300,23 +306,35 @@
 
   grist.onRecord(async record => {
     if (!record || !record.id || record.id < 0) return; // pas de sélection valide
-    currentRecordId = record.id;
-    numTem404 = String(record.NumTEM404 ?? '');
-    dateReception = record.Date_Reception
-      ? new Date(record.Date_Reception * 1000).toISOString().slice(0, 10)
-      : '';
+    // Tout le corps est protégé : une exception non interceptée ici (ex. date invalide)
+    // interromprait silencieusement le reste — y compris le renderAll() qui met à jour
+    // l'affichage — sans qu'aucun champ ne se mette à jour ni qu'aucune erreur n'apparaisse.
+    try {
+      currentRecordId = record.id;
+      numTem404 = String(record.NumTEM404 ?? '');
+      dateReception = formatDateForInput(record.Date_Reception);
 
-    let complet = {};
-    try { complet = JSON.parse(record.Json_Complet || '{}'); } catch (e) { console.warn('Json_Complet:', e); }
-    pdfFields = complet;
+      let complet = {};
+      try { complet = JSON.parse(record.Json_Complet || '{}'); } catch (e) { console.warn('Json_Complet:', e); }
+      pdfFields = complet;
 
-    const version = String(record.Version ?? '');
-    schema = await loadSchema(version) || fallbackSchemaFromKeys(complet);
+      const version = String(record.Version ?? '');
+      schema = await loadSchema(version) || fallbackSchemaFromKeys(complet);
 
-    await loadGristCandidates(); // l'annuaire n'est interrogé que sur clic (bouton dédié)
-    renderAll();
-    showStatus(`Dossier ${esc(numTem404)} chargé.`, '', 2500);
+      await loadGristCandidates(); // l'annuaire n'est interrogé que sur clic (bouton dédié)
+      renderAll();
+      showStatus(`Dossier ${esc(numTem404)} chargé.`, '', 2500);
+    } catch (e) {
+      console.warn('onRecord:', e);
+      showStatus(`Erreur au chargement du dossier : ${e.message}`, 'error');
+    }
   });
+
+  function formatDateForInput(unixSeconds) {
+    if (!unixSeconds) return '';
+    const d = new Date(unixSeconds * 1000);
+    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  }
 
   async function loadSchema(version) {
     if (!version) return null;
@@ -745,16 +763,26 @@
     }
   }
 
+  // Champs à afficher pleine largeur dans la grille générique (au lieu de la largeur
+  // standard d'un champ) : les grandes zones de texte libre du formulaire. `f.lines`
+  // (déjà présent dans le schéma pour d.presentation) pilote en plus le passage en
+  // vraie zone de texte multiligne.
+  const WIDE_FIELD_IDS = new Set(['c5.perimetre_pdis', 'c5.perimetre_pams', 'd.presentation']);
+
   function buildFieldInput(f) {
     const wrap = document.createElement('label');
     wrap.className = 'field-item';
     const value = pdfFields[f.id];
+    const isWide = WIDE_FIELD_IDS.has(f.id) || (f.lines && f.lines > 1);
+    if (isWide) wrap.classList.add('field-item-wide');
     let input;
     if (f.type === 'checkbox') {
       input = `<input type="checkbox" data-field="${esc(f.id)}" ${value ? 'checked' : ''}>`;
     } else if (f.type === 'choice' || f.type === 'radio') {
       const opts = (f.options || []).map(o => `<option value="${esc(o)}" ${o === value ? 'selected' : ''}>${esc(o)}</option>`).join('');
       input = `<select data-field="${esc(f.id)}">${opts}</select>`;
+    } else if (f.lines && f.lines > 1) {
+      input = `<textarea data-field="${esc(f.id)}" rows="${f.lines}"${f.maxlen ? ` maxlength="${f.maxlen}"` : ''}>${esc(value ?? '')}</textarea>`;
     } else {
       input = `<input type="text" data-field="${esc(f.id)}" value="${esc(value ?? '')}"${f.maxlen ? ` maxlength="${f.maxlen}"` : ''}>`;
     }
