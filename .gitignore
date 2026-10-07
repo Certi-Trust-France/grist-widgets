@@ -9,6 +9,14 @@ build/
 *.min.js
 *.min.css
 
+# Le PDF généré du TEM-404 est le livrable distribué : on le committe
+!/src/tem-404_formulaire/dist/
+!/src/tem-404_formulaire/dist/**
+
+# Python
+__pycache__/
+*.pyc
+
 # Environment & secrets
 .env
 .env.local

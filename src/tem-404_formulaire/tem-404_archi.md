@@ -1,16 +1,21 @@
 ---
 objet: architecture du processus de génération du formulaire TEM-404 depuis un fichier md
 maj: 2026-10-05
+modèle de formulaire: src\tem-404_formulaire\TEM-404_Formulaire_application_cadrage_V7_0.pdf
 ---
+
+# enjeux
+L'objectif est décrit dans docs\specs\TEM-404_specs.md : déposer dans GRIST un formulaire pdf rempli par le client et remplir les tables.
+Il faut pour cela pouvoir mettre à jour le widget et le formulaire.
+Pour faciciliter cette tâche le formulaire est généré à partir d'un md : docs\specs\TEM-404_specs.md ## 5. Spécifications pour la génération du formulaire
+
 # stack
 
-à mettre à jour:
-
-- vscode
-- pypdf ?
-- reportlab ?
-- jinja2 ?
-- Playwright ?
+- Python 3 (pas de venv dédié dans ce dépôt, interpréteur global)
+- `reportlab` — génération du PDF et des champs AcroForm
+- `markdown-it-py` (règle `table` activée) — parsing du corps markdown
+- `pyyaml` — parsing du front matter
+- Dépendances pinnées dans `src/tem-404_formulaire/requirements.txt`
 
 # format du front matter du tem-404 au format md
 
@@ -105,11 +110,56 @@ fields:
     replaced_by: demandeur.telephone
 `---
 
-Il faut compléter avec le modèle de formulaire pdf import-externe\TEM-404_Formulaire_application_cadrage_V6_0.pdf
+Il faut compléter avec le modèle de formulaire pdf src\tem-404_formulaire\TEM-404_Formulaire_application_cadrage_V7_0.pdf
 
 ## Ce qui a été retenu :
 
-écrire ci-dessous ce qui est retenu: **à compléter par Claude**
+Fusion simplifiée des deux propositions (le bloc `compatibility.*` de Perplexity est abandonné,
+jugé prématuré) :
+
+```yaml
+---
+form:
+  id: tem-404
+  title: "Titre du formulaire"
+  schema_version: 1.0.0       # contrat de champs
+  document_version: "2026.10" # version publiée du document
+  language: fr-FR
+
+pdf:
+  output: "dist/TEM-404_v{document_version}.pdf"
+  footer_label: "TEM-404 — version {document_version} (schéma {schema_version})"
+
+grist:
+  table: TEM_404
+
+fields:
+  - id: demandeur.nom
+    label: "Nom"
+    type: text                # text | checkbox | radio | choice
+    grist_column: Demandeur_Nom
+    required: true
+    since: 1.0.0
+  - id: demandeur.siret
+    type: text
+    maxlen: 14
+    pattern: "^\\d{14}$"
+    grist_column: SIRET
+    since: 1.0.0
+  - id: ancien_champ
+    type: text
+    deprecated: 1.1.0
+    replaced_by: nouveau_champ
+    read_only: true
+---
+```
+
+Règles : un `id` n'est jamais renommé ni réutilisé ; `radio`/`choice` portent une liste
+`options` ; `grist_column` est le mapping explicite consommé par le widget (pas par ce
+pipeline de génération).
+
+Voir `src/tem-404_formulaire/TEM-404.md` pour un exemple complet (contenu minimal
+représentatif, la transcription intégrale des paragraphes A-K étant une tâche séparée).
 
 # processus de générarion du formulaire au format pdf
 
@@ -160,7 +210,33 @@ Python
 
 ## solution retenue :
 
-**à compléter par Claude**
+**Solution A (ReportLab)**, en pur Python.
+
+Rejet de la solution B (Playwright + pypdf) : dépendance lourde (Chromium, ~300 Mo, à
+installer et maintenir) pour un gain de mise en forme non requis par les specs
+("la mise en forme elle-même est secondaire, elle doit être correcte sans plus").
+ReportLab est déjà installé dans l'environnement du projet et gère nativement les
+champs AcroForm interactifs (`canvas.acroForm.textfield` avec `maxlen`, `checkbox`,
+`radio`, `choice`) ainsi que le dessin de tableaux — une seule dépendance pure Python,
+cohérente avec les autres scripts du dépôt (`import-externe/compare.py`,
+`mcp-servers/annuaire_entreprises.py`).
+
+**Point de design central** (répond à « facilement éditable ») : le corps markdown de
+`TEM-404.md` (après le front matter) EST la mise en page — titres, paragraphes,
+tableaux markdown standard, listes. Les emplacements de saisie sont marqués par un
+jeton inline `{{field_id}}` référençant un `id` du front matter, y compris à
+l'intérieur d'une cellule de tableau. Le script (`build_form.py` + paquet `formgen/`) :
+1. sépare front matter / corps (`formgen/frontmatter.py`) ;
+2. charge et valide la liste `fields` (`formgen/schema.py`) ;
+3. parse le corps avec `markdown-it-py` (règle `table` activée) et le met en page
+   avec un curseur vertical + pagination automatique (`formgen/layout.py`) ;
+4. dessine texte/tableaux et pose les widgets `acroForm` aux emplacements `{{field_id}}`
+   (`formgen/pdfgen.py`).
+
+Ainsi, éditer le contenu (ajouter une ligne de tableau, reformuler un paragraphe) ne
+touche jamais au code Python : le script repositionne les widgets automatiquement.
+Le script exporte aussi `schemas/v{schema_version}.json` (la liste `fields` du front
+matter), destiné à être chargé par le widget plus tard.
 
 # gestion de retro-compatibilité
 
@@ -190,4 +266,21 @@ Si la version est inconnue ou si _form_version manque, le widget affiche une err
 
 ## Règles et architecture retenues pour assurer la rétrocompatibilité :
 
-**à compléter par claude**
+Reprend ce qui avait déjà été esquissé ci-dessus ("Claude a notamment mentionné") :
+
+- Le PDF généré embarque deux champs AcroForm cachés en lecture seule, `_form_id` et
+  `_form_version` (= `schema_version`), posés par `build_form.py`, plus un pied de page
+  visible (`footer_label` du front matter).
+- Un `id` de champ n'est jamais renommé ni réutilisé ; un champ retiré est marqué
+  `deprecated: <version>` avec `replaced_by:` plutôt que supprimé (cf. l'exemple
+  `demandeur.ancien_siret` dans `TEM-404.md`).
+- Ajouter un champ → version mineure (`schema_version` monte, ex. 1.1.0). Rupture
+  (retrait définitif, changement de type) → version majeure, nécessite une mise à
+  jour du widget.
+- Chaque génération exporte `schemas/v{schema_version}.json` (committé) — c'est ce
+  fichier que le widget chargera selon le `_form_version` lu dans le PDF déposé, sans
+  dépendre du contenu du markdown source.
+- Un PDF aplati (champs AcroForm disparus à l'impression) est détectable par le widget
+  du fait de l'absence de `_form_version` — ce pipeline se contente de l'embarquer
+  correctement, la détection/erreur utilisateur est à la charge du widget (hors
+  périmètre de ce chantier).

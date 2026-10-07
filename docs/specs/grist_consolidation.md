@@ -93,3 +93,6 @@ Consolider la table Purchase_orders avec import-externe\Synthese_propositions_fa
 ### amélioration du widget 2
 Afficher les propales sur les cycles.
 
+### évaluateurs techniques qualifiés
+Point supplémentaire à examiner avant de corriger : r.Profil (dans Reconnaissance_de_competences) est un Ref:Profils_evaluateur, alors que $Activites (l'ancienne colonne) renvoie une liste de Qualification_code (texte, via $PO.Activites.Qualification_code). Comparer un objet Ref à une liste de chaînes (r.Profil in $Activites) semble déjà ne jamais correspondre — donc cette formule produit potentiellement une liste vide depuis le début, indépendamment de ton renommage.
+

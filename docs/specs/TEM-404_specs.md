@@ -28,13 +28,37 @@ Ces spécification ne concernent pas le time-calculator qui est l'étape suivant
 
 ## 3. Modèle de données Grist
 
+Le TEM-404 comporte trois groupes d'informations, qui ne sont pas stockées de la même façon :
+
+1. **Informations d'entreprise** (structure déjà/bientôt présente dans Grist) : nom, SIREN/SIRET,
+   sites, contacts, systèmes d'information. Écrites dans les tables structurées ci-dessous.
+2. **Informations utiles au calcul de charge** (paragraphes B, C, D, E) : consommées par le
+   time-calculator (hors périmètre de ce chantier). Stockées en JSON (`TEM_404.Json_Utile`).
+3. **Informations à archiver pour information** (B.2, B.3) : pas d'usage de calcul identifié,
+   conservées pour trace. Stockées avec le groupe 2 dans `TEM_404.Json_Utile`.
+
+Dans le pipeline de génération (`src/tem-404_formulaire/TEM-404.md`), un champ appartient au
+groupe 1 s'il déclare `grist_table` dans le front matter ; sinon il part uniquement en JSON
+(`TEM_404.Json_Complet` dans tous les cas, `TEM_404.Json_Utile` en plus s'il n'a pas de
+`grist_table`).
+
 ### Table principale : Entreprises
 
 ### Tables liées
 
-- Contacts : comparer les contacts existants avec les nouveaux contacts
-- sites : comparer les sites existants avec les nouveaux sites
-- TEM-404 : données non incluses ailleurs
+- `Contacts` : comparer les contacts existants avec les nouveaux contacts. `Programmes_Responsable`
+  (RefList:Programmes) et `Programmes_Examens` (RefList:Programmes, limité par convention à
+  {PASSI, PACS, PRIS}) remplacent les anciens booléens `Responsable_de_programme` /
+  `Responsable_examens` (conservés pour l'instant en parallèle, migration des données déjà faite).
+- `Sites` : comparer les sites existants avec les nouveaux sites.
+- `Systemes_Information` (nouvelle table) : SI des entreprises évaluées — `Entreprise` (Ref),
+  `Nom`, `Classification` (Choice : NP / DR Classe 1 / DR Classe 2), `Date_Homologation`,
+  `Programmes` (RefList), `Sites` (RefList, à restreindre en pratique aux sites de la même
+  entreprise).
+- `TEM_404` (nouvelle table) : un enregistrement par dossier déposé — `NumTEM404`,
+  `Date_Reception`, `Version` (= `_form_version` du PDF), `Entreprise` (Ref, lien de confort),
+  `Json_Complet` (toutes les valeurs extraites), `Json_Utile` (groupes 2+3 uniquement — ce que
+  lira le time-calculator). Ces deux colonnes JSON ne doivent être modifiées que par le widget.
 
 ## 4. Fonctionnalités du widget
 
@@ -67,6 +91,23 @@ Perplexity mentionne :
 Pour le widget Grist, je recommande de ne pas coder directement les noms de colonnes dans le JavaScript.
 
 Grist propose un mécanisme de column mapping : le widget déclare les champs attendus avec grist.ready, puis l’utilisateur associe ces champs aux colonnes réelles de la table. Le widget récupère ensuite les valeurs mappées avec grist.mapColumnNames. Cette approche résiste aux renommages de colonnes et permet de réutiliser le widget sur plusieurs tables."
+
+**Décision retenue (2026-10-07) :** pas de column mapping générique pour ce widget — noms de
+colonnes codés en dur, comme le reste des widgets du dépôt (`exam-drag-drop`,
+`convocation-ecrits`). La résistance aux renommages visée par la recommandation est déjà assurée
+autrement : chaque champ du formulaire porte son `grist_column`/`grist_table` explicite dans le
+schéma JSON versionné (`src/tem-404_formulaire/schemas/v{version}.json`), qui est la source de
+vérité consommée par le widget.
+
+### 4.6 État d'avancement
+
+- Pipeline de génération (`src/tem-404_formulaire/`) : fonctionnel, étendu avec `grist_table` par
+  champ et des champs représentatifs pour les 3 groupes d'informations (§3).
+- Schéma Grist : `Systemes_Information` et `TEM_404` créés ; `Contacts.Programmes_Responsable` /
+  `Programmes_Examens` ajoutées et migrées depuis les anciens booléens (conservés pour l'instant,
+  suppression différée).
+- **Widget `src/tem-404_widget/` : reporté à un chantier ultérieur** (non développé dans ce
+  chantier-ci). Le dossier `schemas/` y est déjà déposé par `build_form.py` en préparation.
 
 ## 5. Spécifications pour la génération du formulaire
 

@@ -472,11 +472,14 @@
     } catch (e) { console.warn('Candidats:', e); }
 
     // ── Contacts : responsable examens par entreprise (destinataire en copie) ──
+    // Programmes_Examens est une RefList:Programmes (ex-booléen Responsable_examens) ;
+    // Grist la renvoie au format brut ['L', id1, id2, ...] via fetchTable.
+    const asList = raw => Array.isArray(raw) ? raw.slice(1) : [];
     entContactMap.clear();
     try {
       const co = await grist.docApi.fetchTable('Contacts');
       for (let i = 0; i < co.id.length; i++) {
-        if (!co.Responsable_examens?.[i]) continue;
+        if (asList(co.Programmes_Examens?.[i]).length === 0) continue;
         const entId = co.Entreprise?.[i];
         if (!entId || entContactMap.has(entId)) continue; // premier responsable trouvé par entreprise
         entContactMap.set(entId, {

@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TEM-404 — Traitement du dossier</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      color: #1e293b;
+      background: #f8fafc;
+    }
+
+    /* ── Barre d'en-tête : n°, date de réception, version ── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 8px 14px;
+      background: #1e3a8a;
+      color: #fff;
+    }
+    .toolbar h1 { font-size: 13px; font-weight: 600; margin-right: auto; }
+    .toolbar label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #bfdbfe; }
+    .mini-input {
+      padding: 4px 7px;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      background: rgba(255,255,255,.18);
+      color: #fff;
+    }
+    .mini-input::placeholder { color: rgba(255,255,255,.6); }
+    .version-badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 9px;
+      background: rgba(255,255,255,.18);
+    }
+
+    /* ── Zone de dépôt du PDF ── */
+    .dropzone {
+      margin: 12px;
+      padding: 22px;
+      border: 2px dashed #94a3b8;
+      border-radius: 8px;
+      text-align: center;
+      color: #475569;
+      background: #fff;
+    }
+    .dropzone.drag-over { border-color: #2563eb; background: #eff6ff; }
+    .browse-label { color: #2563eb; cursor: pointer; font-weight: 600; text-decoration: underline; }
+
+    /* ── Trois colonnes ── */
+    .columns {
+      display: flex;
+      gap: 12px;
+      margin: 0 12px 12px;
+      align-items: stretch;
+    }
+    .col {
+      flex: 1;
+      min-width: 0;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+    }
+    .col-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 8px 10px;
+      font-weight: 600;
+      font-size: 12px;
+      background: #f1f5f9;
+      border-bottom: 1px solid #e2e8f0;
+      border-radius: 8px 8px 0 0;
+    }
+    .nav { display: flex; align-items: center; gap: 4px; font-weight: 400; }
+    .nav-btn {
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 1px 7px;
+    }
+    .nav-btn:disabled { opacity: .4; cursor: default; }
+    .nav-count { font-size: 11px; color: #64748b; min-width: 32px; text-align: center; }
+
+    .col-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+    .col-footer { padding: 10px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #e2e8f0; }
+
+    .field-item { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+    .field-item span { color: #64748b; }
+    .field-item input, .field-item select {
+      padding: 5px 7px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .cand-field { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; }
+    .cand-field span { color: #64748b; }
+    .empty-col { color: #94a3b8; font-style: italic; font-size: 12px; padding: 6px 0; }
+
+    .btn {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      background: #2563eb;
+      color: #fff;
+    }
+    .btn:hover { background: #1d4ed8; }
+    .btn-secondary { background: #e2e8f0; color: #1e293b; }
+    .btn-secondary:hover { background: #cbd5e1; }
+
+    /* ── Toutes les données du PDF ── */
+    .all-fields { margin: 0 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+    .field-group {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .field-group h4 { font-size: 12px; margin-bottom: 8px; color: #334155; }
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 8px;
+    }
+
+    /* ── Confirmation avant enregistrement ── */
+    .confirm-panel { margin: 0 12px 12px; }
+    .confirm-box {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .confirm-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+    /* ── Pied de page : statut + enregistrer ── */
+    .footer {
+      position: sticky;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 14px;
+      background: #fff;
+      border-top: 1px solid #e2e8f0;
+    }
+    .statusbar { flex: 1; font-size: 12px; }
+    .statusbar.success { color: #0f5132; }
+    .statusbar.error   { color: #842029; }
+    .btn-save { background: #16a34a; }
+    .btn-save:hover { background: #15803d; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>TEM-404 — Traitement du dossier</h1>
+  <label>N° <input id="numTem404" class="mini-input" placeholder="—"></label>
+  <label>Réception <input id="dateReception" type="date" class="mini-input"></label>
+  <span id="versionLabel" class="version-badge"></span>
+</div>
+
+<div id="dropzone" class="dropzone">
+  Glissez-déposez le PDF TEM-404 rempli ici, ou
+  <label class="browse-label">parcourir<input type="file" id="fileInput" accept="application/pdf" hidden></label>
+</div>
+
+<div class="columns">
+  <div class="col col-pdf">
+    <div class="col-header">Entreprise (PDF)</div>
+    <div id="col1Fields" class="col-body"></div>
+    <div class="col-footer">
+      <button class="btn btn-secondary" id="btnReplaceGrist">Remplacer par données GRIST</button>
+      <button class="btn btn-secondary" id="btnReplaceAnnuaire">Remplacer par données annuaire</button>
+    </div>
+  </div>
+
+  <div class="col col-grist">
+    <div class="col-header">
+      GRIST
+      <span class="nav">
+        <button class="nav-btn" id="gristPrev">‹</button>
+        <span class="nav-count" id="gristNavCount"></span>
+        <button class="nav-btn" id="gristNext">›</button>
+      </span>
+    </div>
+    <div id="gristBox" class="col-body"></div>
+  </div>
+
+  <div class="col col-annuaire">
+    <div class="col-header">
+      Annuaire des entreprises
+      <span class="nav">
+        <button class="nav-btn" id="annuairePrev">‹</button>
+        <span class="nav-count" id="annuaireNavCount"></span>
+        <button class="nav-btn" id="annuaireNext">›</button>
+      </span>
+    </div>
+    <div id="annuaireBox" class="col-body"></div>
+  </div>
+</div>
+
+<div id="allFields" class="all-fields"></div>
+
+<div id="confirmPanel" class="confirm-panel" style="display:none"></div>
+
+<div class="footer">
+  <div class="statusbar" id="statusbar"></div>
+  <button class="btn btn-save" id="btnSave">Enregistrer</button>
+</div>
+
+<script>
+  // Widget lié à la table TEM_404. Ne touche volontairement pas aux tables
+  // Entreprises / Sites / Systemes_Information / Contacts dans cette itération :
+  // les colonnes 2 et 3 ne sont que des aides visuelles de rapprochement, les boutons
+  // « Remplacer par... » ne copient que dans les champs édités de la colonne 1 (PDF).
+
+  const COLUMN1_FIELDS = [
+    ['demandeur.nom', 'Nom'],
+    ['demandeur.adresse', 'Adresse'],
+    ['demandeur.siren', 'SIREN'],
+    ['demandeur.siret', 'SIRET'],
+    ['demandeur.adresse_siege', 'Adresse du siège social'],
+  ];
+  const COLUMN1_IDS = new Set(COLUMN1_FIELDS.map(([id]) => id));
+
+  let schema = null;           // { form_id, schema_version, fields: [...] } chargé depuis schemas/vX.json
+  let pdfFields = {};          // id de champ -> valeur courante (éditable)
+  let currentRecordId = null;  // ligne TEM_404 en cours d'édition, ou null = nouveau dossier
+  let numTem404 = '';
+  let dateReception = '';
+
+  let gristCandidates = [];
+  let gristIdx = 0;
+  let annuaireCandidates = [];
+  let annuaireIdx = 0;
+
+  // ── Grist ────────────────────────────────────────────────────────────────
+
+  grist.ready({ requiredAccess: 'full' });
+
+  grist.onRecord(async record => {
+    if (!record || !record.id || record.id < 0) return; // pas de sélection valide
+    currentRecordId = record.id;
+    numTem404 = String(record.NumTEM404 ?? '');
+    dateReception = record.Date_Reception
+      ? new Date(record.Date_Reception * 1000).toISOString().slice(0, 10)
+      : '';
+
+    let complet = {};
+    try { complet = JSON.parse(record.Json_Complet || '{}'); } catch (e) { console.warn('Json_Complet:', e); }
+    pdfFields = complet;
+
+    const version = String(record.Version ?? '');
+    schema = await loadSchema(version) || fallbackSchemaFromKeys(complet);
+
+    await Promise.all([loadGristCandidates(), loadAnnuaireCandidates()]);
+    renderAll();
+    showStatus(`Dossier ${esc(numTem404)} chargé.`, '', 2500);
+  });
+
+  async function loadSchema(version) {
+    if (!version) return null;
+    try {
+      const resp = await fetch(`schemas/v${version}.json`);
+      return resp.ok ? await resp.json() : null;
+    } catch (e) {
+      console.warn('loadSchema:', e);
+      return null;
+    }
+  }
+
+  function fallbackSchemaFromKeys(obj) {
+    return {
+      form_id: 'tem-404',
+      schema_version: '',
+      fields: Object.keys(obj).map(id => ({ id, label: id, type: 'text', grist_table: null })),
+    };
+  }
+
+  // ── Dépôt du PDF ─────────────────────────────────────────────────────────
+
+  const dropzone = document.getElementById('dropzone');
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    const file = e.dataTransfer.files?.[0];
+    if (file) handlePdfFile(file);
+  });
+  document.getElementById('fileInput').addEventListener('change', e => {
+    const file = e.target.files?.[0];
+    if (file) handlePdfFile(file);
+  });
+
+  async function handlePdfFile(file) {
+    showStatus('Lecture du PDF…');
+    try {
+      const bytes = await file.arrayBuffer();
+      const pdfDoc = await PDFLib.PDFDocument.load(bytes);
+      const form = pdfDoc.getForm();
+
+      let formVersion = null;
+      try { formVersion = form.getTextField('_form_version').getText(); } catch (e) { /* champ absent */ }
+      if (!formVersion) {
+        showStatus('PDF non reconnu ou aplati (champs de formulaire absents) — impossible de le traiter.', 'error');
+        return;
+      }
+
+      const loaded = await loadSchema(formVersion);
+      if (!loaded) {
+        showStatus(`Version de schéma inconnue : ${esc(formVersion)}`, 'error');
+        return;
+      }
+      schema = loaded;
+
+      pdfFields = {};
+      schema.fields.forEach(f => { pdfFields[f.id] = readPdfField(form, f); });
+
+      currentRecordId = null; // un dépôt de PDF initie toujours un nouveau dossier
+      numTem404 = await generateNumTem404();
+      dateReception = new Date().toISOString().slice(0, 10);
+
+      await Promise.all([loadGristCandidates(), loadAnnuaireCandidates()]);
+      renderAll();
+      showStatus('PDF chargé.', 'success', 3000);
+    } catch (e) {
+      console.warn('handlePdfFile:', e);
+      showStatus(`Impossible de lire ce PDF : ${e.message}`, 'error');
+    }
+  }
+
+  function readPdfField(form, f) {
+    try {
+      if (f.type === 'checkbox') {
+        return form.getCheckBox(f.id).isChecked();
+      }
+      if (f.type === 'choice' || f.type === 'radio') {
+        try { return form.getDropdown(f.id).getSelected()[0] || ''; }
+        catch (e) { return form.getOptionList(f.id).getSelected()[0] || ''; }
+      }
+      return form.getTextField(f.id).getText() || '';
+    } catch (e) {
+      return f.type === 'checkbox' ? false : '';
+    }
+  }
+
+  // ── Numérotation [année]_TEM-404_[####] ─────────────────────────────────
+
+  async function generateNumTem404() {
+    const year = new Date().getFullYear();
+    let maxSeq = 0;
+    try {
+      const tbl = await grist.docApi.fetchTable('TEM_404');
+      const re = new RegExp(`^${year}_TEM-404_(\\d{4})$`);
+      for (let i = 0; i < tbl.id.length; i++) {
+        const m = re.exec(String(tbl.NumTEM404?.[i] ?? ''));
+        if (m) maxSeq = Math.max(maxSeq, parseInt(m[1], 10));
+      }
+    } catch (e) { console.warn('generateNumTem404:', e); }
+    return `${year}_TEM-404_${String(maxSeq + 1).padStart(4, '0')}`;
+  }
+
+  // ── Rapprochement GRIST (Entreprises) ────────────────────────────────────
+
+  const digitsOnly = v => String(v ?? '').replace(/\D/g, '');
+
+  async function loadGristCandidates() {
+    gristCandidates = [];
+    gristIdx = 0;
+    try {
+      const tbl = await grist.docApi.fetchTable('Entreprises');
+      const siren = digitsOnly(pdfFields['demandeur.siren']);
+      const siret = digitsOnly(pdfFields['demandeur.siret']);
+      const nameLower = String(pdfFields['demandeur.nom'] || '').trim().toLowerCase();
+
+      const exact = [];
+      const fuzzy = [];
+      for (let i = 0; i < tbl.id.length; i++) {
+        const id = tbl.id[i];
+        if (!id || id < 0) continue;
+        const rowSiren = digitsOnly(tbl.SIREN?.[i]);
+        const rowSiret = digitsOnly(tbl.SIRET?.[i]);
+        const rowName = String(tbl.Denomination?.[i] || '');
+        const rowNameLower = rowName.toLowerCase();
+        const cand = { id, nom: rowName, siren: tbl.SIREN?.[i], siret: tbl.SIRET?.[i] };
+        if (siren && rowSiren && siren === rowSiren) exact.push(cand);
+        else if (siret && rowSiret && siret === rowSiret) exact.push(cand);
+        else if (nameLower && rowNameLower && (rowNameLower.includes(nameLower) || nameLower.includes(rowNameLower))) fuzzy.push(cand);
+      }
+      gristCandidates = [...exact, ...fuzzy];
+    } catch (e) { console.warn('loadGristCandidates:', e); }
+  }
+
+  async function findSiegeAdresse(entrepriseId) {
+    try {
+      const tbl = await grist.docApi.fetchTable('Sites');
+      for (let i = 0; i < tbl.id.length; i++) {
+        if (tbl.Entreprise?.[i] === entrepriseId && tbl.Siege?.[i]) {
+          return [tbl.Street?.[i], tbl.Street2?.[i], tbl.Zip?.[i], tbl.City?.[i]].filter(Boolean).join(', ');
+        }
+      }
+    } catch (e) { console.warn('findSiegeAdresse:', e); }
+    return null;
+  }
+
+  // ── Rapprochement annuaire des entreprises (API publique) ────────────────
+
+  async function loadAnnuaireCandidates() {
+    annuaireCandidates = [];
+    annuaireIdx = 0;
+    const siret = digitsOnly(pdfFields['demandeur.siret']);
+    const siren = digitsOnly(pdfFields['demandeur.siren']);
+    const nom = String(pdfFields['demandeur.nom'] || '').trim();
+    const q = siret || siren || nom;
+    if (!q) return;
+    try {
+      const resp = await fetch(`https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(q)}&per_page=5`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      annuaireCandidates = (data.results || []).map(r => ({
+        siren: r.siren,
+        nom: r.nom_complet || r.nom_raison_sociale || '',
+        siret: r.siege?.siret || '',
+        adresse: formatAdresseAnnuaire(r.siege),
+      }));
+    } catch (e) { console.warn('loadAnnuaireCandidates:', e); }
+  }
+
+  function formatAdresseAnnuaire(siege) {
+    if (!siege) return '';
+    return [siege.adresse, siege.code_postal, siege.libelle_commune].filter(Boolean).join(' ');
+  }
+
+  // ── Boutons de remplacement (colonne 1 uniquement) ───────────────────────
+
+  document.getElementById('btnReplaceGrist').addEventListener('click', async () => {
+    const c = gristCandidates[gristIdx];
+    if (!c) { showStatus('Aucune entreprise GRIST sélectionnée.', 'error', 3000); return; }
+    pdfFields['demandeur.nom'] = c.nom || pdfFields['demandeur.nom'];
+    pdfFields['demandeur.siren'] = c.siren != null ? String(c.siren) : pdfFields['demandeur.siren'];
+    pdfFields['demandeur.siret'] = c.siret || pdfFields['demandeur.siret'];
+    renderColumn1();
+    const adr = await findSiegeAdresse(c.id);
+    if (adr) {
+      pdfFields['demandeur.adresse'] = adr;
+      pdfFields['demandeur.adresse_siege'] = adr;
+      renderColumn1();
+    }
+  });
+
+  document.getElementById('btnReplaceAnnuaire').addEventListener('click', () => {
+    const c = annuaireCandidates[annuaireIdx];
+    if (!c) { showStatus('Aucun résultat d’annuaire sélectionné.', 'error', 3000); return; }
+    pdfFields['demandeur.nom'] = c.nom || pdfFields['demandeur.nom'];
+    pdfFields['demandeur.siren'] = c.siren != null ? String(c.siren) : pdfFields['demandeur.siren'];
+    pdfFields['demandeur.siret'] = c.siret || pdfFields['demandeur.siret'];
+    if (c.adresse) {
+      pdfFields['demandeur.adresse'] = c.adresse;
+      pdfFields['demandeur.adresse_siege'] = c.adresse;
+    }
+    renderColumn1();
+  });
+
+  document.getElementById('gristPrev').addEventListener('click', () => { navCandidates('grist', -1); });
+  document.getElementById('gristNext').addEventListener('click', () => { navCandidates('grist', 1); });
+  document.getElementById('annuairePrev').addEventListener('click', () => { navCandidates('annuaire', -1); });
+  document.getElementById('annuaireNext').addEventListener('click', () => { navCandidates('annuaire', 1); });
+
+  function navCandidates(which, delta) {
+    if (which === 'grist') {
+      if (!gristCandidates.length) return;
+      gristIdx = (gristIdx + delta + gristCandidates.length) % gristCandidates.length;
+      renderGristColumn();
+    } else {
+      if (!annuaireCandidates.length) return;
+      annuaireIdx = (annuaireIdx + delta + annuaireCandidates.length) % annuaireCandidates.length;
+      renderAnnuaireColumn();
+    }
+  }
+
+  // ── Rendu ────────────────────────────────────────────────────────────────
+
+  function renderAll() {
+    document.getElementById('numTem404').value = numTem404 || '';
+    document.getElementById('dateReception').value = dateReception || '';
+    document.getElementById('versionLabel').textContent = schema?.schema_version ? `schéma v${schema.schema_version}` : '';
+    renderColumn1();
+    renderGristColumn();
+    renderAnnuaireColumn();
+    renderAllFields();
+  }
+
+  function renderColumn1() {
+    const el = document.getElementById('col1Fields');
+    el.innerHTML = COLUMN1_FIELDS.map(([id, label]) => `
+      <label class="field-item">
+        <span>${esc(label)}</span>
+        <input type="text" data-field="${esc(id)}" value="${esc(pdfFields[id] ?? '')}">
+      </label>`).join('');
+  }
+
+  function renderGristColumn() {
+    const box = document.getElementById('gristBox');
+    const count = document.getElementById('gristNavCount');
+    document.getElementById('gristPrev').disabled = gristCandidates.length < 2;
+    document.getElementById('gristNext').disabled = gristCandidates.length < 2;
+    if (!gristCandidates.length) {
+      box.innerHTML = '<div class="empty-col">Aucune correspondance trouvée</div>';
+      count.textContent = '';
+      return;
+    }
+    const c = gristCandidates[gristIdx];
+    box.innerHTML = `
+      <div class="cand-field"><span>Nom</span><strong>${esc(c.nom)}</strong></div>
+      <div class="cand-field"><span>SIREN</span><strong>${esc(c.siren ?? '')}</strong></div>
+      <div class="cand-field"><span>SIRET</span><strong>${esc(c.siret ?? '')}</strong></div>`;
+    count.textContent = `${gristIdx + 1} / ${gristCandidates.length}`;
+  }
+
+  function renderAnnuaireColumn() {
+    const box = document.getElementById('annuaireBox');
+    const count = document.getElementById('annuaireNavCount');
+    document.getElementById('annuairePrev').disabled = annuaireCandidates.length < 2;
+    document.getElementById('annuaireNext').disabled = annuaireCandidates.length < 2;
+    if (!annuaireCandidates.length) {
+      box.innerHTML = '<div class="empty-col">Aucune correspondance trouvée</div>';
+      count.textContent = '';
+      return;
+    }
+    const c = annuaireCandidates[annuaireIdx];
+    box.innerHTML = `
+      <div class="cand-field"><span>Nom</span><strong>${esc(c.nom)}</strong></div>
+      <div class="cand-field"><span>SIREN</span><strong>${esc(c.siren ?? '')}</strong></div>
+      <div class="cand-field"><span>SIRET</span><strong>${esc(c.siret ?? '')}</strong></div>
+      <div class="cand-field"><span>Adresse</span><strong>${esc(c.adresse ?? '')}</strong></div>`;
+    count.textContent = `${annuaireIdx + 1} / ${annuaireCandidates.length}`;
+  }
+
+  function groupLabel(id) {
+    if (id.startsWith('contact.')) return 'Contact';
+    if (id.startsWith('si.')) return 'Systèmes d’information';
+    if (id.startsWith('historique.')) return 'Historique de qualification';
+    if (id.startsWith('archive.')) return 'Archive (information)';
+    return 'Évaluation demandée';
+  }
+
+  function renderAllFields() {
+    const container = document.getElementById('allFields');
+    container.innerHTML = '';
+    if (!schema) return;
+
+    const groups = new Map();
+    schema.fields.forEach(f => {
+      if (COLUMN1_IDS.has(f.id) || f.deprecated || f.read_only) return;
+      const label = groupLabel(f.id);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(f);
+    });
+
+    for (const [label, fields] of groups) {
+      const section = document.createElement('div');
+      section.className = 'field-group';
+      const h = document.createElement('h4');
+      h.textContent = label;
+      section.appendChild(h);
+      const grid = document.createElement('div');
+      grid.className = 'field-grid';
+      fields.forEach(f => grid.appendChild(buildFieldInput(f)));
+      section.appendChild(grid);
+      container.appendChild(section);
+    }
+  }
+
+  function buildFieldInput(f) {
+    const wrap = document.createElement('label');
+    wrap.className = 'field-item';
+    const value = pdfFields[f.id];
+    let input;
+    if (f.type === 'checkbox') {
+      input = `<input type="checkbox" data-field="${esc(f.id)}" ${value ? 'checked' : ''}>`;
+    } else if (f.type === 'choice' || f.type === 'radio') {
+      const opts = (f.options || []).map(o => `<option value="${esc(o)}" ${o === value ? 'selected' : ''}>${esc(o)}</option>`).join('');
+      input = `<select data-field="${esc(f.id)}">${opts}</select>`;
+    } else {
+      input = `<input type="text" data-field="${esc(f.id)}" value="${esc(value ?? '')}"${f.maxlen ? ` maxlength="${f.maxlen}"` : ''}>`;
+    }
+    wrap.innerHTML = `<span>${esc(f.label || f.id)}</span>${input}`;
+    return wrap;
+  }
+
+  // Délégation : toute saisie dans col1Fields ou allFields met à jour pdfFields
+  for (const containerId of ['col1Fields', 'allFields']) {
+    document.getElementById(containerId).addEventListener('input', onFieldInput);
+    document.getElementById(containerId).addEventListener('change', onFieldInput);
+  }
+  function onFieldInput(e) {
+    const id = e.target.dataset.field;
+    if (!id) return;
+    pdfFields[id] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  }
+
+  document.getElementById('numTem404').addEventListener('input', e => { numTem404 = e.target.value; });
+  document.getElementById('dateReception').addEventListener('input', e => { dateReception = e.target.value; });
+
+  // ── Enregistrement (avec confirmation / diff avant écriture) ─────────────
+
+  document.getElementById('btnSave').addEventListener('click', () => {
+    if (!schema) {
+      showStatus('Aucune donnée à enregistrer — déposez un PDF ou sélectionnez une ligne.', 'error', 4000);
+      return;
+    }
+    const panel = document.getElementById('confirmPanel');
+    const action = currentRecordId
+      ? `Mettre à jour le dossier existant (id ${currentRecordId})`
+      : 'Créer un nouveau dossier';
+    panel.innerHTML = `
+      <div class="confirm-box">
+        <strong>${esc(action)}</strong>
+        <div>N° : ${esc(numTem404)} — Réception : ${esc(dateReception)} — Version : ${esc(schema.schema_version || '')}</div>
+        <div>Entreprise : ${esc(pdfFields['demandeur.nom'] || '')} — SIREN ${esc(pdfFields['demandeur.siren'] || '')} — SIRET ${esc(pdfFields['demandeur.siret'] || '')}</div>
+        <div>Lien GRIST : ${gristCandidates[gristIdx] ? esc(gristCandidates[gristIdx].nom) + ' (id ' + gristCandidates[gristIdx].id + ')' : 'aucun — non lié'}</div>
+        <div class="confirm-actions">
+          <button class="btn" id="btnConfirmSave">Confirmer l'enregistrement</button>
+          <button class="btn btn-secondary" id="btnCancelSave">Annuler</button>
+        </div>
+      </div>`;
+    panel.style.display = 'block';
+    document.getElementById('btnConfirmSave').addEventListener('click', confirmSave);
+    document.getElementById('btnCancelSave').addEventListener('click', () => { panel.style.display = 'none'; });
+  });
+
+  async function confirmSave() {
+    document.getElementById('confirmPanel').style.display = 'none';
+
+    const jsonComplet = {};
+    const jsonUtile = {};
+    schema.fields.forEach(f => {
+      jsonComplet[f.id] = pdfFields[f.id];
+      if (!f.grist_table) jsonUtile[f.id] = pdfFields[f.id];
+    });
+
+    const fields = {
+      NumTEM404: numTem404,
+      Date_Reception: dateReception ? Math.floor(new Date(dateReception + 'T00:00:00Z').getTime() / 1000) : null,
+      Version: String(schema.schema_version || ''),
+      Entreprise: gristCandidates[gristIdx]?.id ?? null, // lien de confort, n'écrit pas dans Entreprises
+      Json_Complet: JSON.stringify(jsonComplet),
+      Json_Utile: JSON.stringify(jsonUtile),
+    };
+
+    try {
+      if (currentRecordId) {
+        await grist.docApi.applyUserActions([['UpdateRecord', 'TEM_404', currentRecordId, fields]]);
+        showStatus('Dossier mis à jour.', 'success', 4000);
+      } else {
+        const res = await grist.docApi.applyUserActions([['AddRecord', 'TEM_404', null, fields]]);
+        currentRecordId = res?.retValues?.[0] ?? currentRecordId;
+        showStatus('Dossier enregistré.', 'success', 4000);
+      }
+    } catch (e) {
+      console.warn('confirmSave:', e);
+      showStatus(`Erreur à l'enregistrement : ${e.message}`, 'error');
+    }
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  function esc(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function showStatus(msg, type = '', duration = 0) {
+    const bar = document.getElementById('statusbar');
+    bar.textContent = msg;
+    bar.className = `statusbar ${type}`;
+    if (duration) setTimeout(() => { bar.textContent = ''; bar.className = 'statusbar'; }, duration);
+  }
+</script>
+</body>
+</html>
