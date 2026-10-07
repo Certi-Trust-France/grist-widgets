@@ -142,20 +142,6 @@
       gap: 8px;
     }
 
-    /* ── Confirmation avant enregistrement ── */
-    .confirm-panel { margin: 0 12px 12px; }
-    .confirm-box {
-      background: #fffbeb;
-      border: 1px solid #fcd34d;
-      border-radius: 8px;
-      padding: 12px;
-      font-size: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .confirm-actions { display: flex; gap: 8px; margin-top: 4px; }
-
     /* ── Pied de page : statut + enregistrer ── */
     .footer {
       position: sticky;
@@ -224,8 +210,6 @@
 </div>
 
 <div id="allFields" class="all-fields"></div>
-
-<div id="confirmPanel" class="confirm-panel" style="display:none"></div>
 
 <div class="footer">
   <div class="statusbar" id="statusbar"></div>
@@ -389,6 +373,40 @@
 
   const digitsOnly = v => String(v ?? '').replace(/\D/g, '');
 
+  // Normalisation + distance de Levenshtein : tolère fautes de frappe/accents
+  // (ex. « Orange cyberdefence » doit retrouver « Orange Cyberdefense »).
+  function normalizeName(s) {
+    return String(s ?? '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (!m) return n;
+    if (!n) return m;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) {
+        cur[j] = a[i - 1] === b[j - 1]
+          ? prev[j - 1]
+          : 1 + Math.min(prev[j - 1], prev[j], cur[j - 1]);
+      }
+      prev = cur;
+    }
+    return prev[n];
+  }
+
+  function nameSimilarity(a, b) {
+    if (!a || !b) return 0;
+    return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+  }
+
+  const NAME_SIMILARITY_THRESHOLD = 0.72;
+
   async function loadGristCandidates() {
     gristCandidates = [];
     gristIdx = 0;
@@ -396,7 +414,7 @@
       const tbl = await grist.docApi.fetchTable('Entreprises');
       const siren = digitsOnly(pdfFields['demandeur.siren']);
       const siret = digitsOnly(pdfFields['demandeur.siret']);
-      const nameLower = String(pdfFields['demandeur.nom'] || '').trim().toLowerCase();
+      const nameNorm = normalizeName(pdfFields['demandeur.nom']);
 
       const exact = [];
       const fuzzy = [];
@@ -406,11 +424,14 @@
         const rowSiren = digitsOnly(tbl.SIREN?.[i]);
         const rowSiret = digitsOnly(tbl.SIRET?.[i]);
         const rowName = String(tbl.Denomination?.[i] || '');
-        const rowNameLower = rowName.toLowerCase();
+        const rowNameNorm = normalizeName(rowName);
         const cand = { id, nom: rowName, siren: tbl.SIREN?.[i], siret: tbl.SIRET?.[i] };
-        if (siren && rowSiren && siren === rowSiren) exact.push(cand);
-        else if (siret && rowSiret && siret === rowSiret) exact.push(cand);
-        else if (nameLower && rowNameLower && (rowNameLower.includes(nameLower) || nameLower.includes(rowNameLower))) fuzzy.push(cand);
+        if (siren && rowSiren && siren === rowSiren) { exact.push(cand); continue; }
+        if (siret && rowSiret && siret === rowSiret) { exact.push(cand); continue; }
+        if (!nameNorm || !rowNameNorm) continue;
+        const isSubstring = rowNameNorm.includes(nameNorm) || nameNorm.includes(rowNameNorm);
+        const isSimilar = nameSimilarity(nameNorm, rowNameNorm) >= NAME_SIMILARITY_THRESHOLD;
+        if (isSubstring || isSimilar) fuzzy.push(cand);
       }
       gristCandidates = [...exact, ...fuzzy];
     } catch (e) { console.warn('loadGristCandidates:', e); }
@@ -429,6 +450,9 @@
   }
 
   // ── Rapprochement annuaire des entreprises (API publique) ────────────────
+  // Essaie SIRET, puis SIREN, puis nom : s'arrête à la première requête qui
+  // trouve quelque chose (un SIRET/SIREN de test ou erroné ne doit pas
+  // masquer une recherche par nom qui, elle, aurait trouvé l'entreprise).
 
   async function loadAnnuaireCandidates() {
     annuaireCandidates = [];
@@ -436,19 +460,33 @@
     const siret = digitsOnly(pdfFields['demandeur.siret']);
     const siren = digitsOnly(pdfFields['demandeur.siren']);
     const nom = String(pdfFields['demandeur.nom'] || '').trim();
-    const q = siret || siren || nom;
-    if (!q) return;
+
+    const queries = [...new Set([siret, siren, nom].filter(Boolean))];
+    let anyError = false;
+    for (const q of queries) {
+      const { results, error } = await searchAnnuaire(q);
+      if (error) anyError = true;
+      if (results.length) { annuaireCandidates = results; return; }
+    }
+    if (anyError) showStatus('Annuaire des entreprises injoignable (vérifiez la connexion).', 'error', 4000);
+  }
+
+  async function searchAnnuaire(q) {
     try {
       const resp = await fetch(`https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(q)}&per_page=5`);
-      if (!resp.ok) return;
+      if (!resp.ok) return { results: [], error: true };
       const data = await resp.json();
-      annuaireCandidates = (data.results || []).map(r => ({
+      const results = (data.results || []).map(r => ({
         siren: r.siren,
         nom: r.nom_complet || r.nom_raison_sociale || '',
         siret: r.siege?.siret || '',
         adresse: formatAdresseAnnuaire(r.siege),
       }));
-    } catch (e) { console.warn('loadAnnuaireCandidates:', e); }
+      return { results, error: false };
+    } catch (e) {
+      console.warn('searchAnnuaire:', q, e);
+      return { results: [], error: true };
+    }
   }
 
   function formatAdresseAnnuaire(siege) {
@@ -627,36 +665,35 @@
   document.getElementById('numTem404').addEventListener('input', e => { numTem404 = e.target.value; });
   document.getElementById('dateReception').addEventListener('input', e => { dateReception = e.target.value; });
 
-  // ── Enregistrement (avec confirmation / diff avant écriture) ─────────────
+  // ── Enregistrement (confirmation native avant écriture) ──────────────────
+  // window.confirm() plutôt qu'un panneau maison : toujours visible (modal
+  // bloquant), ne dépend pas du défilement de la page ni d'un styling CSS.
 
-  document.getElementById('btnSave').addEventListener('click', () => {
+  document.getElementById('btnSave').addEventListener('click', async () => {
     if (!schema) {
       showStatus('Aucune donnée à enregistrer — déposez un PDF ou sélectionnez une ligne.', 'error', 4000);
       return;
     }
-    const panel = document.getElementById('confirmPanel');
     const action = currentRecordId
       ? `Mettre à jour le dossier existant (id ${currentRecordId})`
       : 'Créer un nouveau dossier';
-    panel.innerHTML = `
-      <div class="confirm-box">
-        <strong>${esc(action)}</strong>
-        <div>N° : ${esc(numTem404)} — Réception : ${esc(dateReception)} — Version : ${esc(schema.schema_version || '')}</div>
-        <div>Entreprise : ${esc(pdfFields['demandeur.nom'] || '')} — SIREN ${esc(pdfFields['demandeur.siren'] || '')} — SIRET ${esc(pdfFields['demandeur.siret'] || '')}</div>
-        <div>Lien GRIST : ${gristCandidates[gristIdx] ? esc(gristCandidates[gristIdx].nom) + ' (id ' + gristCandidates[gristIdx].id + ')' : 'aucun — non lié'}</div>
-        <div class="confirm-actions">
-          <button class="btn" id="btnConfirmSave">Confirmer l'enregistrement</button>
-          <button class="btn btn-secondary" id="btnCancelSave">Annuler</button>
-        </div>
-      </div>`;
-    panel.style.display = 'block';
-    document.getElementById('btnConfirmSave').addEventListener('click', confirmSave);
-    document.getElementById('btnCancelSave').addEventListener('click', () => { panel.style.display = 'none'; });
+    const lien = gristCandidates[gristIdx]
+      ? `${gristCandidates[gristIdx].nom} (id ${gristCandidates[gristIdx].id})`
+      : 'aucun — non lié';
+    const resume = [
+      action,
+      `N° : ${numTem404 || '—'}`,
+      `Réception : ${dateReception || '—'}`,
+      `Version : ${schema.schema_version || '—'}`,
+      `Entreprise : ${pdfFields['demandeur.nom'] || '—'} — SIREN ${pdfFields['demandeur.siren'] || '—'} — SIRET ${pdfFields['demandeur.siret'] || '—'}`,
+      `Lien GRIST : ${lien}`,
+    ].join('\n');
+
+    if (!window.confirm(`Confirmer l'enregistrement ?\n\n${resume}`)) return;
+    await doSave();
   });
 
-  async function confirmSave() {
-    document.getElementById('confirmPanel').style.display = 'none';
-
+  async function doSave() {
     const jsonComplet = {};
     const jsonUtile = {};
     schema.fields.forEach(f => {
@@ -683,7 +720,7 @@
         showStatus('Dossier enregistré.', 'success', 4000);
       }
     } catch (e) {
-      console.warn('confirmSave:', e);
+      console.warn('doSave:', e);
       showStatus(`Erreur à l'enregistrement : ${e.message}`, 'error');
     }
   }
