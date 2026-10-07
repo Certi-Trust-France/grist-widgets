@@ -20,6 +20,8 @@ class Field:
     deprecated: str = None
     replaced_by: str = None
     read_only: bool = False
+    lines: int = 1  # >1 : champ texte agrandi sur plusieurs lignes (cf. draw_wide_field)
+    default: str = None  # valeur préremplie dans le PDF généré (ex. "Siège" pour f.site1.nom)
 
 
 def load_fields(front):

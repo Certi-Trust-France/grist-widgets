@@ -111,13 +111,25 @@ vérité consommée par le widget.
   flou par distance de Levenshtein) et annuaire des entreprises (fallback SIRET → SIREN → nom),
   écriture dans `TEM_404` uniquement (`Entreprise` en lien de confort). N'écrit pas encore dans
   `Entreprises`/`Sites`/`Systemes_Information`/`Contacts` (décision explicite, chantier séparé).
-- **Contenu transcrit depuis le PDF modèle v7.1** (schéma v1.3.0) : section A (dénomination,
-  SIREN/SIRET, adresse décomposée, téléphone, site internet — pas de n° TVA), A.2 (les deux
-  contacts réels : représentant légal, facturation/achat), et B en entier (B. Nature de la
-  demande pour les 6 programmes, B.2 Historique de qualification, B.3 Statut ANSSI). Les anciens
-  champs de démonstration (`historique.programme1.*`, `type_evaluation`, `archive.b2/b3.*`,
-  `contact.1.*`, `demandeur.adresse`/`adresse_siege`) sont dépréciés avec `replaced_by`. Sections
-  C à J (hors G, toujours en extrait de démo) restantes à transcrire.
+- **Contenu transcrit depuis le PDF modèle v7.1 — formulaire entier, schéma remis à plat en
+  v1.0.0** (296 champs AcroForm) : le formulaire n'ayant encore jamais été utilisé par un client,
+  tous les champs de démonstration/intermédiaires et leurs `deprecated`/`replaced_by` ont été
+  supprimés (pas de compatibilité ascendante à maintenir) ; tous les champs restants portent
+  `since: 1.0.0`. Structure finale : A.1 (dénomination, SIREN/SIRET, téléphone, site internet —
+  pas de n° TVA, pas d'adresse directe), **A.2 Sites** (jusqu'à 6 sites ; la ligne "Site 1 - Siège"
+  porte l'adresse de l'organisation via `demandeur.adresse1/2/code_postal/ville/pays`, `Nom du
+  site` par défaut "Siège"), A.3 Contacts (représentant légal, facturation/achat), B en entier (6
+  programmes + matrice "sites concernés par programme", B.7 Historique, B.8 Statut ANSSI —
+  `Version`/`Niveau`/`Type de demande` en listes déroulantes, ce dernier aligné sur
+  `Evaluations.Type_d_evaluation` sans "Complémentaire"), C (C.1-C.3 : cases à cocher libellées par
+  leur seule abréviation), D, E, F (ex-G, 3 SI × 6 programmes × 6 sites), G (planification), H
+  (liste de documentation), I (déclaration). Groupe 1 (écriture structurée future) couvre A.1/A.3
+  (`Entreprises`/`Contacts`) et F (`Systemes_Information` ; les cases à cocher programme/site n'ont
+  pas d'équivalent colonne unique et restent JSON-only).
+- **Widget** : code inchangé par ce nettoyage (`WIDGET_VERSION` reste à sa valeur courante,
+  indépendante de la version du schéma du formulaire) — il charge dynamiquement
+  `schemas/v{version}.json` selon le `_form_version` lu dans le PDF déposé, donc aucune mise à jour
+  n'était nécessaire pour accompagner le passage à la v1.0.0.
 
 ## 5. Spécifications pour la génération du formulaire
 
