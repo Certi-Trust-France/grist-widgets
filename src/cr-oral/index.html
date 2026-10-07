@@ -276,10 +276,11 @@ async function loadData(examId) {
 
   const entreprise = enti !== null ? String(entreprises.Denomination[enti] || '') : '';
 
-  // Responsable examens de l'entreprise (Contacts.Entreprise == entId && Responsable_examens)
+  // Responsable examens de l'entreprise (Contacts.Entreprise == entId && Programmes_Examens non vide)
+  // Programmes_Examens est une RefList:Programmes (ex-booléen Responsable_examens).
   let responsable = null;
   for (let k = 0; k < contacts.id.length; k++) {
-    if (contacts.Entreprise[k] === entId && contacts.Responsable_examens[k]) {
+    if (contacts.Entreprise[k] === entId && asList(contacts.Programmes_Examens[k]).length > 0) {
       responsable = { prenom: String(contacts.Prenom[k] || ''), nom: String(contacts.Nom[k] || ''), email: String(contacts.Courriel[k] || '') };
       break;
     }
