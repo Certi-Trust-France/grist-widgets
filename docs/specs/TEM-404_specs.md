@@ -106,8 +106,18 @@ vérité consommée par le widget.
 - Schéma Grist : `Systemes_Information` et `TEM_404` créés ; `Contacts.Programmes_Responsable` /
   `Programmes_Examens` ajoutées et migrées depuis les anciens booléens (conservés pour l'instant,
   suppression différée).
-- **Widget `src/tem-404_widget/` : reporté à un chantier ultérieur** (non développé dans ce
-  chantier-ci). Le dossier `schemas/` y est déjà déposé par `build_form.py` en préparation.
+- **Widget `src/tem-404_widget/` : développé** — glisser-déposer du PDF, lecture AcroForm via
+  pdf-lib, numérotation `[année]_TEM-404_[####]`, rapprochement GRIST (SIREN/SIRET exact + nom
+  flou par distance de Levenshtein) et annuaire des entreprises (fallback SIRET → SIREN → nom),
+  écriture dans `TEM_404` uniquement (`Entreprise` en lien de confort). N'écrit pas encore dans
+  `Entreprises`/`Sites`/`Systemes_Information`/`Contacts` (décision explicite, chantier séparé).
+- **Contenu transcrit depuis le PDF modèle v7.1** (schéma v1.3.0) : section A (dénomination,
+  SIREN/SIRET, adresse décomposée, téléphone, site internet — pas de n° TVA), A.2 (les deux
+  contacts réels : représentant légal, facturation/achat), et B en entier (B. Nature de la
+  demande pour les 6 programmes, B.2 Historique de qualification, B.3 Statut ANSSI). Les anciens
+  champs de démonstration (`historique.programme1.*`, `type_evaluation`, `archive.b2/b3.*`,
+  `contact.1.*`, `demandeur.adresse`/`adresse_siege`) sont dépréciés avec `replaced_by`. Sections
+  C à J (hors G, toujours en extrait de démo) restantes à transcrire.
 
 ## 5. Spécifications pour la génération du formulaire
 

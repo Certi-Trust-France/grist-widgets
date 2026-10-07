@@ -225,16 +225,21 @@
   // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
   // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
   // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
-  const WIDGET_VERSION = '1.2.0';
+  const WIDGET_VERSION = '1.3.0';
   document.getElementById('widgetTitle').textContent =
     `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
   const COLUMN1_FIELDS = [
-    ['demandeur.nom', 'Nom'],
-    ['demandeur.adresse', 'Adresse'],
+    ['demandeur.nom', 'Dénomination'],
     ['demandeur.siren', 'SIREN'],
     ['demandeur.siret', 'SIRET'],
-    ['demandeur.adresse_siege', 'Adresse du siège social'],
+    ['demandeur.adresse1', 'Adresse 1'],
+    ['demandeur.adresse2', 'Adresse 2'],
+    ['demandeur.code_postal', 'Code postal'],
+    ['demandeur.ville', 'Ville'],
+    ['demandeur.pays', 'Pays'],
+    ['demandeur.telephone', 'Téléphone'],
+    ['demandeur.site_internet', 'Site internet'],
   ];
   const COLUMN1_IDS = new Set(COLUMN1_FIELDS.map(([id]) => id));
 
@@ -449,7 +454,13 @@
       const tbl = await grist.docApi.fetchTable('Sites');
       for (let i = 0; i < tbl.id.length; i++) {
         if (tbl.Entreprise?.[i] === entrepriseId && tbl.Siege?.[i]) {
-          return [tbl.Street?.[i], tbl.Street2?.[i], tbl.Zip?.[i], tbl.City?.[i]].filter(Boolean).join(', ');
+          return {
+            street: tbl.Street?.[i] || '',
+            street2: tbl.Street2?.[i] || '',
+            zip: tbl.Zip?.[i] || '',
+            city: tbl.City?.[i] || '',
+            pays: tbl.Pays?.[i] || '',
+          };
         }
       }
     } catch (e) { console.warn('findSiegeAdresse:', e); }
@@ -487,18 +498,17 @@
         siren: r.siren,
         nom: r.nom_complet || r.nom_raison_sociale || '',
         siret: r.siege?.siret || '',
-        adresse: formatAdresseAnnuaire(r.siege),
+        adresse1: r.siege?.adresse || '',
+        adresse2: r.siege?.complement_adresse || '',
+        codePostal: r.siege?.code_postal || '',
+        ville: r.siege?.libelle_commune || '',
+        pays: 'France', // l'annuaire des entreprises ne couvre que les entreprises françaises
       }));
       return { results, error: false };
     } catch (e) {
       console.warn('searchAnnuaire:', q, e);
       return { results: [], error: true };
     }
-  }
-
-  function formatAdresseAnnuaire(siege) {
-    if (!siege) return '';
-    return [siege.adresse, siege.code_postal, siege.libelle_commune].filter(Boolean).join(' ');
   }
 
   // ── Boutons de remplacement (colonne 1 uniquement) ───────────────────────
@@ -512,8 +522,11 @@
     renderColumn1();
     const adr = await findSiegeAdresse(c.id);
     if (adr) {
-      pdfFields['demandeur.adresse'] = adr;
-      pdfFields['demandeur.adresse_siege'] = adr;
+      pdfFields['demandeur.adresse1'] = adr.street;
+      pdfFields['demandeur.adresse2'] = adr.street2;
+      pdfFields['demandeur.code_postal'] = adr.zip;
+      pdfFields['demandeur.ville'] = adr.city;
+      pdfFields['demandeur.pays'] = adr.pays;
       renderColumn1();
     }
   });
@@ -524,10 +537,11 @@
     pdfFields['demandeur.nom'] = c.nom || pdfFields['demandeur.nom'];
     pdfFields['demandeur.siren'] = c.siren != null ? String(c.siren) : pdfFields['demandeur.siren'];
     pdfFields['demandeur.siret'] = c.siret || pdfFields['demandeur.siret'];
-    if (c.adresse) {
-      pdfFields['demandeur.adresse'] = c.adresse;
-      pdfFields['demandeur.adresse_siege'] = c.adresse;
-    }
+    if (c.adresse1) pdfFields['demandeur.adresse1'] = c.adresse1;
+    if (c.adresse2) pdfFields['demandeur.adresse2'] = c.adresse2;
+    if (c.codePostal) pdfFields['demandeur.code_postal'] = c.codePostal;
+    if (c.ville) pdfFields['demandeur.ville'] = c.ville;
+    if (c.pays) pdfFields['demandeur.pays'] = c.pays;
     renderColumn1();
   });
 
@@ -602,16 +616,23 @@
       <div class="cand-field"><span>Nom</span><strong>${esc(c.nom)}</strong></div>
       <div class="cand-field"><span>SIREN</span><strong>${esc(c.siren ?? '')}</strong></div>
       <div class="cand-field"><span>SIRET</span><strong>${esc(c.siret ?? '')}</strong></div>
-      <div class="cand-field"><span>Adresse</span><strong>${esc(c.adresse ?? '')}</strong></div>`;
+      <div class="cand-field"><span>Adresse</span><strong>${esc(c.adresse1 ?? '')}</strong></div>
+      <div class="cand-field"><span>Ville</span><strong>${esc(c.ville ?? '')} ${esc(c.codePostal ?? '')}</strong></div>`;
     count.textContent = `${annuaireIdx + 1} / ${annuaireCandidates.length}`;
   }
 
+  const PROGRAMME_LABELS = { passi: 'PASSI', pacs: 'PACS', pris: 'PRIS', pdis: 'PDIS', pams: 'PAMS', secnumcloud: 'SecNumCloud' };
+
   function groupLabel(id) {
-    if (id.startsWith('contact.')) return 'Contact';
-    if (id.startsWith('si.')) return 'Systèmes d’information';
-    if (id.startsWith('historique.')) return 'Historique de qualification';
-    if (id.startsWith('archive.')) return 'Archive (information)';
-    return 'Évaluation demandée';
+    if (id.startsWith('contact.')) return 'A.2 — Contacts';
+    if (id.startsWith('si.')) return 'G — Systèmes d’information';
+    const bMatch = id.match(/^b\.([a-z]+)\./);
+    if (bMatch) return `B — ${PROGRAMME_LABELS[bMatch[1]] || bMatch[1]}`;
+    const b2Match = id.match(/^b2\.([a-z]+)\./);
+    if (b2Match) return `B.2 — Historique — ${PROGRAMME_LABELS[b2Match[1]] || b2Match[1]}`;
+    if (id.startsWith('b3.')) return 'B.3 — Statut ANSSI';
+    if (id.startsWith('historique.') || id.startsWith('archive.') || id === 'type_evaluation') return 'Anciens champs (démo)';
+    return 'Autres';
   }
 
   function renderAllFields() {

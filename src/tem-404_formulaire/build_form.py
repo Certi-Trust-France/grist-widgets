@@ -15,6 +15,11 @@ def main(md_path):
     front, body = frontmatter.parse(md_path.read_text(encoding="utf-8"))
     fields_by_id = schema.load_fields(front)
 
+    # Jetons d'affichage statique (pas des champs AcroForm) : remplacement littéral,
+    # pas de str.format() qui entrerait en conflit avec la syntaxe {{field_id}}.
+    body = body.replace("{{document_version}}", str(front["form"]["document_version"]))
+    body = body.replace("{{schema_version}}", str(front["form"]["schema_version"]))
+
     out_path = root / front["pdf"]["output"].format(document_version=front["form"]["document_version"])
     pdfgen.generate(front, body, fields_by_id, out_path)
 
