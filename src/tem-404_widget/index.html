@@ -44,9 +44,11 @@
       background: rgba(255,255,255,.18);
     }
 
-    /* ── Zone de dépôt du PDF ── */
+    /* ── Zone de dépôt du PDF + panneau d'info, chacun la moitié de la largeur ── */
+    .drop-row { display: flex; gap: 12px; margin: 12px; align-items: stretch; }
     .dropzone {
-      margin: 12px;
+      flex: 1;
+      min-width: 0;
       padding: 22px;
       border: 2px dashed #94a3b8;
       border-radius: 8px;
@@ -56,6 +58,24 @@
     }
     .dropzone.drag-over { border-color: #2563eb; background: #eff6ff; }
     .browse-label { color: #2563eb; cursor: pointer; font-weight: 600; text-decoration: underline; }
+
+    .drop-info {
+      flex: 1;
+      min-width: 0;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .drop-info-row { display: flex; justify-content: space-between; gap: 8px; }
+    .drop-info-row span { color: #64748b; }
+    .drop-message { font-size: 12px; margin-top: 2px; }
+    .drop-message.success { color: #0f5132; }
+    .drop-message.error { color: #842029; }
 
     /* ── Trois colonnes ── */
     .columns {
@@ -136,11 +156,17 @@
       padding: 10px;
     }
     .field-group h4 { font-size: 12px; margin-bottom: 8px; color: #334155; }
-    .field-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    /* Une field-row par sous-enregistrement logique (ex. un contact, une ligne SI) : un
+       retour à la ligne garanti entre deux sous-enregistrements, pas juste un flux qui
+       s'enroule selon la largeur disponible (cf. rowKeyFor). */
+    .field-row {
+      display: flex;
+      flex-wrap: wrap;
       gap: 8px;
+      margin-bottom: 8px;
     }
+    .field-row:last-child { margin-bottom: 0; }
+    .field-row .field-item { flex: 1 1 160px; max-width: 240px; }
 
     /* ── Pied de page : statut + enregistrer ── */
     .footer {
@@ -169,9 +195,16 @@
   <span id="versionLabel" class="version-badge"></span>
 </div>
 
-<div id="dropzone" class="dropzone">
-  Glissez-déposez le PDF TEM-404 rempli ici, ou
-  <label class="browse-label">parcourir<input type="file" id="fileInput" accept="application/pdf" hidden></label>
+<div class="drop-row">
+  <div id="dropzone" class="dropzone">
+    Glissez-déposez le PDF TEM-404 rempli ici, ou
+    <label class="browse-label">parcourir<input type="file" id="fileInput" accept="application/pdf" hidden></label>
+  </div>
+  <div id="dropInfo" class="drop-info">
+    <div class="drop-info-row"><span>Fichier déposé</span><strong id="dropFileName">—</strong></div>
+    <div class="drop-info-row"><span>Schéma détecté</span><strong id="dropSchemaVersion">—</strong></div>
+    <div id="dropMessage" class="drop-message"></div>
+  </div>
 </div>
 
 <div class="columns">
@@ -200,6 +233,7 @@
     <div class="col-header">
       Annuaire des entreprises
       <span class="nav">
+        <button class="btn btn-secondary" id="btnQueryAnnuaire" style="padding:3px 8px;font-size:11px;">Interroger l'annuaire</button>
         <button class="nav-btn" id="annuairePrev">‹</button>
         <span class="nav-count" id="annuaireNavCount"></span>
         <button class="nav-btn" id="annuaireNext">›</button>
@@ -225,7 +259,7 @@
   // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
   // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
   // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
-  const WIDGET_VERSION = '1.4.0';
+  const WIDGET_VERSION = '1.5.0';
   document.getElementById('widgetTitle').textContent =
     `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
@@ -254,6 +288,12 @@
   let annuaireCandidates = [];
   let annuaireIdx = 0;
 
+  // Rendu initial des colonnes 2/3 (état "aucune correspondance") : la zone de dépôt est
+  // toujours active indépendamment de toute sélection Grist (table TEM_404 vide comprise)
+  // — ce rendu évite juste que les colonnes restent visuellement vides au premier chargement.
+  renderGristColumn();
+  renderAnnuaireColumn();
+
   // ── Grist ────────────────────────────────────────────────────────────────
 
   grist.ready({ requiredAccess: 'full' });
@@ -273,7 +313,7 @@
     const version = String(record.Version ?? '');
     schema = await loadSchema(version) || fallbackSchemaFromKeys(complet);
 
-    await Promise.all([loadGristCandidates(), loadAnnuaireCandidates()]);
+    await loadGristCandidates(); // l'annuaire n'est interrogé que sur clic (bouton dédié)
     renderAll();
     showStatus(`Dossier ${esc(numTem404)} chargé.`, '', 2500);
   });
@@ -314,7 +354,9 @@
   });
 
   async function handlePdfFile(file) {
-    showStatus('Lecture du PDF…');
+    document.getElementById('dropFileName').textContent = file.name;
+    document.getElementById('dropSchemaVersion').textContent = '—';
+    setDropInfo('Lecture du PDF…');
     try {
       const bytes = await file.arrayBuffer();
       const pdfDoc = await PDFLib.PDFDocument.load(bytes);
@@ -323,13 +365,14 @@
       let formVersion = null;
       try { formVersion = form.getTextField('_form_version').getText(); } catch (e) { /* champ absent */ }
       if (!formVersion) {
-        showStatus('PDF non reconnu ou aplati (champs de formulaire absents) — impossible de le traiter.', 'error');
+        setDropInfo('PDF non reconnu ou aplati (champs de formulaire absents) — impossible de le traiter.', 'error');
         return;
       }
+      document.getElementById('dropSchemaVersion').textContent = formVersion;
 
       const loaded = await loadSchema(formVersion);
       if (!loaded) {
-        showStatus(`Version de schéma inconnue : ${esc(formVersion)}`, 'error');
+        setDropInfo(`Version de schéma inconnue : ${esc(formVersion)}`, 'error');
         return;
       }
       schema = loaded;
@@ -341,13 +384,19 @@
       numTem404 = await generateNumTem404();
       dateReception = new Date().toISOString().slice(0, 10);
 
-      await Promise.all([loadGristCandidates(), loadAnnuaireCandidates()]);
+      await loadGristCandidates(); // l'annuaire n'est interrogé que sur clic (bouton dédié)
       renderAll();
-      showStatus('PDF chargé.', 'success', 3000);
+      setDropInfo('PDF chargé.', 'success');
     } catch (e) {
       console.warn('handlePdfFile:', e);
-      showStatus(`Impossible de lire ce PDF : ${e.message}`, 'error');
+      setDropInfo(`Impossible de lire ce PDF : ${e.message}`, 'error');
     }
+  }
+
+  function setDropInfo(message, type = '') {
+    const el = document.getElementById('dropMessage');
+    el.textContent = message || '';
+    el.className = `drop-message ${type}`;
   }
 
   function readPdfField(form, f) {
@@ -551,6 +600,17 @@
     renderColumn1();
   });
 
+  document.getElementById('btnQueryAnnuaire').addEventListener('click', async () => {
+    const btn = document.getElementById('btnQueryAnnuaire');
+    btn.disabled = true;
+    try {
+      await loadAnnuaireCandidates();
+      renderAnnuaireColumn();
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   document.getElementById('gristPrev').addEventListener('click', () => { navCandidates('grist', -1); });
   document.getElementById('gristNext').addEventListener('click', () => { navCandidates('grist', 1); });
   document.getElementById('annuairePrev').addEventListener('click', () => { navCandidates('annuaire', -1); });
@@ -630,15 +690,27 @@
   const PROGRAMME_LABELS = { passi: 'PASSI', pacs: 'PACS', pris: 'PRIS', pdis: 'PDIS', pams: 'PAMS', secnumcloud: 'SecNumCloud' };
 
   function groupLabel(id) {
-    if (id.startsWith('contact.')) return 'A.2 — Contacts';
-    if (id.startsWith('si.')) return 'G — Systèmes d’information';
+    if (id.startsWith('contact.')) return 'A.3 — Contacts';
+    if (id.startsWith('si.')) return 'F — Systèmes d’information';
     const bMatch = id.match(/^b\.([a-z]+)\./);
     if (bMatch) return `B — ${PROGRAMME_LABELS[bMatch[1]] || bMatch[1]}`;
     const b2Match = id.match(/^b2\.([a-z]+)\./);
-    if (b2Match) return `B.2 — Historique — ${PROGRAMME_LABELS[b2Match[1]] || b2Match[1]}`;
-    if (id.startsWith('b3.')) return 'B.3 — Statut ANSSI';
-    if (id.startsWith('historique.') || id.startsWith('archive.') || id === 'type_evaluation') return 'Anciens champs (démo)';
+    if (b2Match) return `B.7 — Historique — ${PROGRAMME_LABELS[b2Match[1]] || b2Match[1]}`;
+    if (id.startsWith('b3.')) return 'B.8 — Statut ANSSI';
     return 'Autres';
+  }
+
+  // Sous-groupe au sein d'un groupe (= une ligne de rendu) : les champs répétés par
+  // motif de suffixe (programme_xxx, site_N) partagent une ligne entre eux (ex. les 6
+  // cases PASSI..SecNumCloud d'un SI), les autres partagent une ligne par préfixe
+  // d'identifiant une fois le dernier segment ôté (ex. contact.representant_legal.*
+  // ensemble, contact.facturation.* sur la ligne suivante).
+  function rowKeyFor(id) {
+    const m = id.match(/^(.*)\.(programme_\w+|site_\d+)$/);
+    if (m) return m[1] + (id.includes('.programme_') ? '.__programme' : '.__site');
+    const parts = id.split('.');
+    parts.pop();
+    return parts.join('.') || id;
   }
 
   function renderAllFields() {
@@ -646,24 +718,29 @@
     container.innerHTML = '';
     if (!schema) return;
 
-    const groups = new Map();
+    const groups = new Map(); // label -> Map(rowKey -> fields[])
     schema.fields.forEach(f => {
       if (COLUMN1_IDS.has(f.id) || f.deprecated || f.read_only) return;
       const label = groupLabel(f.id);
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label).push(f);
+      if (!groups.has(label)) groups.set(label, new Map());
+      const rows = groups.get(label);
+      const rk = rowKeyFor(f.id);
+      if (!rows.has(rk)) rows.set(rk, []);
+      rows.get(rk).push(f);
     });
 
-    for (const [label, fields] of groups) {
+    for (const [label, rows] of groups) {
       const section = document.createElement('div');
       section.className = 'field-group';
       const h = document.createElement('h4');
       h.textContent = label;
       section.appendChild(h);
-      const grid = document.createElement('div');
-      grid.className = 'field-grid';
-      fields.forEach(f => grid.appendChild(buildFieldInput(f)));
-      section.appendChild(grid);
+      for (const fields of rows.values()) {
+        const row = document.createElement('div');
+        row.className = 'field-row';
+        fields.forEach(f => row.appendChild(buildFieldInput(f)));
+        section.appendChild(row);
+      }
       container.appendChild(section);
     }
   }
