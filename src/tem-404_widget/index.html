@@ -225,7 +225,7 @@
   // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
   // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
   // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
-  const WIDGET_VERSION = '1.3.0';
+  const WIDGET_VERSION = '1.4.0';
   document.getElementById('widgetTitle').textContent =
     `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
@@ -355,7 +355,13 @@
       if (f.type === 'checkbox') {
         return form.getCheckBox(f.id).isChecked();
       }
-      if (f.type === 'choice' || f.type === 'radio') {
+      // 'radio' = vrai groupe de boutons radio (plusieurs widgets, un seul nom de champ,
+      // ex. f.siege : un bouton par ligne de site, un seul sélectionnable) — distinct de
+      // 'choice', qui est une liste déroulante classique.
+      if (f.type === 'radio') {
+        return form.getRadioGroup(f.id).getSelected() || '';
+      }
+      if (f.type === 'choice') {
         try { return form.getDropdown(f.id).getSelected()[0] || ''; }
         catch (e) { return form.getOptionList(f.id).getSelected()[0] || ''; }
       }
