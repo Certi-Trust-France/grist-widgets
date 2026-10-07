@@ -163,7 +163,7 @@
 <body>
 
 <div class="toolbar">
-  <h1>TEM-404 — Traitement du dossier</h1>
+  <h1 id="widgetTitle">TEM-404 — Traitement du dossier</h1>
   <label>N° <input id="numTem404" class="mini-input" placeholder="—"></label>
   <label>Réception <input id="dateReception" type="date" class="mini-input"></label>
   <span id="versionLabel" class="version-badge"></span>
@@ -221,6 +221,13 @@
   // Entreprises / Sites / Systemes_Information / Contacts dans cette itération :
   // les colonnes 2 et 3 ne sont que des aides visuelles de rapprochement, les boutons
   // « Remplacer par... » ne copient que dans les champs édités de la colonne 1 (PDF).
+
+  // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
+  // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
+  // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
+  const WIDGET_VERSION = '1.2.0';
+  document.getElementById('widgetTitle').textContent =
+    `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
   const COLUMN1_FIELDS = [
     ['demandeur.nom', 'Nom'],
