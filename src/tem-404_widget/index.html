@@ -301,7 +301,7 @@
   // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
   // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
   // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
-  const WIDGET_VERSION = '1.8.0';
+  const WIDGET_VERSION = '1.8.1';
   document.getElementById('widgetTitle').textContent =
     `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
@@ -1048,7 +1048,7 @@
 
     const row2 = document.createElement('div');
     row2.className = 'contact-row';
-    row2.appendChild(contactFlagCheckbox(c, 'legal', 'Responsable légal'));
+    row2.appendChild(contactFlagCheckbox(c, 'legal', 'Représentant légal'));
     row2.appendChild(contactFlagCheckbox(c, 'facturation', 'Facturation'));
     card.appendChild(row2);
 
@@ -1168,7 +1168,7 @@
       <div class="contact-grist-card">
         <strong>${esc(c.prenom)} ${esc(c.nom)}</strong><br>
         ${esc(c.courriel || '—')}${c.telephone ? ' · ' + esc(c.telephone) : ''}<br>
-        ${c.legal ? 'Responsable légal' : ''}${c.legal && c.facturation ? ' · ' : ''}${c.facturation ? 'Facturation' : ''}${(c.legal || c.facturation) ? '<br>' : ''}
+        ${c.legal ? 'Représentant légal' : ''}${c.legal && c.facturation ? ' · ' : ''}${c.facturation ? 'Facturation' : ''}${(c.legal || c.facturation) ? '<br>' : ''}
         Responsable : ${esc(c.programmeResponsable.join(', ') || '—')}<br>
         Examens : ${esc(c.programmeExamens.join(', ') || '—')}
       </div>`).join('');
@@ -1205,7 +1205,7 @@
       const match = findExistingContactMatch(existing, c);
       const progResp = [...c.programmeResponsable].map(p => PROGRAMME_LABELS[p]).join(', ') || '—';
       const progExam = [...c.programmeExamens].map(p => PROGRAMME_LABELS[p]).join(', ') || '—';
-      return `${match ? 'MAJ' : 'Création'} — ${c.prenom} ${c.nom} (${c.courriel || 'sans email'}) : légal=${c.legal ? 'oui' : 'non'}, facturation=${c.facturation ? 'oui' : 'non'}, responsable=${progResp}, examens=${progExam}`;
+      return `${match ? 'MAJ' : 'Création'} — ${c.prenom} ${c.nom} (${c.courriel || 'sans email'}) : représentant légal=${c.legal ? 'oui' : 'non'}, facturation=${c.facturation ? 'oui' : 'non'}, responsable=${progResp}, examens=${progExam}`;
     });
     const resume = [
       `Copier ${toCopy.length} contact(s) dans GRIST (remplace les programmes/rôles existants pour chacun) :`,
@@ -1224,8 +1224,13 @@
           Entreprise: entrepriseId,
           Representant_legal: c.legal,
           Facturation: c.facturation,
-          Programmes_Responsable: [...c.programmeResponsable].map(p => programmeIdByKey[p]).filter(Boolean),
-          Programmes_Examens: [...c.programmeExamens].map(p => programmeIdByKey[p]).filter(Boolean),
+          // RefList = CellValue Grist brut ['L', id1, id2, ...] (même tag que celui déjà
+          // utilisé en lecture, cf. asList ci-dessus) : applyUserActions ne fait pas
+          // l'encodage automatiquement comme le ferait une saisie dans la grille — un
+          // tableau nu (sans tag, y compris vide) est mal décodé côté GRIST et produit
+          // #KeyError / #IndexError dans la cellule.
+          Programmes_Responsable: ['L', ...[...c.programmeResponsable].map(p => programmeIdByKey[p]).filter(Boolean)],
+          Programmes_Examens: ['L', ...[...c.programmeExamens].map(p => programmeIdByKey[p]).filter(Boolean)],
         };
         return match ? ['UpdateRecord', 'Contacts', match.id, fields] : ['AddRecord', 'Contacts', null, fields];
       });

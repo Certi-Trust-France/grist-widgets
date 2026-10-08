@@ -121,7 +121,7 @@ vérité consommée par le widget.
   PASSI/PACS/PRIS) ; le widget les rassemble en une fiche par personne (clé de
   dédoublonnage : courriel, à défaut prénom+nom) et affiche, dans la grille générique « A.3
   — Contacts », deux cadres côte à côte : « TEM-404 » (une sous-carte éditable par contact
-  consolidé — case « à copier dans GRIST » cochée par défaut, coordonnées, « Responsable
+  consolidé — case « à copier dans GRIST » cochée par défaut, coordonnées, « Représentant
   légal »/« Facturation », 6 cases « Responsable programme », 3 cases « Responsable
   examens ») et « GRIST » (contacts existants de l'entreprise actuellement rapprochée,
   lecture seule). Bouton « Copier les contacts cochés dans GRIST » : pour chaque contact
@@ -132,6 +132,10 @@ vérité consommée par le widget.
   cocher, avec confirmation avant écriture. Nécessite une entreprise GRIST rapprochée
   (sinon message d'erreur, aucun lien `Entreprise` possible). N'écrit pas les anciens
   booléens `Responsable_de_programme`/`Responsable_examens` (supersédés par les RefList).
+  Les RefList sont écrites au format CellValue brut `['L', id1, id2, ...]` —
+  `applyUserActions` n'encode pas automatiquement un tableau nu, qui est mal décodé côté
+  GRIST et produit `#KeyError`/`#IndexError` dans la cellule (bug rencontré et corrigé en
+  v1.8.1).
 - **Contenu transcrit depuis le PDF modèle v7.1 — formulaire entier, schéma remis à plat en
   v1.0.0** (296 champs AcroForm) : le formulaire n'ayant encore jamais été utilisé par un client,
   tous les champs de démonstration/intermédiaires et leurs `deprecated`/`replaced_by` ont été
