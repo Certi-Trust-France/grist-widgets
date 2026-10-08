@@ -136,6 +136,29 @@ vérité consommée par le widget.
   `applyUserActions` n'encode pas automatiquement un tableau nu, qui est mal décodé côté
   GRIST et produit `#KeyError`/`#IndexError` dans la cellule (bug rencontré et corrigé en
   v1.8.1).
+- **Sections A.2 — Sites et F — Systèmes d'information (widget v1.9.0) : même principe
+  TEM-404 ↔ GRIST que les contacts, en plus simple (pas de consolidation, les 6 sites et les
+  3 SI du PDF sont déjà des slots numérotés distincts).**
+  - **A.2 — Sites** : un sous-cadre par site (1 à 6) dans le cadre « TEM-404 » — titre « Site
+    1 - Siège » / « Site 2 »… (pas de case « Siège » séparée), case « à copier dans GRIST »
+    (cochée par défaut pour le site 1 et pour tout site 2-6 non vide), champs nom/adresse/
+    adresse 2/code postal/commune/pays (les vrais champs du schéma : `demandeur.adresse*`
+    réutilisés pour le site 1, `f.site{n}.*` pour les sites 2-6 — édition via la délégation
+    générique déjà en place, pas de câblage spécifique). Cadre « GRIST » : sites existants de
+    l'entreprise rapprochée, lecture seule. Bouton « Copier les sites cochés dans GRIST » :
+    rapproche un site GRIST existant (site 1 → `Siege=true`, sinon par `Nom_site`) et fait un
+    `UpdateRecord`/`AddRecord` sur `Sites`.
+  - **F — Systèmes d'information** : un sous-cadre par SI (1 à 3), case « à copier dans
+    GRIST » (cochée par défaut si un nom ou un programme est renseigné), champs nom/
+    classification/date d'homologation + cases à cocher programmes/sites concernés. Cadre
+    « GRIST » : SI existants de l'entreprise rapprochée, lecture seule. Bouton « Copier les SI
+    cochés dans GRIST » (ignore les SI sans nom) : `UpdateRecord`/`AddRecord` sur
+    `Systemes_Information`, `Programmes`/`Sites` en RefList (`['L', ...]`, ids résolus
+    dynamiquement — `Sites` par correspondance de nom avec les sites déjà présents dans
+    GRIST, donc à copier après les sites pour de meilleurs résultats), `Date_Homologation`
+    convertie depuis le texte libre du PDF via le même parsing multi-format que
+    `Date_Reception`.
+  - Ces deux sections nécessitent elles aussi une entreprise GRIST rapprochée.
 - **Contenu transcrit depuis le PDF modèle v7.1 — formulaire entier, schéma remis à plat en
   v1.0.0** (296 champs AcroForm) : le formulaire n'ayant encore jamais été utilisé par un client,
   tous les champs de démonstration/intermédiaires et leurs `deprecated`/`replaced_by` ont été

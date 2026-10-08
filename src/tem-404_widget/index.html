@@ -301,7 +301,7 @@
   // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
   // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
   // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
-  const WIDGET_VERSION = '1.8.1';
+  const WIDGET_VERSION = '1.9.0';
   document.getElementById('widgetTitle').textContent =
     `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
@@ -692,6 +692,8 @@
       gristIdx = 0;
       renderGristColumn();
       refreshContactsGristBox();
+      refreshSitesGristBox();
+      refreshSIGristBox();
       showStatus('Nouvelle entreprise créée dans GRIST.', 'success', 4000);
     } catch (e) {
       console.warn('btnCreateClient:', e);
@@ -727,6 +729,8 @@
       await loadGristCandidates();
       renderGristColumn();
       refreshContactsGristBox();
+      refreshSitesGristBox();
+      refreshSIGristBox();
       showStatus('Entreprise GRIST mise à jour depuis le TEM-404.', 'success', 4000);
     } catch (e) {
       console.warn('btnUpdateFromTem404:', e);
@@ -764,6 +768,8 @@
       await loadGristCandidates();
       renderGristColumn();
       refreshContactsGristBox();
+      refreshSitesGristBox();
+      refreshSIGristBox();
       showStatus('Entreprise GRIST mise à jour depuis l’annuaire.', 'success', 4000);
     } catch (e) {
       console.warn('btnUpdateFromAnnuaire:', e);
@@ -793,6 +799,8 @@
       gristIdx = (gristIdx + delta + gristCandidates.length) % gristCandidates.length;
       renderGristColumn();
       refreshContactsGristBox();
+      refreshSitesGristBox();
+      refreshSIGristBox();
     } else {
       if (!annuaireCandidates.length) return;
       annuaireIdx = (annuaireIdx + delta + annuaireCandidates.length) % annuaireCandidates.length;
@@ -871,6 +879,7 @@
     // modélise par une seule fiche Contacts avec des RefList Programmes_Responsable /
     // Programmes_Examens. Ils ne doivent donc plus apparaître dans leur groupe "B — ...".
     if (/^b\.[a-z]+\.(chef_projet|responsable_examens)\./.test(id)) return 'A.3 — Contacts';
+    if (id.startsWith('f.site')) return 'A.2 — Sites';
     if (id.startsWith('si.')) return 'F — Systèmes d’information';
     const bMatch = id.match(/^b\.([a-z]+)\./);
     if (bMatch) return `B — ${PROGRAMME_LABELS[bMatch[1]] || bMatch[1]}`;
@@ -910,6 +919,8 @@
     });
 
     contactsGristBoxEl = null;
+    sitesGristBoxEl = null;
+    siGristBoxEl = null;
     for (const [label, rows] of groups) {
       const section = document.createElement('div');
       section.className = 'field-group';
@@ -918,6 +929,10 @@
       section.appendChild(h);
       if (label === 'A.3 — Contacts') {
         section.appendChild(buildContactsSection());
+      } else if (label === 'A.2 — Sites') {
+        section.appendChild(buildSitesSection());
+      } else if (label === 'F — Systèmes d’information') {
+        section.appendChild(buildSISection());
       } else {
         for (const fields of rows.values()) {
           const row = document.createElement('div');
@@ -1240,6 +1255,470 @@
     } catch (e) {
       console.warn('onCopyContactsClick:', e);
       showStatus(`Erreur à la copie des contacts : ${e.message}`, 'error');
+    }
+  }
+
+  // ── A.2 — Sites : cadre TEM-404 (gauche) / cadre GRIST (droite) ──────────
+  // Plus simple que les contacts : pas de consolidation (6 sites numérotés, pas de
+  // doublons à fusionner). Le site 1 réutilise l'adresse du demandeur (cf. décision du
+  // chantier précédent : "Site 1 - Siège" ne duplique pas de champs dédiés) ; les sites 2
+  // à 6 ont leurs propres champs `f.site{n}.*`. Les champs sont les vrais champs du
+  // schéma (via fieldById), rendus avec buildFieldInput : leur édition passe par la
+  // délégation déjà en place sur #allFields (data-field), pas de câblage spécifique.
+
+  const SITE_LABELS = { 1: 'Site 1 - Siège', 2: 'Site 2', 3: 'Site 3', 4: 'Site 4', 5: 'Site 5', 6: 'Site 6' };
+  let siteCopyFlags = {};     // { 1: true, 2: false, ... } état des cases "à copier dans GRIST"
+  let sitesGristBoxEl = null;
+
+  function fieldById(id) {
+    return (schema.fields.find(f => f.id === id)) || { id, label: id, type: 'text' };
+  }
+
+  function siteFieldIds(n) {
+    if (n === 1) {
+      return {
+        nom: 'f.site1.nom', adresse: 'demandeur.adresse1', adresse2: 'demandeur.adresse2',
+        codePostal: 'demandeur.code_postal', commune: 'demandeur.ville', pays: 'demandeur.pays',
+      };
+    }
+    return {
+      nom: `f.site${n}.nom`, adresse: `f.site${n}.adresse`, adresse2: `f.site${n}.adresse2`,
+      codePostal: `f.site${n}.code_postal`, commune: `f.site${n}.commune`, pays: `f.site${n}.pays`,
+    };
+  }
+
+  function buildSitesSection() {
+    siteCopyFlags = {};
+
+    const split = document.createElement('div');
+    split.className = 'contacts-split';
+
+    const left = document.createElement('div');
+    left.className = 'contacts-pane';
+    const leftTitle = document.createElement('h5');
+    leftTitle.textContent = 'TEM-404';
+    left.appendChild(leftTitle);
+    const cardsBox = document.createElement('div');
+    left.appendChild(cardsBox);
+    for (let n = 1; n <= 6; n++) cardsBox.appendChild(buildSiteCard(n));
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn btn-secondary';
+    copyBtn.textContent = 'Copier les sites cochés dans GRIST';
+    copyBtn.addEventListener('click', onCopySitesClick);
+    left.appendChild(copyBtn);
+
+    const right = document.createElement('div');
+    right.className = 'contacts-pane';
+    const rightTitle = document.createElement('h5');
+    rightTitle.textContent = 'GRIST';
+    right.appendChild(rightTitle);
+    sitesGristBoxEl = document.createElement('div');
+    sitesGristBoxEl.className = 'empty-col';
+    sitesGristBoxEl.textContent = 'Chargement…';
+    right.appendChild(sitesGristBoxEl);
+
+    split.appendChild(left);
+    split.appendChild(right);
+
+    refreshSitesGristBox();
+
+    return split;
+  }
+
+  function buildSiteCard(n) {
+    const ids = siteFieldIds(n);
+    const nom = pdfFields[ids.nom] || '';
+    const adresse = pdfFields[ids.adresse] || '';
+    const codePostal = pdfFields[ids.codePostal] || '';
+    const commune = pdfFields[ids.commune] || '';
+    const hasData = !!(nom || adresse || codePostal || commune);
+    siteCopyFlags[n] = n === 1 || hasData;
+
+    const card = document.createElement('div');
+    card.className = 'contact-card';
+
+    const header = document.createElement('div');
+    header.className = 'contact-card-header';
+    const title = document.createElement('strong');
+    title.textContent = SITE_LABELS[n];
+    const checkLabel = document.createElement('label');
+    checkLabel.className = 'contact-checkbox-group';
+    checkLabel.innerHTML = `<input type="checkbox" ${siteCopyFlags[n] ? 'checked' : ''}><span>À copier dans GRIST</span>`;
+    checkLabel.querySelector('input').addEventListener('change', e => { siteCopyFlags[n] = e.target.checked; });
+    header.appendChild(title);
+    header.appendChild(checkLabel);
+    card.appendChild(header);
+
+    const row = document.createElement('div');
+    row.className = 'contact-row';
+    [ids.nom, ids.adresse, ids.adresse2, ids.codePostal, ids.commune, ids.pays].forEach(id => {
+      row.appendChild(buildFieldInput(fieldById(id)));
+    });
+    card.appendChild(row);
+
+    return card;
+  }
+
+  async function loadExistingGristSites(entrepriseId) {
+    if (!entrepriseId) return [];
+    try {
+      const tbl = await grist.docApi.fetchTable('Sites');
+      const out = [];
+      for (let i = 0; i < tbl.id.length; i++) {
+        if (tbl.Entreprise?.[i] !== entrepriseId) continue;
+        out.push({
+          id: tbl.id[i],
+          nom: tbl.Nom_site?.[i] || '',
+          adresse: tbl.Street?.[i] || '',
+          adresse2: tbl.Street2?.[i] || '',
+          codePostal: tbl.Zip?.[i] || '',
+          commune: tbl.City?.[i] || '',
+          pays: tbl.Pays?.[i] || '',
+          siege: !!tbl.Siege?.[i],
+        });
+      }
+      return out;
+    } catch (e) { console.warn('loadExistingGristSites:', e); return []; }
+  }
+
+  function renderGristSitesBox(box, list) {
+    if (!list.length) {
+      box.innerHTML = '<div class="empty-col">Aucun site existant pour cette entreprise.</div>';
+      return;
+    }
+    box.innerHTML = list.map(s => `
+      <div class="contact-grist-card">
+        <strong>${esc(s.nom || (s.siege ? 'Siège' : '—'))}</strong>${s.siege ? ' · Siège' : ''}<br>
+        ${esc(s.adresse || '—')}${s.adresse2 ? ', ' + esc(s.adresse2) : ''}<br>
+        ${esc(s.codePostal || '')} ${esc(s.commune || '')}<br>
+        ${esc(s.pays || '')}
+      </div>`).join('');
+  }
+
+  async function refreshSitesGristBox() {
+    if (!sitesGristBoxEl) return;
+    const entrepriseId = gristCandidates[gristIdx]?.id ?? null;
+    if (!entrepriseId) {
+      sitesGristBoxEl.innerHTML = '<div class="empty-col">Aucune entreprise GRIST sélectionnée.</div>';
+      return;
+    }
+    const list = await loadExistingGristSites(entrepriseId);
+    renderGristSitesBox(sitesGristBoxEl, list);
+  }
+
+  function findExistingSiteMatch(existing, { isSiege, nom }) {
+    if (isSiege) {
+      const bySiege = existing.find(s => s.siege);
+      if (bySiege) return bySiege;
+    }
+    const nomNorm = (nom || '').trim().toLowerCase();
+    if (!nomNorm) return null;
+    return existing.find(s => (s.nom || '').trim().toLowerCase() === nomNorm) || null;
+  }
+
+  async function onCopySitesClick() {
+    const entrepriseId = gristCandidates[gristIdx]?.id ?? null;
+    if (!entrepriseId) {
+      showStatus('Aucune entreprise GRIST sélectionnée — impossible de lier les sites.', 'error', 4000);
+      return;
+    }
+
+    const toCopy = [];
+    for (let n = 1; n <= 6; n++) {
+      if (!siteCopyFlags[n]) continue;
+      const ids = siteFieldIds(n);
+      const site = {
+        n,
+        isSiege: n === 1,
+        nom: pdfFields[ids.nom] || (n === 1 ? 'Siège' : ''),
+        adresse: pdfFields[ids.adresse] || '',
+        adresse2: pdfFields[ids.adresse2] || '',
+        codePostal: pdfFields[ids.codePostal] || '',
+        commune: pdfFields[ids.commune] || '',
+        pays: pdfFields[ids.pays] || '',
+      };
+      if (!site.nom && !site.adresse && !site.codePostal && !site.commune) continue; // rien à copier
+      toCopy.push(site);
+    }
+    if (!toCopy.length) {
+      showStatus('Aucun site coché (avec des données) à copier.', 'error', 3000);
+      return;
+    }
+
+    const existing = await loadExistingGristSites(entrepriseId);
+    const lines = toCopy.map(s => {
+      const match = findExistingSiteMatch(existing, s);
+      return `${match ? 'MAJ' : 'Création'} — ${SITE_LABELS[s.n]} : ${s.nom || '—'} — ${s.adresse || '—'}, ${s.codePostal || '—'} ${s.commune || '—'}`;
+    });
+    const resume = [`Copier ${toCopy.length} site(s) dans GRIST :`, ...lines].join('\n');
+    if (!window.confirm(resume)) return;
+
+    try {
+      const actions = toCopy.map(s => {
+        const match = findExistingSiteMatch(existing, s);
+        const fields = {
+          Entreprise: entrepriseId,
+          Nom_site: s.nom,
+          Street: s.adresse,
+          Street2: s.adresse2,
+          Zip: s.codePostal,
+          City: s.commune,
+          Pays: s.pays,
+          Siege: s.isSiege,
+          Actif: true,
+        };
+        return match ? ['UpdateRecord', 'Sites', match.id, fields] : ['AddRecord', 'Sites', null, fields];
+      });
+      await grist.docApi.applyUserActions(actions);
+      await refreshSitesGristBox();
+      showStatus(`${toCopy.length} site(s) copié(s) dans GRIST.`, 'success', 4000);
+    } catch (e) {
+      console.warn('onCopySitesClick:', e);
+      showStatus(`Erreur à la copie des sites : ${e.message}`, 'error');
+    }
+  }
+
+  // ── F — Systèmes d'information : cadre TEM-404 (gauche) / cadre GRIST (droite) ──
+  // Même principe que les sites : 3 SI numérotés (si.1 à si.3), pas de consolidation.
+
+  const SI_COUNT = 3;
+  let siCopyFlags = {};
+  let siGristBoxEl = null;
+
+  function siFieldIds(n) {
+    return {
+      nom: `si.${n}.nom`,
+      classification: `si.${n}.classification`,
+      dateHomologation: `si.${n}.date_homologation`,
+      programmes: PROGRAMS.map(p => `si.${n}.programme_${p}`),
+      sites: [1, 2, 3, 4, 5, 6].map(m => `si.${n}.site_${m}`),
+    };
+  }
+
+  function buildSISection() {
+    siCopyFlags = {};
+
+    const split = document.createElement('div');
+    split.className = 'contacts-split';
+
+    const left = document.createElement('div');
+    left.className = 'contacts-pane';
+    const leftTitle = document.createElement('h5');
+    leftTitle.textContent = 'TEM-404';
+    left.appendChild(leftTitle);
+    const cardsBox = document.createElement('div');
+    left.appendChild(cardsBox);
+    for (let n = 1; n <= SI_COUNT; n++) cardsBox.appendChild(buildSICard(n));
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn btn-secondary';
+    copyBtn.textContent = 'Copier les SI cochés dans GRIST';
+    copyBtn.addEventListener('click', onCopySIClick);
+    left.appendChild(copyBtn);
+
+    const right = document.createElement('div');
+    right.className = 'contacts-pane';
+    const rightTitle = document.createElement('h5');
+    rightTitle.textContent = 'GRIST';
+    right.appendChild(rightTitle);
+    siGristBoxEl = document.createElement('div');
+    siGristBoxEl.className = 'empty-col';
+    siGristBoxEl.textContent = 'Chargement…';
+    right.appendChild(siGristBoxEl);
+
+    split.appendChild(left);
+    split.appendChild(right);
+
+    refreshSIGristBox();
+
+    return split;
+  }
+
+  function buildSICard(n) {
+    const ids = siFieldIds(n);
+    const nom = pdfFields[ids.nom] || '';
+    const hasData = !!nom || PROGRAMS.some(p => pdfFields[`si.${n}.programme_${p}`]);
+    siCopyFlags[n] = hasData;
+
+    const card = document.createElement('div');
+    card.className = 'contact-card';
+
+    const header = document.createElement('div');
+    header.className = 'contact-card-header';
+    const title = document.createElement('strong');
+    title.textContent = `SI n°${n}`;
+    const checkLabel = document.createElement('label');
+    checkLabel.className = 'contact-checkbox-group';
+    checkLabel.innerHTML = `<input type="checkbox" ${siCopyFlags[n] ? 'checked' : ''}><span>À copier dans GRIST</span>`;
+    checkLabel.querySelector('input').addEventListener('change', e => { siCopyFlags[n] = e.target.checked; });
+    header.appendChild(title);
+    header.appendChild(checkLabel);
+    card.appendChild(header);
+
+    const row1 = document.createElement('div');
+    row1.className = 'contact-row';
+    row1.appendChild(buildFieldInput(fieldById(ids.nom)));
+    row1.appendChild(buildFieldInput(fieldById(ids.classification)));
+    row1.appendChild(buildFieldInput(fieldById(ids.dateHomologation)));
+    card.appendChild(row1);
+
+    const row2 = document.createElement('div');
+    row2.className = 'contact-row';
+    const label2 = document.createElement('span');
+    label2.className = 'contact-row-label';
+    label2.textContent = 'Programmes';
+    row2.appendChild(label2);
+    ids.programmes.forEach(id => row2.appendChild(buildFieldInput(fieldById(id))));
+    card.appendChild(row2);
+
+    const row3 = document.createElement('div');
+    row3.className = 'contact-row';
+    const label3 = document.createElement('span');
+    label3.className = 'contact-row-label';
+    label3.textContent = 'Sites';
+    row3.appendChild(label3);
+    ids.sites.forEach(id => row3.appendChild(buildFieldInput(fieldById(id))));
+    card.appendChild(row3);
+
+    return card;
+  }
+
+  // Résout l'id GRIST d'un site TEM-404 (1 à 6) pour une liste de sites GRIST déjà
+  // chargée (cf. findExistingSiteMatch) : réutilisé pour résoudre Systemes_Information.Sites.
+  function siteGristIdForTem404Site(n, existingSites) {
+    const ids = siteFieldIds(n);
+    const nom = pdfFields[ids.nom] || (n === 1 ? 'Siège' : '');
+    const match = findExistingSiteMatch(existingSites, { isSiege: n === 1, nom });
+    return match ? match.id : null;
+  }
+
+  function findExistingSIMatch(existing, nom) {
+    const nomNorm = (nom || '').trim().toLowerCase();
+    if (!nomNorm) return null;
+    return existing.find(s => (s.nom || '').trim().toLowerCase() === nomNorm) || null;
+  }
+
+  function parseFreeDateToTimestamp(value) {
+    // si.N.date_homologation est un champ texte libre du PDF (pas de saisie contrainte) :
+    // on réutilise le même parsing multi-format qu'ailleurs (ISO / JJ-MM-AAAA / timestamp).
+    const iso = formatDateForInput(value);
+    if (!iso) return null;
+    return Math.floor(new Date(iso + 'T00:00:00Z').getTime() / 1000);
+  }
+
+  async function loadExistingGristSI(entrepriseId) {
+    if (!entrepriseId) return [];
+    try {
+      await loadProgrammeIds();
+      const idToLabel = {};
+      for (const [key, id] of Object.entries(programmeIdByKey)) idToLabel[id] = PROGRAMME_LABELS[key];
+      const tbl = await grist.docApi.fetchTable('Systemes_Information');
+      const sitesTbl = await grist.docApi.fetchTable('Sites');
+      const siteNameById = {};
+      for (let i = 0; i < sitesTbl.id.length; i++) {
+        siteNameById[sitesTbl.id[i]] = sitesTbl.Nom_site?.[i] || (sitesTbl.Siege?.[i] ? 'Siège' : '');
+      }
+      const asList = raw => Array.isArray(raw) ? raw.slice(1) : []; // RefList Grist : ['L', id1, id2…]
+      const out = [];
+      for (let i = 0; i < tbl.id.length; i++) {
+        if (tbl.Entreprise?.[i] !== entrepriseId) continue;
+        out.push({
+          id: tbl.id[i],
+          nom: tbl.Nom?.[i] || '',
+          classification: tbl.Classification?.[i] || '',
+          dateHomologation: tbl.Date_Homologation?.[i] ?? null,
+          programmes: asList(tbl.Programmes?.[i]).map(id => idToLabel[id]).filter(Boolean),
+          sites: asList(tbl.Sites?.[i]).map(id => siteNameById[id]).filter(Boolean),
+        });
+      }
+      return out;
+    } catch (e) { console.warn('loadExistingGristSI:', e); return []; }
+  }
+
+  function renderGristSIBox(box, list) {
+    if (!list.length) {
+      box.innerHTML = '<div class="empty-col">Aucun SI existant pour cette entreprise.</div>';
+      return;
+    }
+    box.innerHTML = list.map(s => `
+      <div class="contact-grist-card">
+        <strong>${esc(s.nom || '—')}</strong> · ${esc(s.classification || '—')}<br>
+        Homologation : ${esc(formatDateForInput(s.dateHomologation) || '—')}<br>
+        Programmes : ${esc(s.programmes.join(', ') || '—')}<br>
+        Sites : ${esc(s.sites.join(', ') || '—')}
+      </div>`).join('');
+  }
+
+  async function refreshSIGristBox() {
+    if (!siGristBoxEl) return;
+    const entrepriseId = gristCandidates[gristIdx]?.id ?? null;
+    if (!entrepriseId) {
+      siGristBoxEl.innerHTML = '<div class="empty-col">Aucune entreprise GRIST sélectionnée.</div>';
+      return;
+    }
+    const list = await loadExistingGristSI(entrepriseId);
+    renderGristSIBox(siGristBoxEl, list);
+  }
+
+  async function onCopySIClick() {
+    const entrepriseId = gristCandidates[gristIdx]?.id ?? null;
+    if (!entrepriseId) {
+      showStatus('Aucune entreprise GRIST sélectionnée — impossible de lier les SI.', 'error', 4000);
+      return;
+    }
+
+    const toCopy = [];
+    for (let n = 1; n <= SI_COUNT; n++) {
+      if (!siCopyFlags[n]) continue;
+      const ids = siFieldIds(n);
+      const nom = pdfFields[ids.nom] || '';
+      if (!nom) continue; // rien à copier sans nom de SI
+      toCopy.push({
+        n, nom,
+        classification: pdfFields[ids.classification] || '',
+        dateHomologation: pdfFields[ids.dateHomologation] || '',
+        programmes: PROGRAMS.filter(p => pdfFields[`si.${n}.programme_${p}`]),
+        sites: [1, 2, 3, 4, 5, 6].filter(m => pdfFields[`si.${n}.site_${m}`]),
+      });
+    }
+    if (!toCopy.length) {
+      showStatus('Aucun SI coché (avec un nom) à copier.', 'error', 3000);
+      return;
+    }
+
+    await loadProgrammeIds();
+    const existingSI = await loadExistingGristSI(entrepriseId);
+    const existingSites = await loadExistingGristSites(entrepriseId);
+
+    const lines = toCopy.map(s => {
+      const match = findExistingSIMatch(existingSI, s.nom);
+      const progLabels = s.programmes.map(p => PROGRAMME_LABELS[p]).join(', ') || '—';
+      const siteLabels = s.sites.map(m => SITE_LABELS[m]).join(', ') || '—';
+      return `${match ? 'MAJ' : 'Création'} — SI "${s.nom}" (${s.classification || 'classification —'}) : programmes=${progLabels}, sites=${siteLabels}`;
+    });
+    const resume = [`Copier ${toCopy.length} SI dans GRIST :`, ...lines].join('\n');
+    if (!window.confirm(resume)) return;
+
+    try {
+      const actions = toCopy.map(s => {
+        const match = findExistingSIMatch(existingSI, s.nom);
+        const siteIds = s.sites.map(m => siteGristIdForTem404Site(m, existingSites)).filter(Boolean);
+        const programmeIds = s.programmes.map(p => programmeIdByKey[p]).filter(Boolean);
+        const fields = {
+          Entreprise: entrepriseId,
+          Nom: s.nom,
+          Classification: s.classification,
+          Date_Homologation: parseFreeDateToTimestamp(s.dateHomologation),
+          Programmes: ['L', ...programmeIds],
+          Sites: ['L', ...siteIds],
+        };
+        return match ? ['UpdateRecord', 'Systemes_Information', match.id, fields] : ['AddRecord', 'Systemes_Information', null, fields];
+      });
+      await grist.docApi.applyUserActions(actions);
+      await refreshSIGristBox();
+      showStatus(`${toCopy.length} SI copié(s) dans GRIST.`, 'success', 4000);
+    } catch (e) {
+      console.warn('onCopySIClick:', e);
+      showStatus(`Erreur à la copie des SI : ${e.message}`, 'error');
     }
   }
 
