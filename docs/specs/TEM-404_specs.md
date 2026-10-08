@@ -108,9 +108,13 @@ vérité consommée par le widget.
   suppression différée).
 - **Widget `src/tem-404_widget/` : développé** — glisser-déposer du PDF, lecture AcroForm via
   pdf-lib, numérotation `[année]_TEM-404_[####]`, rapprochement GRIST (SIREN/SIRET exact + nom
-  flou par distance de Levenshtein) et annuaire des entreprises (fallback SIRET → SIREN → nom),
-  écriture dans `TEM_404` uniquement (`Entreprise` en lien de confort). N'écrit pas encore dans
-  `Entreprises`/`Sites`/`Systemes_Information`/`Contacts` (décision explicite, chantier séparé).
+  flou par distance de Levenshtein) et annuaire des entreprises (sur clic uniquement, bouton
+  dédié ; fallback SIRET → SIREN → nom), écriture dans `TEM_404` (`Entreprise` en lien de
+  confort). **Écrit aussi désormais dans `Entreprises` et `Sites`** (le site "Siège"
+  uniquement) via trois boutons dans le cadre GRIST : « Créer un nouveau client » (AddRecord),
+  « Remplacer par les données TEM-404 » / « ... par les données annuaire » (UpdateRecord sur
+  l'entreprise GRIST actuellement affichée), chacun avec confirmation avant écriture. Les sites
+  2 à 6 et `Contacts` restent hors périmètre (chantier séparé).
 - **Contenu transcrit depuis le PDF modèle v7.1 — formulaire entier, schéma remis à plat en
   v1.0.0** (296 champs AcroForm) : le formulaire n'ayant encore jamais été utilisé par un client,
   tous les champs de démonstration/intermédiaires et leurs `deprecated`/`replaced_by` ont été
