@@ -114,7 +114,24 @@ vérité consommée par le widget.
   uniquement) via trois boutons dans le cadre GRIST : « Créer un nouveau client » (AddRecord),
   « Remplacer par les données TEM-404 » / « ... par les données annuaire » (UpdateRecord sur
   l'entreprise GRIST actuellement affichée), chacun avec confirmation avant écriture. Les sites
-  2 à 6 et `Contacts` restent hors périmètre (chantier séparé).
+  2 à 6 restent hors périmètre (chantier séparé).
+- **Section A.3 — Contacts (widget v1.8.0) : consolidation TEM-404 ↔ GRIST.** Une même
+  personne peut apparaître plusieurs fois dans le PDF (représentant légal, facturation,
+  chef de projet d'un ou plusieurs des 6 programmes B.1-B.6, responsable examens
+  PASSI/PACS/PRIS) ; le widget les rassemble en une fiche par personne (clé de
+  dédoublonnage : courriel, à défaut prénom+nom) et affiche, dans la grille générique « A.3
+  — Contacts », deux cadres côte à côte : « TEM-404 » (une sous-carte éditable par contact
+  consolidé — case « à copier dans GRIST » cochée par défaut, coordonnées, « Responsable
+  légal »/« Facturation », 6 cases « Responsable programme », 3 cases « Responsable
+  examens ») et « GRIST » (contacts existants de l'entreprise actuellement rapprochée,
+  lecture seule). Bouton « Copier les contacts cochés dans GRIST » : pour chaque contact
+  coché, rapproche un contact GRIST existant (courriel, sinon nom+prénom) et fait un
+  `UpdateRecord`/`AddRecord` sur `Contacts` — **remplace** `Programmes_Responsable` /
+  `Programmes_Examens` (RefList, ids résolus dynamiquement depuis `Programmes.Nom_du_programme`,
+  jamais figés en dur) et `Representant_legal`/`Facturation` (Bool) par l'état des cases à
+  cocher, avec confirmation avant écriture. Nécessite une entreprise GRIST rapprochée
+  (sinon message d'erreur, aucun lien `Entreprise` possible). N'écrit pas les anciens
+  booléens `Responsable_de_programme`/`Responsable_examens` (supersédés par les RefList).
 - **Contenu transcrit depuis le PDF modèle v7.1 — formulaire entier, schéma remis à plat en
   v1.0.0** (296 champs AcroForm) : le formulaire n'ayant encore jamais été utilisé par un client,
   tous les champs de démonstration/intermédiaires et leurs `deprecated`/`replaced_by` ont été
