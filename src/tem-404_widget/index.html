@@ -174,6 +174,41 @@
        l'emporter indépendamment de l'ordre des règles. */
     .field-row .field-item.field-item-wide { flex: 1 1 100%; max-width: 100%; }
 
+    /* ── A.3 — Contacts : cadre TEM-404 (gauche) / cadre GRIST (droite) ── */
+    .contacts-split { display: flex; gap: 12px; align-items: flex-start; }
+    .contacts-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+    .contacts-pane h5 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: #64748b;
+    }
+    .contacts-pane .btn { align-self: flex-start; }
+    .contact-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: #f8fafc;
+    }
+    .contact-card-header { font-weight: 600; padding-bottom: 2px; border-bottom: 1px solid #e2e8f0; }
+    .contact-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+    .contact-row .field-item { flex: 1 1 110px; max-width: 200px; }
+    .contact-row-label { font-size: 12px; color: #64748b; flex: 0 0 auto; }
+    .contact-checkbox-group { display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
+    .contact-grist-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 12px;
+      background: #fff;
+      line-height: 1.6;
+    }
+    .contact-grist-card + .contact-grist-card { margin-top: 8px; }
+
     /* ── Pied de page : statut + enregistrer ── */
     .footer {
       position: sticky;
@@ -215,12 +250,8 @@
 
 <div class="columns">
   <div class="col col-pdf">
-    <div class="col-header">Entreprise (PDF)</div>
+    <div class="col-header">TEM-404</div>
     <div id="col1Fields" class="col-body"></div>
-    <div class="col-footer">
-      <button class="btn btn-secondary" id="btnReplaceGrist">Remplacer par données GRIST</button>
-      <button class="btn btn-secondary" id="btnReplaceAnnuaire">Remplacer par données annuaire</button>
-    </div>
   </div>
 
   <div class="col col-grist">
@@ -233,6 +264,11 @@
       </span>
     </div>
     <div id="gristBox" class="col-body"></div>
+    <div class="col-footer">
+      <button class="btn btn-secondary" id="btnCreateClient">Créer un nouveau client</button>
+      <button class="btn btn-secondary" id="btnUpdateFromTem404">Remplacer par les données TEM-404</button>
+      <button class="btn btn-secondary" id="btnUpdateFromAnnuaire">Remplacer par les données annuaire</button>
+    </div>
   </div>
 
   <div class="col col-annuaire">
@@ -257,15 +293,15 @@
 </div>
 
 <script>
-  // Widget lié à la table TEM_404. Ne touche volontairement pas aux tables
-  // Entreprises / Sites / Systemes_Information / Contacts dans cette itération :
-  // les colonnes 2 et 3 ne sont que des aides visuelles de rapprochement, les boutons
-  // « Remplacer par... » ne copient que dans les champs édités de la colonne 1 (PDF).
+  // Widget lié à la table TEM_404. Écrit aussi dans Entreprises + Sites (site "Siège"
+  // uniquement) et dans Contacts (section A.3, cf. buildContactsSection) — toujours via un
+  // bouton dédié et après confirmation explicite (window.confirm), jamais automatiquement.
+  // Sites 2 à 6 restent hors périmètre (chantier séparé).
 
   // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
   // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
   // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
-  const WIDGET_VERSION = '1.6.0';
+  const WIDGET_VERSION = '1.8.0';
   document.getElementById('widgetTitle').textContent =
     `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
@@ -330,10 +366,25 @@
     }
   });
 
-  function formatDateForInput(unixSeconds) {
-    if (!unixSeconds) return '';
-    const d = new Date(unixSeconds * 1000);
-    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  function formatDateForInput(value) {
+    // <input type="date"> n'accepte QUE le format AAAA-MM-JJ : quel que soit le format
+    // reçu de Grist, il faut le convertir. Selon la voie d'accès (grist.onRecord vs
+    // fetchTable) et le format d'affichage configuré sur la colonne, Grist peut renvoyer
+    // un timestamp Unix (secondes), une chaîne déjà ISO "AAAA-MM-JJ", ou une chaîne au
+    // format d'affichage français "JJ/MM/AAAA" (ou "JJ-MM-AAAA") : on gère les trois
+    // plutôt que de supposer un format fixe.
+    if (!value) return '';
+    if (typeof value === 'number') {
+      const d = new Date(value * 1000);
+      return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+    }
+    if (typeof value === 'string') {
+      let m = value.match(/^(\d{4})-(\d{2})-(\d{2})/); // AAAA-MM-JJ (ISO)
+      if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+      m = value.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); // JJ/MM/AAAA ou JJ-MM-AAAA
+      if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    }
+    return '';
   }
 
   async function loadSchema(version) {
@@ -522,22 +573,42 @@
     } catch (e) { console.warn('loadGristCandidates:', e); }
   }
 
-  async function findSiegeAdresse(entrepriseId) {
+  async function findSiegeSiteId(entrepriseId) {
     try {
       const tbl = await grist.docApi.fetchTable('Sites');
       for (let i = 0; i < tbl.id.length; i++) {
-        if (tbl.Entreprise?.[i] === entrepriseId && tbl.Siege?.[i]) {
-          return {
-            street: tbl.Street?.[i] || '',
-            street2: tbl.Street2?.[i] || '',
-            zip: tbl.Zip?.[i] || '',
-            city: tbl.City?.[i] || '',
-            pays: tbl.Pays?.[i] || '',
-          };
-        }
+        if (tbl.Entreprise?.[i] === entrepriseId && tbl.Siege?.[i]) return tbl.id[i];
       }
-    } catch (e) { console.warn('findSiegeAdresse:', e); }
+    } catch (e) { console.warn('findSiegeSiteId:', e); }
     return null;
+  }
+
+  // Crée ou met à jour (upsert) le site "Siège" d'une entreprise. Périmètre actuel :
+  // uniquement le site du siège (site 1 du TEM-404) ; les sites 2 à 6 et les contacts
+  // restent à faire dans un chantier séparé.
+  async function upsertSiege(entrepriseId, { nomSite, street, street2, zip, city, pays }) {
+    const fields = {
+      Entreprise: entrepriseId,
+      Nom_site: nomSite || 'Siège',
+      Street: street || '',
+      Street2: street2 || '',
+      Zip: zip || '',
+      City: city || '',
+      Pays: pays || '',
+      Siege: true,
+      Actif: true,
+    };
+    const existingId = await findSiegeSiteId(entrepriseId);
+    if (existingId) {
+      await grist.docApi.applyUserActions([['UpdateRecord', 'Sites', existingId, fields]]);
+    } else {
+      await grist.docApi.applyUserActions([['AddRecord', 'Sites', null, fields]]);
+    }
+  }
+
+  function sirenToInt(value) {
+    const digits = digitsOnly(value);
+    return digits ? Number(digits) : null;
   }
 
   // ── Rapprochement annuaire des entreprises (API publique) ────────────────
@@ -584,38 +655,120 @@
     }
   }
 
-  // ── Boutons de remplacement (colonne 1 uniquement) ───────────────────────
+  // ── Actions d'écriture GRIST (cadre "GRIST") ─────────────────────────────
+  // Périmètre actuel : Entreprises + le site "Siège" uniquement (adresse du siège).
+  // Les sites 2 à 6 et les Contacts restent à traiter dans un chantier séparé.
 
-  document.getElementById('btnReplaceGrist').addEventListener('click', async () => {
-    const c = gristCandidates[gristIdx];
-    if (!c) { showStatus('Aucune entreprise GRIST sélectionnée.', 'error', 3000); return; }
-    pdfFields['demandeur.nom'] = c.nom || pdfFields['demandeur.nom'];
-    pdfFields['demandeur.siren'] = c.siren != null ? String(c.siren) : pdfFields['demandeur.siren'];
-    pdfFields['demandeur.siret'] = c.siret || pdfFields['demandeur.siret'];
-    renderColumn1();
-    const adr = await findSiegeAdresse(c.id);
-    if (adr) {
-      pdfFields['demandeur.adresse1'] = adr.street;
-      pdfFields['demandeur.adresse2'] = adr.street2;
-      pdfFields['demandeur.code_postal'] = adr.zip;
-      pdfFields['demandeur.ville'] = adr.city;
-      pdfFields['demandeur.pays'] = adr.pays;
-      renderColumn1();
+  document.getElementById('btnCreateClient').addEventListener('click', async () => {
+    const nom = String(pdfFields['demandeur.nom'] || '').trim();
+    if (!nom) { showStatus('Dénomination manquante dans les données TEM-404.', 'error', 4000); return; }
+    const resume = [
+      'Créer une nouvelle entreprise dans GRIST (et son site "Siège") :',
+      `Dénomination : ${nom}`,
+      `SIREN : ${pdfFields['demandeur.siren'] || '—'} — SIRET : ${pdfFields['demandeur.siret'] || '—'}`,
+      `Adresse (siège) : ${pdfFields['demandeur.adresse1'] || '—'}, ${pdfFields['demandeur.code_postal'] || '—'} ${pdfFields['demandeur.ville'] || '—'}`,
+      gristCandidates.length
+        ? `⚠ ${gristCandidates.length} correspondance(s) déjà trouvée(s) dans GRIST pour cette entreprise — vérifier qu'il ne s'agit pas d'un doublon.`
+        : 'Aucune correspondance existante trouvée dans GRIST.',
+    ].join('\n');
+    if (!window.confirm(resume)) return;
+
+    try {
+      const res = await grist.docApi.applyUserActions([['AddRecord', 'Entreprises', null, {
+        Denomination: nom,
+        SIREN: sirenToInt(pdfFields['demandeur.siren']),
+        SIRET: pdfFields['demandeur.siret'] || '',
+      }]]);
+      const newId = res?.retValues?.[0];
+      await upsertSiege(newId, {
+        nomSite: pdfFields['f.site1.nom'],
+        street: pdfFields['demandeur.adresse1'],
+        street2: pdfFields['demandeur.adresse2'],
+        zip: pdfFields['demandeur.code_postal'],
+        city: pdfFields['demandeur.ville'],
+        pays: pdfFields['demandeur.pays'],
+      });
+      gristCandidates = [{ id: newId, nom, siren: pdfFields['demandeur.siren'], siret: pdfFields['demandeur.siret'] }];
+      gristIdx = 0;
+      renderGristColumn();
+      refreshContactsGristBox();
+      showStatus('Nouvelle entreprise créée dans GRIST.', 'success', 4000);
+    } catch (e) {
+      console.warn('btnCreateClient:', e);
+      showStatus(`Erreur à la création : ${e.message}`, 'error');
     }
   });
 
-  document.getElementById('btnReplaceAnnuaire').addEventListener('click', () => {
-    const c = annuaireCandidates[annuaireIdx];
-    if (!c) { showStatus('Aucun résultat d’annuaire sélectionné.', 'error', 3000); return; }
-    pdfFields['demandeur.nom'] = c.nom || pdfFields['demandeur.nom'];
-    pdfFields['demandeur.siren'] = c.siren != null ? String(c.siren) : pdfFields['demandeur.siren'];
-    pdfFields['demandeur.siret'] = c.siret || pdfFields['demandeur.siret'];
-    if (c.adresse1) pdfFields['demandeur.adresse1'] = c.adresse1;
-    if (c.adresse2) pdfFields['demandeur.adresse2'] = c.adresse2;
-    if (c.codePostal) pdfFields['demandeur.code_postal'] = c.codePostal;
-    if (c.ville) pdfFields['demandeur.ville'] = c.ville;
-    if (c.pays) pdfFields['demandeur.pays'] = c.pays;
-    renderColumn1();
+  document.getElementById('btnUpdateFromTem404').addEventListener('click', async () => {
+    const c = gristCandidates[gristIdx];
+    if (!c) { showStatus('Aucune entreprise GRIST sélectionnée.', 'error', 3000); return; }
+    const resume = [
+      `Remplacer les données de "${c.nom}" (id ${c.id}) par celles du TEM-404 :`,
+      `Dénomination : ${pdfFields['demandeur.nom'] || '—'}`,
+      `SIREN : ${pdfFields['demandeur.siren'] || '—'} — SIRET : ${pdfFields['demandeur.siret'] || '—'}`,
+      `Adresse (siège) : ${pdfFields['demandeur.adresse1'] || '—'}, ${pdfFields['demandeur.code_postal'] || '—'} ${pdfFields['demandeur.ville'] || '—'}`,
+    ].join('\n');
+    if (!window.confirm(resume)) return;
+
+    try {
+      await grist.docApi.applyUserActions([['UpdateRecord', 'Entreprises', c.id, {
+        Denomination: pdfFields['demandeur.nom'] || c.nom,
+        SIREN: sirenToInt(pdfFields['demandeur.siren']) ?? c.siren,
+        SIRET: pdfFields['demandeur.siret'] || c.siret,
+      }]]);
+      await upsertSiege(c.id, {
+        nomSite: pdfFields['f.site1.nom'],
+        street: pdfFields['demandeur.adresse1'],
+        street2: pdfFields['demandeur.adresse2'],
+        zip: pdfFields['demandeur.code_postal'],
+        city: pdfFields['demandeur.ville'],
+        pays: pdfFields['demandeur.pays'],
+      });
+      await loadGristCandidates();
+      renderGristColumn();
+      refreshContactsGristBox();
+      showStatus('Entreprise GRIST mise à jour depuis le TEM-404.', 'success', 4000);
+    } catch (e) {
+      console.warn('btnUpdateFromTem404:', e);
+      showStatus(`Erreur à la mise à jour : ${e.message}`, 'error');
+    }
+  });
+
+  document.getElementById('btnUpdateFromAnnuaire').addEventListener('click', async () => {
+    const c = gristCandidates[gristIdx];
+    const a = annuaireCandidates[annuaireIdx];
+    if (!c) { showStatus('Aucune entreprise GRIST sélectionnée.', 'error', 3000); return; }
+    if (!a) { showStatus('Aucun résultat d’annuaire sélectionné.', 'error', 3000); return; }
+    const resume = [
+      `Remplacer les données de "${c.nom}" (id ${c.id}) par celles de l'annuaire :`,
+      `Dénomination : ${a.nom || '—'}`,
+      `SIREN : ${a.siren ?? '—'} — SIRET : ${a.siret || '—'}`,
+      `Adresse (siège) : ${a.adresse1 || '—'}, ${a.codePostal || '—'} ${a.ville || '—'}`,
+    ].join('\n');
+    if (!window.confirm(resume)) return;
+
+    try {
+      await grist.docApi.applyUserActions([['UpdateRecord', 'Entreprises', c.id, {
+        Denomination: a.nom || c.nom,
+        SIREN: a.siren != null ? Number(a.siren) : c.siren,
+        SIRET: a.siret || c.siret,
+      }]]);
+      await upsertSiege(c.id, {
+        nomSite: pdfFields['f.site1.nom'],
+        street: a.adresse1,
+        street2: a.adresse2,
+        zip: a.codePostal,
+        city: a.ville,
+        pays: a.pays,
+      });
+      await loadGristCandidates();
+      renderGristColumn();
+      refreshContactsGristBox();
+      showStatus('Entreprise GRIST mise à jour depuis l’annuaire.', 'success', 4000);
+    } catch (e) {
+      console.warn('btnUpdateFromAnnuaire:', e);
+      showStatus(`Erreur à la mise à jour : ${e.message}`, 'error');
+    }
   });
 
   document.getElementById('btnQueryAnnuaire').addEventListener('click', async () => {
@@ -639,6 +792,7 @@
       if (!gristCandidates.length) return;
       gristIdx = (gristIdx + delta + gristCandidates.length) % gristCandidates.length;
       renderGristColumn();
+      refreshContactsGristBox();
     } else {
       if (!annuaireCandidates.length) return;
       annuaireIdx = (annuaireIdx + delta + annuaireCandidates.length) % annuaireCandidates.length;
@@ -706,9 +860,17 @@
   }
 
   const PROGRAMME_LABELS = { passi: 'PASSI', pacs: 'PACS', pris: 'PRIS', pdis: 'PDIS', pams: 'PAMS', secnumcloud: 'SecNumCloud' };
+  const PROGRAMS = Object.keys(PROGRAMME_LABELS);
+  const PROGRAMS_WITH_EXAMENS = ['passi', 'pacs', 'pris'];
 
   function groupLabel(id) {
     if (id.startsWith('contact.')) return 'A.3 — Contacts';
+    // Les chefs de projet / responsables examens de B.1-B.6 sont consolidés avec les
+    // contacts A.3 (cf. buildContactsSection) : une même personne peut être chef de
+    // projet de plusieurs programmes, ce que le PDF répète par programme mais que GRIST
+    // modélise par une seule fiche Contacts avec des RefList Programmes_Responsable /
+    // Programmes_Examens. Ils ne doivent donc plus apparaître dans leur groupe "B — ...".
+    if (/^b\.[a-z]+\.(chef_projet|responsable_examens)\./.test(id)) return 'A.3 — Contacts';
     if (id.startsWith('si.')) return 'F — Systèmes d’information';
     const bMatch = id.match(/^b\.([a-z]+)\./);
     if (bMatch) return `B — ${PROGRAMME_LABELS[bMatch[1]] || bMatch[1]}`;
@@ -747,19 +909,332 @@
       rows.get(rk).push(f);
     });
 
+    contactsGristBoxEl = null;
     for (const [label, rows] of groups) {
       const section = document.createElement('div');
       section.className = 'field-group';
       const h = document.createElement('h4');
       h.textContent = label;
       section.appendChild(h);
-      for (const fields of rows.values()) {
-        const row = document.createElement('div');
-        row.className = 'field-row';
-        fields.forEach(f => row.appendChild(buildFieldInput(f)));
-        section.appendChild(row);
+      if (label === 'A.3 — Contacts') {
+        section.appendChild(buildContactsSection());
+      } else {
+        for (const fields of rows.values()) {
+          const row = document.createElement('div');
+          row.className = 'field-row';
+          fields.forEach(f => row.appendChild(buildFieldInput(f)));
+          section.appendChild(row);
+        }
       }
       container.appendChild(section);
+    }
+  }
+
+  // ── A.3 — Contacts : consolidation TEM-404 ↔ GRIST ───────────────────────
+  // Une même personne physique peut apparaître plusieurs fois dans le TEM-404
+  // (représentant légal, facturation, chef de projet d'un ou plusieurs programmes,
+  // responsable examens PASSI/PACS/PRIS) alors que GRIST n'a qu'une fiche Contacts par
+  // personne, avec deux RefList (Programmes_Responsable / Programmes_Examens). On
+  // rassemble donc ici toutes les occurrences en une fiche par personne avant affichage.
+
+  let consolidatedContacts = [];   // fiches consolidées de la case TEM-404 (éditables)
+  let contactsGristBoxEl = null;   // noeud DOM de la case GRIST (A.3), pour rafraîchissement ciblé
+  let programmeIdByKey = null;     // { passi: <id Grist>, ... } résolu depuis Programmes.Nom_du_programme
+
+  function buildConsolidatedContacts() {
+    const sources = [
+      { prefix: 'contact.representant_legal', role: 'legal' },
+      { prefix: 'contact.facturation', role: 'facturation' },
+      ...PROGRAMS.map(p => ({ prefix: `b.${p}.chef_projet`, role: 'programme', programme: p })),
+      ...PROGRAMS_WITH_EXAMENS.map(p => ({ prefix: `b.${p}.responsable_examens`, role: 'examens', programme: p })),
+    ];
+    const byKey = new Map();
+    const order = [];
+    for (const src of sources) {
+      const prenom = String(pdfFields[`${src.prefix}.prenom`] || '').trim();
+      const nom = String(pdfFields[`${src.prefix}.nom`] || '').trim();
+      const courriel = String(pdfFields[`${src.prefix}.courriel`] || '').trim();
+      const telephone = String(pdfFields[`${src.prefix}.telephone`] || '').trim();
+      if (!prenom && !nom && !courriel) continue; // section non renseignée (programme non demandé, etc.)
+      // Clé de dédoublonnage : email si présent (le plus fiable), sinon prénom+nom.
+      const key = (courriel || `${prenom}|${nom}`).toLowerCase();
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          prenom, nom, courriel, telephone,
+          legal: false, facturation: false,
+          programmeResponsable: new Set(), programmeExamens: new Set(),
+          copyToGrist: true,
+        });
+        order.push(key);
+      }
+      const c = byKey.get(key);
+      c.prenom = c.prenom || prenom;
+      c.nom = c.nom || nom;
+      c.courriel = c.courriel || courriel;
+      c.telephone = c.telephone || telephone;
+      if (src.role === 'legal') c.legal = true;
+      if (src.role === 'facturation') c.facturation = true;
+      if (src.role === 'programme') c.programmeResponsable.add(src.programme);
+      if (src.role === 'examens') c.programmeExamens.add(src.programme);
+    }
+    return order.map(k => byKey.get(k));
+  }
+
+  function buildContactsSection() {
+    consolidatedContacts = buildConsolidatedContacts();
+
+    const split = document.createElement('div');
+    split.className = 'contacts-split';
+
+    const left = document.createElement('div');
+    left.className = 'contacts-pane';
+    const leftTitle = document.createElement('h5');
+    leftTitle.textContent = 'TEM-404';
+    left.appendChild(leftTitle);
+    const cardsBox = document.createElement('div');
+    cardsBox.className = 'contacts-cards';
+    left.appendChild(cardsBox);
+    renderContactCards(cardsBox);
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn btn-secondary';
+    copyBtn.textContent = 'Copier les contacts cochés dans GRIST';
+    copyBtn.addEventListener('click', onCopyContactsClick);
+    left.appendChild(copyBtn);
+
+    const right = document.createElement('div');
+    right.className = 'contacts-pane';
+    const rightTitle = document.createElement('h5');
+    rightTitle.textContent = 'GRIST';
+    right.appendChild(rightTitle);
+    contactsGristBoxEl = document.createElement('div');
+    contactsGristBoxEl.className = 'empty-col';
+    contactsGristBoxEl.textContent = 'Chargement…';
+    right.appendChild(contactsGristBoxEl);
+
+    split.appendChild(left);
+    split.appendChild(right);
+
+    refreshContactsGristBox();
+
+    return split;
+  }
+
+  function renderContactCards(container) {
+    container.innerHTML = '';
+    if (!consolidatedContacts.length) {
+      container.innerHTML = '<div class="empty-col">Aucun contact détecté dans le TEM-404.</div>';
+      return;
+    }
+    consolidatedContacts.forEach(c => container.appendChild(buildContactCard(c)));
+  }
+
+  function buildContactCard(c) {
+    const card = document.createElement('div');
+    card.className = 'contact-card';
+
+    const header = document.createElement('label');
+    header.className = 'contact-checkbox-group contact-card-header';
+    header.innerHTML = `<input type="checkbox" ${c.copyToGrist ? 'checked' : ''}><span>À copier dans GRIST</span>`;
+    header.querySelector('input').addEventListener('change', e => { c.copyToGrist = e.target.checked; });
+    card.appendChild(header);
+
+    const row1 = document.createElement('div');
+    row1.className = 'contact-row';
+    row1.appendChild(contactTextInput(c, 'nom', 'Nom'));
+    row1.appendChild(contactTextInput(c, 'prenom', 'Prénom'));
+    row1.appendChild(contactTextInput(c, 'courriel', 'Email'));
+    row1.appendChild(contactTextInput(c, 'telephone', 'Téléphone'));
+    card.appendChild(row1);
+
+    const row2 = document.createElement('div');
+    row2.className = 'contact-row';
+    row2.appendChild(contactFlagCheckbox(c, 'legal', 'Responsable légal'));
+    row2.appendChild(contactFlagCheckbox(c, 'facturation', 'Facturation'));
+    card.appendChild(row2);
+
+    // 6 programmes (PASSI/PACS/PRIS/PDIS/PAMS/SecNumCloud), alignés sur
+    // Contacts.Programmes_Responsable (RefList:Programmes) côté GRIST.
+    const row3 = document.createElement('div');
+    row3.className = 'contact-row';
+    const label3 = document.createElement('span');
+    label3.className = 'contact-row-label';
+    label3.textContent = 'Responsable programme';
+    row3.appendChild(label3);
+    PROGRAMS.forEach(p => row3.appendChild(contactSetCheckbox(c, 'programmeResponsable', p, PROGRAMME_LABELS[p])));
+    card.appendChild(row3);
+
+    const row4 = document.createElement('div');
+    row4.className = 'contact-row';
+    const label4 = document.createElement('span');
+    label4.className = 'contact-row-label';
+    label4.textContent = 'Responsable examens';
+    row4.appendChild(label4);
+    PROGRAMS_WITH_EXAMENS.forEach(p => row4.appendChild(contactSetCheckbox(c, 'programmeExamens', p, PROGRAMME_LABELS[p])));
+    card.appendChild(row4);
+
+    return card;
+  }
+
+  function contactTextInput(c, field, label) {
+    const wrap = document.createElement('label');
+    wrap.className = 'field-item';
+    wrap.innerHTML = `<span>${esc(label)}</span><input type="text" value="${esc(c[field] ?? '')}">`;
+    wrap.querySelector('input').addEventListener('input', e => { c[field] = e.target.value; });
+    return wrap;
+  }
+
+  function contactFlagCheckbox(c, field, label) {
+    const wrap = document.createElement('label');
+    wrap.className = 'contact-checkbox-group';
+    wrap.innerHTML = `<input type="checkbox" ${c[field] ? 'checked' : ''}><span>${esc(label)}</span>`;
+    wrap.querySelector('input').addEventListener('change', e => { c[field] = e.target.checked; });
+    return wrap;
+  }
+
+  function contactSetCheckbox(c, setField, programme, label) {
+    const wrap = document.createElement('label');
+    wrap.className = 'contact-checkbox-group';
+    const checked = c[setField].has(programme);
+    wrap.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''}><span>${esc(label)}</span>`;
+    wrap.querySelector('input').addEventListener('change', e => {
+      if (e.target.checked) c[setField].add(programme); else c[setField].delete(programme);
+    });
+    return wrap;
+  }
+
+  // Résout une seule fois les ids GRIST des programmes (table Programmes, colonne
+  // Nom_du_programme) — jamais d'id figé en dur, au cas où l'ordre/les ids diffèrent
+  // d'un document Grist à l'autre.
+  async function loadProgrammeIds() {
+    if (programmeIdByKey) return programmeIdByKey;
+    programmeIdByKey = {};
+    try {
+      const tbl = await grist.docApi.fetchTable('Programmes');
+      const byLabel = {};
+      for (const [key, label] of Object.entries(PROGRAMME_LABELS)) byLabel[label.toLowerCase()] = key;
+      for (let i = 0; i < tbl.id.length; i++) {
+        const nom = String(tbl.Nom_du_programme?.[i] || '').toLowerCase();
+        const key = byLabel[nom];
+        if (key) programmeIdByKey[key] = tbl.id[i];
+      }
+    } catch (e) { console.warn('loadProgrammeIds:', e); }
+    return programmeIdByKey;
+  }
+
+  async function loadExistingGristContacts(entrepriseId) {
+    if (!entrepriseId) return [];
+    try {
+      await loadProgrammeIds();
+      const idToLabel = {};
+      for (const [key, id] of Object.entries(programmeIdByKey)) idToLabel[id] = PROGRAMME_LABELS[key];
+      const tbl = await grist.docApi.fetchTable('Contacts');
+      const asList = raw => Array.isArray(raw) ? raw.slice(1) : []; // RefList Grist : ['L', id1, id2…]
+      const out = [];
+      for (let i = 0; i < tbl.id.length; i++) {
+        if (tbl.Entreprise?.[i] !== entrepriseId) continue;
+        out.push({
+          id: tbl.id[i],
+          nom: tbl.Nom?.[i] || '',
+          prenom: tbl.Prenom?.[i] || '',
+          courriel: tbl.Courriel?.[i] || '',
+          telephone: tbl.telephone?.[i] || '',
+          legal: !!tbl.Representant_legal?.[i],
+          facturation: !!tbl.Facturation?.[i],
+          programmeResponsable: asList(tbl.Programmes_Responsable?.[i]).map(id => idToLabel[id]).filter(Boolean),
+          programmeExamens: asList(tbl.Programmes_Examens?.[i]).map(id => idToLabel[id]).filter(Boolean),
+        });
+      }
+      return out;
+    } catch (e) { console.warn('loadExistingGristContacts:', e); return []; }
+  }
+
+  async function refreshContactsGristBox() {
+    if (!contactsGristBoxEl) return;
+    const entrepriseId = gristCandidates[gristIdx]?.id ?? null;
+    if (!entrepriseId) {
+      contactsGristBoxEl.innerHTML = '<div class="empty-col">Aucune entreprise GRIST sélectionnée.</div>';
+      return;
+    }
+    const list = await loadExistingGristContacts(entrepriseId);
+    renderGristContactsBox(contactsGristBoxEl, list);
+  }
+
+  function renderGristContactsBox(box, list) {
+    if (!list.length) {
+      box.innerHTML = '<div class="empty-col">Aucun contact existant pour cette entreprise.</div>';
+      return;
+    }
+    box.innerHTML = list.map(c => `
+      <div class="contact-grist-card">
+        <strong>${esc(c.prenom)} ${esc(c.nom)}</strong><br>
+        ${esc(c.courriel || '—')}${c.telephone ? ' · ' + esc(c.telephone) : ''}<br>
+        ${c.legal ? 'Responsable légal' : ''}${c.legal && c.facturation ? ' · ' : ''}${c.facturation ? 'Facturation' : ''}${(c.legal || c.facturation) ? '<br>' : ''}
+        Responsable : ${esc(c.programmeResponsable.join(', ') || '—')}<br>
+        Examens : ${esc(c.programmeExamens.join(', ') || '—')}
+      </div>`).join('');
+  }
+
+  function findExistingContactMatch(existing, c) {
+    const emailNorm = (c.courriel || '').trim().toLowerCase();
+    if (emailNorm) {
+      const byEmail = existing.find(e => (e.courriel || '').trim().toLowerCase() === emailNorm);
+      if (byEmail) return byEmail;
+    }
+    const nomNorm = (c.nom || '').trim().toLowerCase();
+    const prenomNorm = (c.prenom || '').trim().toLowerCase();
+    if (!nomNorm && !prenomNorm) return null;
+    return existing.find(e => (e.nom || '').trim().toLowerCase() === nomNorm && (e.prenom || '').trim().toLowerCase() === prenomNorm) || null;
+  }
+
+  async function onCopyContactsClick() {
+    const entrepriseId = gristCandidates[gristIdx]?.id ?? null;
+    if (!entrepriseId) {
+      showStatus('Aucune entreprise GRIST sélectionnée — impossible de lier les contacts.', 'error', 4000);
+      return;
+    }
+    const toCopy = consolidatedContacts.filter(c => c.copyToGrist && (c.nom || c.prenom || c.courriel));
+    if (!toCopy.length) {
+      showStatus('Aucun contact coché à copier.', 'error', 3000);
+      return;
+    }
+
+    await loadProgrammeIds();
+    const existing = await loadExistingGristContacts(entrepriseId);
+
+    const lines = toCopy.map(c => {
+      const match = findExistingContactMatch(existing, c);
+      const progResp = [...c.programmeResponsable].map(p => PROGRAMME_LABELS[p]).join(', ') || '—';
+      const progExam = [...c.programmeExamens].map(p => PROGRAMME_LABELS[p]).join(', ') || '—';
+      return `${match ? 'MAJ' : 'Création'} — ${c.prenom} ${c.nom} (${c.courriel || 'sans email'}) : légal=${c.legal ? 'oui' : 'non'}, facturation=${c.facturation ? 'oui' : 'non'}, responsable=${progResp}, examens=${progExam}`;
+    });
+    const resume = [
+      `Copier ${toCopy.length} contact(s) dans GRIST (remplace les programmes/rôles existants pour chacun) :`,
+      ...lines,
+    ].join('\n');
+    if (!window.confirm(resume)) return;
+
+    try {
+      const actions = toCopy.map(c => {
+        const match = findExistingContactMatch(existing, c);
+        const fields = {
+          Nom: c.nom,
+          Prenom: c.prenom,
+          Courriel: c.courriel,
+          telephone: c.telephone,
+          Entreprise: entrepriseId,
+          Representant_legal: c.legal,
+          Facturation: c.facturation,
+          Programmes_Responsable: [...c.programmeResponsable].map(p => programmeIdByKey[p]).filter(Boolean),
+          Programmes_Examens: [...c.programmeExamens].map(p => programmeIdByKey[p]).filter(Boolean),
+        };
+        return match ? ['UpdateRecord', 'Contacts', match.id, fields] : ['AddRecord', 'Contacts', null, fields];
+      });
+      await grist.docApi.applyUserActions(actions);
+      await refreshContactsGristBox();
+      showStatus(`${toCopy.length} contact(s) copié(s) dans GRIST.`, 'success', 4000);
+    } catch (e) {
+      console.warn('onCopyContactsClick:', e);
+      showStatus(`Erreur à la copie des contacts : ${e.message}`, 'error');
     }
   }
 
