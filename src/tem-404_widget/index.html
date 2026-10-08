@@ -130,9 +130,28 @@
       font-family: inherit;
     }
     .field-item textarea { resize: vertical; }
+    /* Une case à cocher ne doit pas hériter du padding/bordure des champs texte : sur une
+       case native, un padding fait dessiner le carré de la case *à l'intérieur* de la boîte
+       ainsi agrandie, ce qui la décale visuellement vers le bas/la droite au lieu de rester
+       alignée à gauche sous son libellé. */
+    .field-item input[type="checkbox"] {
+      padding: 0;
+      border: none;
+      width: 15px;
+      height: 15px;
+      align-self: flex-start;
+    }
 
     .cand-field { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; }
     .cand-field span { color: #64748b; }
+    .cand-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #475569;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid #e2e8f0;
+    }
     .empty-col { color: #94a3b8; font-style: italic; font-size: 12px; padding: 6px 0; }
 
     .btn {
@@ -301,7 +320,7 @@
   // Version du widget lui-même (à incrémenter à chaque changement notable) — distincte
   // de `schema.schema_version` (celle du formulaire PDF). Affichée dans le titre pour
   // vérifier facilement, en test, qu'on charge bien la dernière version déployée.
-  const WIDGET_VERSION = '1.9.0';
+  const WIDGET_VERSION = '1.9.1';
   document.getElementById('widgetTitle').textContent =
     `TEM-404 — Traitement du dossier — version du widget ${WIDGET_VERSION}`;
 
@@ -822,18 +841,24 @@
 
   function renderColumn1() {
     const el = document.getElementById('col1Fields');
+    // "Site 1 - Siège" réutilise les champs d'adresse du demandeur (décision déjà actée) :
+    // un intitulé au-dessus d'"Adresse 1" le rappelle visuellement, sans dupliquer de champ.
     el.innerHTML = COLUMN1_FIELDS.map(([id, label]) => `
+      ${id === 'demandeur.adresse1' ? `<div class="cand-section-title">${esc(SITE_LABELS[1])} :</div>` : ''}
       <label class="field-item">
         <span>${esc(label)}</span>
         <input type="text" data-field="${esc(id)}" value="${esc(pdfFields[id] ?? '')}">
       </label>`).join('');
   }
 
+  let gristSiegeBoxEl = null; // bloc "Site 1 - Siège" affiché sous Nom/SIREN/SIRET (cadre GRIST)
+
   function renderGristColumn() {
     const box = document.getElementById('gristBox');
     const count = document.getElementById('gristNavCount');
     document.getElementById('gristPrev').disabled = gristCandidates.length < 2;
     document.getElementById('gristNext').disabled = gristCandidates.length < 2;
+    gristSiegeBoxEl = null;
     if (!gristCandidates.length) {
       box.innerHTML = '<div class="empty-col">Aucune correspondance trouvée</div>';
       count.textContent = '';
@@ -843,8 +868,32 @@
     box.innerHTML = `
       <div class="cand-field"><span>Nom</span><strong>${esc(c.nom)}</strong></div>
       <div class="cand-field"><span>SIREN</span><strong>${esc(c.siren ?? '')}</strong></div>
-      <div class="cand-field"><span>SIRET</span><strong>${esc(c.siret ?? '')}</strong></div>`;
+      <div class="cand-field"><span>SIRET</span><strong>${esc(c.siret ?? '')}</strong></div>
+      <div class="cand-section-title">${esc(SITE_LABELS[1])} :</div>`;
     count.textContent = `${gristIdx + 1} / ${gristCandidates.length}`;
+
+    gristSiegeBoxEl = document.createElement('div');
+    gristSiegeBoxEl.textContent = 'Chargement…';
+    box.appendChild(gristSiegeBoxEl);
+    refreshGristSiegeBox();
+  }
+
+  async function refreshGristSiegeBox() {
+    if (!gristSiegeBoxEl) return;
+    const c = gristCandidates[gristIdx];
+    if (!c) return;
+    const sites = await loadExistingGristSites(c.id);
+    const siege = sites.find(s => s.siege);
+    if (!siege) {
+      gristSiegeBoxEl.innerHTML = '<div class="empty-col">Aucun site "Siège" existant.</div>';
+      return;
+    }
+    gristSiegeBoxEl.innerHTML = `
+      <div class="cand-field"><span>Adresse 1</span><strong>${esc(siege.adresse || '—')}</strong></div>
+      <div class="cand-field"><span>Adresse 2</span><strong>${esc(siege.adresse2 || '—')}</strong></div>
+      <div class="cand-field"><span>Code postal</span><strong>${esc(siege.codePostal || '—')}</strong></div>
+      <div class="cand-field"><span>Ville</span><strong>${esc(siege.commune || '—')}</strong></div>
+      <div class="cand-field"><span>Pays</span><strong>${esc(siege.pays || '—')}</strong></div>`;
   }
 
   function renderAnnuaireColumn() {
@@ -870,6 +919,9 @@
   const PROGRAMME_LABELS = { passi: 'PASSI', pacs: 'PACS', pris: 'PRIS', pdis: 'PDIS', pams: 'PAMS', secnumcloud: 'SecNumCloud' };
   const PROGRAMS = Object.keys(PROGRAMME_LABELS);
   const PROGRAMS_WITH_EXAMENS = ['passi', 'pacs', 'pris'];
+  // Numérotation des paragraphes B.1-B.6 (cf. TEM-404.md : ### B.1 PASSI, B.2 PACS, B.3
+  // PRIS, B.4 PDIS, B.5 PAMS, B.6 SecNumCloud) — purement un libellé d'affichage ici.
+  const PROGRAMME_B_NUMBER = { passi: '1', pacs: '2', pris: '3', pdis: '4', pams: '5', secnumcloud: '6' };
 
   function groupLabel(id) {
     if (id.startsWith('contact.')) return 'A.3 — Contacts';
@@ -877,17 +929,24 @@
     // contacts A.3 (cf. buildContactsSection) : une même personne peut être chef de
     // projet de plusieurs programmes, ce que le PDF répète par programme mais que GRIST
     // modélise par une seule fiche Contacts avec des RefList Programmes_Responsable /
-    // Programmes_Examens. Ils ne doivent donc plus apparaître dans leur groupe "B — ...".
+    // Programmes_Examens. Ils ne doivent donc plus apparaître dans leur groupe "B.N — ...".
     if (/^b\.[a-z]+\.(chef_projet|responsable_examens)\./.test(id)) return 'A.3 — Contacts';
     if (id.startsWith('f.site')) return 'A.2 — Sites';
     if (id.startsWith('si.')) return 'F — Systèmes d’information';
     const bMatch = id.match(/^b\.([a-z]+)\./);
-    if (bMatch) return `B — ${PROGRAMME_LABELS[bMatch[1]] || bMatch[1]}`;
+    if (bMatch) return `B.${PROGRAMME_B_NUMBER[bMatch[1]] || '?'} — ${PROGRAMME_LABELS[bMatch[1]] || bMatch[1]}`;
     const b2Match = id.match(/^b2\.([a-z]+)\./);
     if (b2Match) return `B.7 — Historique — ${PROGRAMME_LABELS[b2Match[1]] || b2Match[1]}`;
     if (id.startsWith('b3.')) return 'B.8 — Statut ANSSI';
     return 'Autres';
   }
+
+  // Ordre d'affichage forcé pour certains groupes : l'ordre naturel suit la première
+  // occurrence d'un champ de ce groupe dans schema.fields, qui ne correspond pas toujours
+  // à l'ordre souhaité à l'écran (ex. les champs f.site* sont déclarés tard dans le
+  // formulaire alors que "A.2 — Sites" doit s'afficher avant "A.3 — Contacts"). Les groupes
+  // non listés ici gardent leur ordre naturel, à la suite de ceux listés.
+  const GROUP_ORDER_PRIORITY = ['A.2 — Sites', 'A.3 — Contacts'];
 
   // Sous-groupe au sein d'un groupe (= une ligne de rendu) : les champs répétés par
   // motif de suffixe (programme_xxx, site_N) partagent une ligne entre eux (ex. les 6
@@ -921,7 +980,8 @@
     contactsGristBoxEl = null;
     sitesGristBoxEl = null;
     siGristBoxEl = null;
-    for (const [label, rows] of groups) {
+
+    const renderGroup = (label, rows) => {
       const section = document.createElement('div');
       section.className = 'field-group';
       const h = document.createElement('h4');
@@ -942,6 +1002,17 @@
         }
       }
       container.appendChild(section);
+    };
+
+    const alreadyRendered = new Set();
+    for (const label of GROUP_ORDER_PRIORITY) {
+      if (!groups.has(label)) continue;
+      renderGroup(label, groups.get(label));
+      alreadyRendered.add(label);
+    }
+    for (const [label, rows] of groups) {
+      if (alreadyRendered.has(label)) continue;
+      renderGroup(label, rows);
     }
   }
 
@@ -1300,7 +1371,9 @@
     left.appendChild(leftTitle);
     const cardsBox = document.createElement('div');
     left.appendChild(cardsBox);
-    for (let n = 1; n <= 6; n++) cardsBox.appendChild(buildSiteCard(n));
+    // Site 1 - Siège est traité séparément dans le cadre "TEM-404" principal et dans le
+    // cadre "GRIST" principal (cf. renderColumn1/renderGristColumn) : pas de doublon ici.
+    for (let n = 2; n <= 6; n++) cardsBox.appendChild(buildSiteCard(n));
     const copyBtn = document.createElement('button');
     copyBtn.className = 'btn btn-secondary';
     copyBtn.textContent = 'Copier les sites cochés dans GRIST';
@@ -1424,13 +1497,16 @@
     }
 
     const toCopy = [];
-    for (let n = 1; n <= 6; n++) {
+    // Site 1 - Siège est copié séparément par les boutons "Créer un nouveau client" /
+    // "Remplacer par les données TEM-404" / "... par les données annuaire" (upsertSiege) :
+    // ne pas le recopier ici.
+    for (let n = 2; n <= 6; n++) {
       if (!siteCopyFlags[n]) continue;
       const ids = siteFieldIds(n);
       const site = {
         n,
-        isSiege: n === 1,
-        nom: pdfFields[ids.nom] || (n === 1 ? 'Siège' : ''),
+        isSiege: false,
+        nom: pdfFields[ids.nom] || '',
         adresse: pdfFields[ids.adresse] || '',
         adresse2: pdfFields[ids.adresse2] || '',
         codePostal: pdfFields[ids.codePostal] || '',

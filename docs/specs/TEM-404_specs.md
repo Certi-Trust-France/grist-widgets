@@ -136,18 +136,26 @@ vérité consommée par le widget.
   `applyUserActions` n'encode pas automatiquement un tableau nu, qui est mal décodé côté
   GRIST et produit `#KeyError`/`#IndexError` dans la cellule (bug rencontré et corrigé en
   v1.8.1).
-- **Sections A.2 — Sites et F — Systèmes d'information (widget v1.9.0) : même principe
+- **Sections A.2 — Sites et F — Systèmes d'information (widget v1.9.1) : même principe
   TEM-404 ↔ GRIST que les contacts, en plus simple (pas de consolidation, les 6 sites et les
   3 SI du PDF sont déjà des slots numérotés distincts).**
-  - **A.2 — Sites** : un sous-cadre par site (1 à 6) dans le cadre « TEM-404 » — titre « Site
-    1 - Siège » / « Site 2 »… (pas de case « Siège » séparée), case « à copier dans GRIST »
-    (cochée par défaut pour le site 1 et pour tout site 2-6 non vide), champs nom/adresse/
-    adresse 2/code postal/commune/pays (les vrais champs du schéma : `demandeur.adresse*`
-    réutilisés pour le site 1, `f.site{n}.*` pour les sites 2-6 — édition via la délégation
-    générique déjà en place, pas de câblage spécifique). Cadre « GRIST » : sites existants de
-    l'entreprise rapprochée, lecture seule. Bouton « Copier les sites cochés dans GRIST » :
-    rapproche un site GRIST existant (site 1 → `Siege=true`, sinon par `Nom_site`) et fait un
+  - **A.2 — Sites** : un sous-cadre par site **2 à 6** dans le cadre « TEM-404 » (Site 1 -
+    Siège est exclu de cette section : il est déjà traité séparément, voir ci-dessous) —
+    titre « Site 2 »… case « à copier dans GRIST » (cochée par défaut pour tout site non
+    vide), champs nom/adresse/adresse 2/code postal/commune/pays (`f.site{n}.*`, édition via
+    la délégation générique déjà en place). Cadre « GRIST » : sites existants de l'entreprise
+    rapprochée, lecture seule. Bouton « Copier les sites cochés dans GRIST » (sites 2-6
+    uniquement) : rapproche un site GRIST existant par `Nom_site` et fait un
     `UpdateRecord`/`AddRecord` sur `Sites`.
+  - **Site 1 - Siège : traité directement dans les cadres principaux**, pas dans la section
+    A.2. Cadre « TEM-404 » principal (`col1Fields`) : intitulé « Site 1 - Siège : » affiché
+    au-dessus du champ « Adresse 1 » (rappel que ces champs `demandeur.adresse*` sont aussi
+    les données du site 1). Cadre « GRIST » principal (`gristBox`) : sous Nom/SIREN/SIRET,
+    intitulé « Site 1 - Siège : » puis adresse 1/2, code postal, ville, pays du site GRIST où
+    `Siege=true` pour l'entreprise rapprochée (lecture seule, chargé à part via
+    `loadExistingGristSites`). Les boutons « Remplacer par les données TEM-404 »/« ... par
+    les données annuaire » (déjà existants, `upsertSiege`) mettent à jour ce même site
+    Siège ; ce cadre se rafraîchit automatiquement après leur clic.
   - **F — Systèmes d'information** : un sous-cadre par SI (1 à 3), case « à copier dans
     GRIST » (cochée par défaut si un nom ou un programme est renseigné), champs nom/
     classification/date d'homologation + cases à cocher programmes/sites concernés. Cadre
@@ -155,10 +163,20 @@ vérité consommée par le widget.
     cochés dans GRIST » (ignore les SI sans nom) : `UpdateRecord`/`AddRecord` sur
     `Systemes_Information`, `Programmes`/`Sites` en RefList (`['L', ...]`, ids résolus
     dynamiquement — `Sites` par correspondance de nom avec les sites déjà présents dans
-    GRIST, donc à copier après les sites pour de meilleurs résultats), `Date_Homologation`
-    convertie depuis le texte libre du PDF via le même parsing multi-format que
-    `Date_Reception`.
-  - Ces deux sections nécessitent elles aussi une entreprise GRIST rapprochée.
+    GRIST, donc à copier après les sites pour de meilleurs résultats ; le site 1 - Siège y
+    est éligible via sa correspondance `Siege=true`), `Date_Homologation` convertie depuis le
+    texte libre du PDF via le même parsing multi-format que `Date_Reception`.
+  - Ces sections nécessitent elles aussi une entreprise GRIST rapprochée.
+  - **Ordre d'affichage de la grille générique** : forcé pour que « A.2 — Sites » précède
+    toujours « A.3 — Contacts » (`GROUP_ORDER_PRIORITY`), indépendamment de l'ordre naturel
+    des champs dans `schema.fields` (les champs `f.site*` sont déclarés tard dans le
+    formulaire, ce qui plaçait sinon cette section en toute fin de grille). Les en-têtes
+    « B — PROGRAMME » portent désormais leur numéro de paragraphe (« B.1 — PASSI » …
+    « B.6 — SecNumCloud »).
+  - **Correction d'affichage** : les cases à cocher de la grille générique (B.1-B.6, F — SI,
+    « Autres »...) héritaient à tort du padding/bordure des champs texte, ce qui décalait
+    visuellement le carré de la case par rapport à son libellé — réservé désormais aux
+    champs non-checkbox.
 - **Contenu transcrit depuis le PDF modèle v7.1 — formulaire entier, schéma remis à plat en
   v1.0.0** (296 champs AcroForm) : le formulaire n'ayant encore jamais été utilisé par un client,
   tous les champs de démonstration/intermédiaires et leurs `deprecated`/`replaced_by` ont été
