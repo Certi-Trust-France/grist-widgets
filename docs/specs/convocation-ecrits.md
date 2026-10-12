@@ -60,7 +60,11 @@ Template par défaut (personnalisable dans power automate) :
 ```
 destinataires :
 - le surveillant du centre d'examens
-- le responsable examens de l'entreprise du candidat
+- le(s) responsable(s) examens de l'entreprise du candidat, pour le(s) programme(s) des
+  examens de cette convocation (`Contacts.Programmes_Examens`, RefList:Programmes —
+  rapprochement par id de programme, pas par libellé affiché) : plusieurs contacts peuvent
+  être responsables examens du même programme chez un même client, ils sont tous mis en
+  copie (dédoublonnés par e-mail), pas seulement le premier trouvé
 - le candidat
 
 Objet : Convocation aux examens — [Programmes] du [Date_examen]
