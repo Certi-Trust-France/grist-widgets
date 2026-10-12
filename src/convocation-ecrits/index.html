@@ -342,7 +342,7 @@
   let selectedSession = null;   // { id, num, date, lieu, centreNom, centreAdresse, surveillantEmail, surveillantNom }
   let exams           = [];     // { id, candidatId, entrepriseId, qual, duration, dateHeure, programme, convocationEnvoyee }
   let candidateMap    = new Map(); // candId → { firstName, lastName, email }
-  let entContactMap   = new Map(); // entrepriseId → { email, nom } (responsable examens)
+  let entContactMap   = new Map(); // `${entrepriseId}|${programmeId}` → [{ email, nom }, ...] (responsables examens)
   let candidateSend   = new Map(); // candId → résultat de computeCandidateSend (recalculé à chaque buildHeader)
   let currentReqId    = 0;      // anti-race : chaque clic reçoit un id unique
 
@@ -471,21 +471,30 @@
       }
     } catch (e) { console.warn('Candidats:', e); }
 
-    // ── Contacts : responsable examens par entreprise (destinataire en copie) ──
+    // ── Contacts : responsables examens par entreprise + programme (destinataires en copie) ──
     // Programmes_Examens est une RefList:Programmes (ex-booléen Responsable_examens) ;
-    // Grist la renvoie au format brut ['L', id1, id2, ...] via fetchTable.
+    // Grist la renvoie au format brut ['L', id1, id2, ...] via fetchTable. Plusieurs
+    // contacts d'une même entreprise peuvent être responsables examens du même programme
+    // (ex. PASSI) : on les garde tous, indexés par `${entrepriseId}|${programmeId}`, au
+    // lieu de ne retenir que le premier trouvé pour l'entreprise entière.
     const asList = raw => Array.isArray(raw) ? raw.slice(1) : [];
     entContactMap.clear();
     try {
       const co = await grist.docApi.fetchTable('Contacts');
       for (let i = 0; i < co.id.length; i++) {
-        if (asList(co.Programmes_Examens?.[i]).length === 0) continue;
         const entId = co.Entreprise?.[i];
-        if (!entId || entContactMap.has(entId)) continue; // premier responsable trouvé par entreprise
-        entContactMap.set(entId, {
+        if (!entId) continue;
+        const progIds = asList(co.Programmes_Examens?.[i]);
+        if (!progIds.length) continue;
+        const contact = {
           email: String(co.Courriel?.[i] ?? ''),
           nom:   `${co.Prenom?.[i] ?? ''} ${co.Nom?.[i] ?? ''}`.trim(),
-        });
+        };
+        for (const progId of progIds) {
+          const key = `${entId}|${progId}`;
+          if (!entContactMap.has(key)) entContactMap.set(key, []);
+          entContactMap.get(key).push(contact);
+        }
       }
     } catch (e) { console.warn('Contacts:', e); }
 
@@ -505,6 +514,9 @@
           duration:     Number(et['Duree_minutes_']?.[i] || 100),
           dateHeure:    et.date_heure?.[i] > 0 ? et.date_heure[i] : null,
           programme:    String(et.gristHelper_Display10?.[i] ?? ''),
+          // Id brut (pas le libellé affiché) : sert à rapprocher les contacts responsables
+          // examens via Contacts.Programmes_Examens (RefList:Programmes, comparaison par id).
+          programmeId:  et.Programme?.[i] > 0 ? et.Programme[i] : 0,
           libelle:      String(et.gristHelper_Display?.[i]   ?? et.Libelle_examen_ecrit?.[i] ?? et.Libelle?.[i] ?? ''),
           convocationEnvoyee: String(et.convocation_envoyee?.[i] ?? ''),
         });
@@ -632,12 +644,25 @@
     if (!session?.surveillantTelephone) warnings.push('Téléphone du surveillant manquant dans le corps du mail.');
     if (candExams.some(e => !e.dateHeure)) errors.push('Horaire manquant pour au moins un examen.');
 
+    // Tous les responsables examens des programmes couverts par cette convocation (un même
+    // programme peut avoir plusieurs responsables chez le client — ils sont tous mis en
+    // copie, dédoublonnés par e-mail).
     const entId = candExams.find(e => e.entrepriseId)?.entrepriseId || 0;
-    const responsable = entContactMap.get(entId) || null;
-    if (!responsable) warnings.push('Aucun responsable examens trouvé pour l’entreprise — absent de la copie.');
+    const programmeIds = [...new Set(candExams.map(e => e.programmeId).filter(Boolean))];
+    const responsables = [];
+    const seenEmails = new Set();
+    for (const progId of programmeIds) {
+      for (const r of entContactMap.get(`${entId}|${progId}`) || []) {
+        const key = r.email.toLowerCase();
+        if (!r.email || seenEmails.has(key)) continue;
+        seenEmails.add(key);
+        responsables.push(r);
+      }
+    }
+    if (!responsables.length) warnings.push('Aucun responsable examens trouvé pour l’entreprise — absent de la copie.');
 
     const to = cand.email || '';
-    const cc = [session?.surveillantEmail, responsable?.email].filter(Boolean);
+    const cc = [session?.surveillantEmail, ...responsables.map(r => r.email)].filter(Boolean);
 
     const programmes = [...new Set(candExams.map(e => e.programme).filter(Boolean))];
     const dateStr = session?.date ? fmtDate(session.date) : '?';
