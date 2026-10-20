@@ -9,9 +9,8 @@ build/
 *.min.js
 *.min.css
 
-# Le PDF généré du TEM-404 est le livrable distribué : on le committe
-!/src/tem-404_formulaire/dist/
-!/src/tem-404_formulaire/dist/**
+# Générateur du formulaire TEM-404 : dépôt privé grist-widgets-private
+/src/tem-404_formulaire/
 
 # Python
 __pycache__/
