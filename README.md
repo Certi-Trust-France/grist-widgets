@@ -24,13 +24,12 @@ grist_widgets/
 │   │   └── index.html
 │   └── exam-drag-drop/        # Widget drag & drop sessions d'examen
 │       └── index.html
-├── docs/
-│   ├── specs/                 # Cahiers des charges fonctionnels
-│   └── studies/               # Études techniques et comparatives
 ├── CLAUDE.md                  # Instructions pour Claude Code
 ├── LICENSE                    # Licence exclusive Certi-Trust FRANCE SAS
 └── README.md
 ```
+
+Les spécifications et la documentation interne sont dans le dépôt privé `grist-widgets-private`.
 
 ---
 

@@ -25,9 +25,9 @@ __pycache__/
 *.pem
 .mcp.json
 
-# CT doc
-docs/specs/Evaluations(**).grist
-docs/specs/Plan_de_charge_Certitrust_V11.xlsx
+# Documentation interne et serveurs MCP : dépôt privé grist-widgets-private
+/docs/
+/mcp-servers/
 
 # Imports externes (CRM, facturation…) — jamais versionnés, dossier entier ignoré
 /import-externe/*
