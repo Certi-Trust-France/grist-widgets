@@ -208,7 +208,7 @@
 
       const missing = [
         ...missingCols('Examens_oraux', ex, ['Candidat', 'Qualifications', 'Notes_Qualifications', 'date_seule']),
-        ...missingCols(TABLE_QI, qi, ['Oral', 'Qualification', 'Note', 'Candidat', 'Date']),
+        ...missingCols(TABLE_QI, qi, ['Oral', 'Qualification', 'Candidat', 'Date']),
       ];
       if (missing.length) {
         orals = [];
@@ -390,7 +390,7 @@
     for (const o of list) {
       if (!integrable(o)) continue;
       for (const q of o.toCopy) {
-        rows.push({ Oral: o.id, Qualification: q.qualId, Note: q.note, Candidat: o.candidatId, Date: o.date });
+        rows.push({ Oral: o.id, Qualification: q.qualId, Candidat: o.candidatId, Date: o.date });
       }
     }
     if (!rows.length) return;
@@ -400,7 +400,7 @@
     showStatus(`Intégration de ${rows.length} ligne(s)…`);
     try {
       // Un seul BulkAddRecord : l'intégration est annulable en une fois (Ctrl+Z)
-      const cols = ['Oral', 'Qualification', 'Note', 'Candidat', 'Date'];
+      const cols = ['Oral', 'Qualification', 'Candidat', 'Date'];
       const values = Object.fromEntries(cols.map(c => [c, rows.map(r => r[c])]));
       await grist.docApi.applyUserActions([
         ['BulkAddRecord', TABLE_QI, rows.map(() => null), values],
