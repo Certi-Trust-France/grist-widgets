@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Attestations — oraux à intégrer</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      color: #1e293b;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+
+    /* ── Barre d'outils ── */
+    .toolbar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      background: #1e3a8a;
+      color: #fff;
+    }
+    .toolbar-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #bfdbfe;
+    }
+    .search {
+      width: 220px;
+      padding: 4px 8px;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .btn {
+      padding: 5px 14px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn-refresh { background: rgba(255,255,255,.18); color: #fff; }
+    .btn-refresh:hover:not(:disabled) { background: rgba(255,255,255,.3); }
+    .btn-all { background: #f59e0b; color: #1c1400; }
+    .btn-all:hover:not(:disabled) { background: #d97706; }
+    .btn-all.confirm { background: #dc2626; color: #fff; }
+    .btn-one { background: #2563eb; color: #fff; padding: 3px 10px; font-size: 11px; }
+    .btn-one:hover:not(:disabled) { background: #1d4ed8; }
+
+    /* ── Liste ── */
+    .main {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+    }
+    .empty {
+      padding: 40px;
+      text-align: center;
+      color: #94a3b8;
+      font-style: italic;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #e2e8f0;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      color: #334155;
+      padding: 6px 8px;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+    }
+    tr:hover td { background: #f8fafc; }
+    .cand { font-weight: 600; color: #1e3a8a; }
+    .ent  { font-size: 11px; color: #64748b; }
+
+    .chip {
+      display: inline-block;
+      margin: 1px 3px 1px 0;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .chip-3    { background: #ccfefe; color: #155e75; }
+    .chip-4    { background: #e1fede; color: #166534; }
+    .chip-done { background: #f1f5f9; color: #94a3b8; text-decoration: line-through; }
+
+    .warn {
+      display: block;
+      font-size: 11px;
+      color: #b45309;
+    }
+    .warn.block { color: #b91c1c; }
+
+    /* ── Pied de page ── */
+    .footer {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      background: #f1f5f9;
+      border-top: 1px solid #e2e8f0;
+    }
+    .statusbar {
+      font-size: 11px;
+      color: #64748b;
+      flex: 1;
+    }
+    .statusbar.ok    { color: #059669; }
+    .statusbar.error { color: #b91c1c; }
+    .counter { font-size: 11px; color: #64748b; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="toolbar-title">Oraux à intégrer dans Qualification_individuelle</span>
+  <input class="search" id="search" type="search" placeholder="Filtrer (candidat, entreprise, programme)…" />
+  <div style="flex:1"></div>
+  <button class="btn btn-refresh" id="btn-refresh" title="Recharger les oraux">⟳ Actualiser</button>
+  <button class="btn btn-all" id="btn-all" disabled>Tout intégrer</button>
+</div>
+
+<div class="main" id="main">
+  <div class="empty" id="empty">Chargement…</div>
+  <table id="table" style="display:none">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Candidat</th>
+        <th>Programme</th>
+        <th>Qualifications favorables</th>
+        <th>Contrôles</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div class="footer">
+  <span class="statusbar" id="statusbar"></span>
+  <span class="counter" id="counter"></span>
+</div>
+
+<script>
+  const TABLE_QI = 'Qualification_individuelle';
+  const FAVORABLES = ['3', '4'];
+
+  let orals    = [];     // oraux ayant quelque chose à signaler ou à copier (cf. analyseOral)
+  let busy     = false;
+  let confirmTimer = null;
+
+  /* ──────────────────────────────────────────
+     API Grist — table liée : Qualification_individuelle
+  ────────────────────────────────────────── */
+  grist.ready({ requiredAccess: 'full' });
+
+  // onRecords se déclenche à chaque modification de la table liée, y compris
+  // après nos propres BulkAddRecord : la liste se met donc à jour seule.
+  // Une modification de Examens_oraux ne la déclenche pas → bouton Actualiser.
+  grist.onRecords(() => { if (!busy) load(); });
+
+  document.getElementById('btn-refresh').addEventListener('click', () => load());
+  document.getElementById('search').addEventListener('input', render);
+  document.getElementById('btn-all').addEventListener('click', onClickAll);
+
+  /* ──────────────────────────────────────────
+     Chargement
+  ────────────────────────────────────────── */
+  async function load() {
+    try {
+      const [ex, qi, cand, ent, prog, ql] = await Promise.all([
+        grist.docApi.fetchTable('Examens_oraux'),
+        grist.docApi.fetchTable(TABLE_QI),
+        grist.docApi.fetchTable('Candidats'),
+        grist.docApi.fetchTable('Entreprises'),
+        grist.docApi.fetchTable('Programmes'),
+        grist.docApi.fetchTable('Qualifications_List'),
+      ]);
+
+      const missing = [
+        ...missingCols('Examens_oraux', ex, ['Candidat', 'Qualifications', 'Notes_Qualifications', 'date_seule']),
+        ...missingCols(TABLE_QI, qi, ['Oral', 'Qualification', 'Note', 'Candidat', 'Date']),
+      ];
+      if (missing.length) {
+        orals = [];
+        showEmpty('Colonne(s) introuvable(s) : ' + missing.join(', '));
+        return;
+      }
+
+      const candNames = indexBy(cand, i => `${cand.First_Name?.[i] ?? ''} ${cand.Last_Name?.[i] ?? ''}`.trim());
+      const entNames  = indexBy(ent,  i => String(ent.Denomination?.[i] ?? ''));
+      const progNames = indexBy(prog, i => String(prog.Nom_du_programme?.[i] ?? ''));
+      const qualCodes = indexBy(ql,   i => String(ql.Qualification_code?.[i] ?? ''));
+
+      // Qualifications déjà copiées, par oral
+      const copied = new Map();
+      for (let i = 0; i < qi.id.length; i++) {
+        const oralId = qi.Oral[i];
+        if (!oralId) continue;
+        if (!copied.has(oralId)) copied.set(oralId, new Set());
+        copied.get(oralId).add(qi.Qualification[i]);
+      }
+
+      orals = [];
+      for (let i = 0; i < ex.id.length; i++) {
+        const o = analyseOral({
+          id:        ex.id[i],
+          candidatId: ex.Candidat[i] || 0,
+          entId:     ex.Denomination?.[i] || 0,
+          progId:    ex.Programme?.[i] || 0,
+          date:      ex.date_seule[i] || null,
+          qualIds:   asList(ex.Qualifications[i]),
+          notes:     asList(ex.Notes_Qualifications[i]).map(String),
+        }, copied.get(ex.id[i]) || new Set());
+        if (!o) continue;
+        o.candidat   = candNames.get(o.candidatId) || '';
+        o.entreprise = entNames.get(o.entId) || '';
+        o.programme  = progNames.get(o.progId) || '';
+        o.quals.forEach(q => { q.code = qualCodes.get(q.qualId) || `#${q.qualId}`; });
+        orals.push(o);
+      }
+      orals.sort((a, b) => (b.date ?? 0) - (a.date ?? 0));
+
+      render();
+    } catch (e) {
+      console.error(e);
+      showEmpty('Erreur de chargement : ' + e.message);
+    }
+  }
+
+  /* Règles R1/R2 de la spec : une qualification de rang i est copiée si
+     Notes_Qualifications[i] vaut 3 ou 4. Retourne null si l'oral n'a rien
+     à copier ni à signaler (oral à jour, ou pas encore noté). */
+  function analyseOral(raw, copiedSet) {
+    const quals = raw.qualIds.map((qualId, i) => ({
+      qualId,
+      note: raw.notes[i] ?? '',
+      done: copiedSet.has(qualId),
+    }));
+    const favorables = quals.filter(q => FAVORABLES.includes(q.note));
+    const toCopy     = favorables.filter(q => !q.done);
+    const favIds     = new Set(favorables.map(q => q.qualId));
+    const extra      = [...copiedSet].filter(id => !favIds.has(id)).length;
+    const notesIncompletes = raw.notes.length > 0 && raw.notes.length < raw.qualIds.length;
+
+    if (!toCopy.length && !extra && !notesIncompletes) return null;
+
+    const blocking = [], warnings = [];
+    if (!raw.candidatId) blocking.push('candidat manquant');
+    if (!raw.date)       blocking.push('date manquante');
+    if (notesIncompletes) warnings.push(`notes incomplètes (${raw.notes.length}/${raw.qualIds.length})`);
+    if (extra) warnings.push(`${extra} qualification(s) copiée(s) sans note 3 ou 4 dans l'oral`);
+
+    return { ...raw, quals: favorables, toCopy, blocking, warnings };
+  }
+
+  /* ──────────────────────────────────────────
+     Rendu
+  ────────────────────────────────────────── */
+  function visibleOrals() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    if (!q) return orals;
+    return orals.filter(o =>
+      `${o.candidat} ${o.entreprise} ${o.programme}`.toLowerCase().includes(q));
+  }
+
+  function integrable(o) {
+    return o.toCopy.length > 0 && o.blocking.length === 0;
+  }
+
+  function render() {
+    resetConfirm();
+    const list  = visibleOrals();
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = '';
+
+    const ready = list.filter(integrable);
+    const nRows = ready.reduce((n, o) => n + o.toCopy.length, 0);
+    const btnAll = document.getElementById('btn-all');
+    btnAll.disabled = busy || ready.length === 0;
+    btnAll.textContent = ready.length
+      ? `Tout intégrer (${ready.length} oraux, ${nRows} lignes)`
+      : 'Tout intégrer';
+
+    document.getElementById('counter').textContent =
+      `${list.length} oral(aux) affiché(s) sur ${orals.length}`;
+
+    if (!list.length) {
+      showEmpty(orals.length ? 'Aucun oral ne correspond au filtre.' : 'Tous les oraux notés sont intégrés.');
+      return;
+    }
+    document.getElementById('empty').style.display = 'none';
+    document.getElementById('table').style.display = '';
+
+    for (const o of list) {
+      const tr = document.createElement('tr');
+
+      tr.appendChild(td(o.date ? fmtDate(o.date) : '—'));
+
+      const tdCand = document.createElement('td');
+      tdCand.innerHTML = `<span class="cand">${esc(o.candidat || '—')}</span><br><span class="ent">${esc(o.entreprise)}</span>`;
+      tr.appendChild(tdCand);
+
+      tr.appendChild(td(o.programme || '—'));
+
+      const tdQ = document.createElement('td');
+      tdQ.innerHTML = o.quals.map(q => {
+        const cls = q.done ? 'chip-done' : `chip-${q.note}`;
+        const title = q.done ? 'déjà intégrée' : `note ${q.note}`;
+        return `<span class="chip ${cls}" title="${title}">${esc(q.code)}</span>`;
+      }).join('') || '<span class="ent">aucune</span>';
+      tr.appendChild(tdQ);
+
+      const tdW = document.createElement('td');
+      tdW.innerHTML =
+        o.blocking.map(w => `<span class="warn block">⛔ ${esc(w)}</span>`).join('') +
+        o.warnings.map(w => `<span class="warn">⚠ ${esc(w)}</span>`).join('');
+      tr.appendChild(tdW);
+
+      const tdB = document.createElement('td');
+      if (o.toCopy.length) {
+        const b = document.createElement('button');
+        b.className = 'btn btn-one';
+        b.textContent = `Intégrer (${o.toCopy.length})`;
+        b.disabled = busy || !integrable(o);
+        b.title = o.blocking.length ? 'Impossible : ' + o.blocking.join(', ') : '';
+        b.addEventListener('click', () => integrate([o]));
+        tdB.appendChild(b);
+      }
+      tr.appendChild(tdB);
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  /* ──────────────────────────────────────────
+     Écriture
+  ────────────────────────────────────────── */
+  function onClickAll() {
+    const btn = document.getElementById('btn-all');
+    const ready = visibleOrals().filter(integrable);
+    if (!ready.length) return;
+
+    // Double clic de confirmation : confirm() peut être bloqué dans l'iframe du widget
+    if (!btn.classList.contains('confirm')) {
+      btn.classList.add('confirm');
+      btn.textContent = `Confirmer l'intégration de ${ready.length} oraux ?`;
+      confirmTimer = setTimeout(render, 5000);
+      return;
+    }
+    integrate(ready);
+  }
+
+  function resetConfirm() {
+    clearTimeout(confirmTimer);
+    document.getElementById('btn-all').classList.remove('confirm');
+  }
+
+  async function integrate(list) {
+    const rows = [];
+    for (const o of list) {
+      if (!integrable(o)) continue;
+      for (const q of o.toCopy) {
+        rows.push({ Oral: o.id, Qualification: q.qualId, Note: q.note, Candidat: o.candidatId, Date: o.date });
+      }
+    }
+    if (!rows.length) return;
+
+    busy = true;
+    render();
+    showStatus(`Intégration de ${rows.length} ligne(s)…`);
+    try {
+      // Un seul BulkAddRecord : l'intégration est annulable en une fois (Ctrl+Z)
+      const cols = ['Oral', 'Qualification', 'Note', 'Candidat', 'Date'];
+      const values = Object.fromEntries(cols.map(c => [c, rows.map(r => r[c])]));
+      await grist.docApi.applyUserActions([
+        ['BulkAddRecord', TABLE_QI, rows.map(() => null), values],
+      ]);
+      showStatus(`${rows.length} qualification(s) intégrée(s) depuis ${list.length} oral(aux).`, 'ok', 5000);
+    } catch (e) {
+      console.error(e);
+      showStatus('Échec de l’intégration : ' + e.message, 'error');
+    } finally {
+      busy = false;
+      await load();
+    }
+  }
+
+  /* ──────────────────────────────────────────
+     Utilitaires
+  ────────────────────────────────────────── */
+  // RefList et ChoiceList arrivent au format brut ['L', v1, v2, ...] via fetchTable
+  function asList(raw) {
+    return Array.isArray(raw) && raw[0] === 'L' ? raw.slice(1) : [];
+  }
+
+  function indexBy(table, fn) {
+    const m = new Map();
+    for (let i = 0; i < (table.id?.length ?? 0); i++) m.set(table.id[i], fn(i));
+    return m;
+  }
+
+  function missingCols(tableId, table, cols) {
+    return cols.filter(c => !(c in table)).map(c => `${tableId}.${c}`);
+  }
+
+  function td(text) {
+    const e = document.createElement('td');
+    e.textContent = text;
+    return e;
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  // Les colonnes Date de Grist sont des secondes UTC à minuit → lecture en UTC
+  function fmtDate(ts) {
+    const d = new Date(ts * 1000);
+    return [d.getUTCDate(), d.getUTCMonth() + 1, d.getUTCFullYear()]
+      .map((v, i) => i < 2 ? String(v).padStart(2, '0') : v).join('/');
+  }
+
+  function showEmpty(msg) {
+    const e = document.getElementById('empty');
+    e.textContent = msg;
+    e.style.display = 'block';
+    document.getElementById('table').style.display = 'none';
+  }
+
+  function showStatus(msg, type = '', dur = 0) {
+    const bar = document.getElementById('statusbar');
+    bar.textContent = msg;
+    bar.className = 'statusbar' + (type ? ' ' + type : '');
+    if (dur) setTimeout(() => { bar.textContent = ''; bar.className = 'statusbar'; }, dur);
+  }
+</script>
+</body>
+</html>
