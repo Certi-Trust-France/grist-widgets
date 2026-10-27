@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Synthèse mensuelle des examinateurs</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      color: #1e293b;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+
+    /* ── Barre d'outils ── */
+    .toolbar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 6px 12px;
+      background: #1e3a8a;
+      color: #fff;
+    }
+    .toolbar-title { font-size: 12px; font-weight: 600; color: #bfdbfe; }
+    .toolbar label { font-size: 12px; color: #dbeafe; }
+    .toolbar select {
+      padding: 3px 6px;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .spacer { flex: 1; }
+    .btn {
+      padding: 5px 14px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn-light { background: rgba(255,255,255,.18); color: #fff; }
+    .btn-light:hover:not(:disabled) { background: rgba(255,255,255,.3); }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-grey { background: #e2e8f0; color: #334155; }
+    .btn-grey:hover:not(:disabled) { background: #cbd5e1; }
+    .btn-danger { background: transparent; color: #b91c1c; padding: 3px 8px; }
+    .btn-danger:hover { background: #fee2e2; }
+
+    .main { flex: 1; min-height: 0; overflow: auto; }
+    .empty {
+      padding: 40px;
+      text-align: center;
+      color: #94a3b8;
+      font-style: italic;
+      font-size: 14px;
+    }
+
+    /* ── Tableau de synthèse ── */
+    table { border-collapse: collapse; background: #fff; }
+    .synthese { width: 100%; }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #e2e8f0;
+      font-size: 11px;
+      font-weight: 700;
+      color: #334155;
+      padding: 5px 8px;
+      border-bottom: 1px solid #cbd5e1;
+      text-align: right;
+      white-space: nowrap;
+    }
+    th.group { text-align: center; border-left: 2px solid #cbd5e1; }
+    tr.sub th { top: 25px; }
+    th:first-child, td:first-child { text-align: left; }
+    td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    td.sep, th.sep { border-left: 2px solid #cbd5e1; }
+    td.zero { color: #cbd5e1; }
+    td.cost { color: #1e3a8a; }
+    td.total { font-weight: 700; }
+    td.incomplete::after { content: ' *'; color: #b45309; }
+    tr:hover td { background: #f8fafc; }
+    tr.sum td {
+      font-weight: 700;
+      background: #f1f5f9;
+      border-top: 2px solid #94a3b8;
+    }
+
+    .notes {
+      margin: 10px 12px;
+      font-size: 11px;
+      color: #64748b;
+    }
+    .notes ul { margin: 4px 0; padding-left: 18px; }
+    .notes .warn { color: #b45309; }
+
+    /* ── Paramètres ── */
+    .settings { padding: 12px; max-width: 900px; }
+    .settings h3 { margin: 0 0 4px; font-size: 14px; color: #1e3a8a; }
+    .settings .hint { font-size: 11px; color: #64748b; margin: 0 0 12px; }
+    .periode {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+    }
+    .periode.current { border-color: #2563eb; }
+    .periode-head {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 8px;
+    }
+    .periode-head label { font-size: 12px; color: #334155; }
+    .periode-head input { margin-left: 4px; }
+    .badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: #dbeafe;
+      color: #1e3a8a;
+    }
+    input[type=number], input[type=date] {
+      padding: 3px 6px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    input[type=number] { width: 80px; text-align: right; }
+    input.invalid { border-color: #dc2626; background: #fef2f2; }
+    .ecrits { width: 100%; }
+    .ecrits td, .ecrits th { position: static; text-align: left; padding: 3px 8px; }
+    .ecrits td:last-child, .ecrits th:last-child { text-align: right; }
+    .ecrits .prog td { background: #f1f5f9; font-weight: 700; font-size: 11px; color: #334155; }
+    .ecrits .libelle { color: #64748b; font-size: 11px; white-space: normal; }
+
+    /* ── Pied de page ── */
+    .footer {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      background: #f1f5f9;
+      border-top: 1px solid #e2e8f0;
+    }
+    .statusbar { font-size: 11px; color: #64748b; flex: 1; }
+    .statusbar.ok    { color: #059669; }
+    .statusbar.error { color: #b91c1c; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="toolbar-title">Synthèse examinateurs</span>
+  <label>Examinateur
+    <select id="sel-examinateur"></select>
+  </label>
+  <label>Année
+    <select id="sel-annee"></select>
+  </label>
+  <span class="spacer"></span>
+  <button id="btn-refresh" class="btn btn-light" title="Relire les données Grist">↻ Actualiser</button>
+  <button id="btn-settings" class="btn btn-light">⚙ Paramètres</button>
+</div>
+
+<div id="main" class="main">
+  <div class="empty">Chargement…</div>
+</div>
+
+<div id="settings-footer" class="footer" style="display:none">
+  <button id="btn-add" class="btn btn-grey">+ Nouvelle période</button>
+  <span id="settings-status" class="statusbar"></span>
+  <button id="btn-cancel" class="btn btn-grey">Annuler</button>
+  <button id="btn-save" class="btn btn-primary">Enregistrer</button>
+</div>
+
+<div id="footer" class="footer">
+  <span id="status" class="statusbar"></span>
+</div>
+
+<script>
+// Paramètres stockés dans les options du widget (JSON propre à cette instance,
+// enregistré dans le document Grist) :
+// { periodes: [{ debut: 'AAAA-MM-JJ', cout10min, debriefMin, ecrits: { <id Qualifications_List>: coût } }] }
+// Une période s'applique aux examens datés de son début jusqu'au début de la période suivante.
+let periodes = [];
+let data = null;     // tables Grist lues par fetchTable
+let draft = null;    // copie des périodes en cours d'édition
+let view = 'synthese';
+
+const MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet',
+  'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
+// Les DateTime Grist sont des secondes UTC ; on les ramène au jour calendaire de Paris.
+const PARIS = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const isoParis = sec => sec ? PARIS.format(new Date(sec * 1000)) : '';
+const frDate = iso => iso ? iso.split('-').reverse().join('/') : '';
+
+// fetchTable sur d'autres tables que la table liée exige l'accès complet.
+grist.ready({ requiredAccess: 'full', onEditOptions: openSettings });
+
+grist.onOptions(options => {
+  periodes = Array.isArray(options?.periodes) ? options.periodes : [];
+  if (view === 'synthese') renderSynthese();
+});
+
+// Rappelé à chaque modification de la table liée : on relit tout.
+grist.onRecords(() => load());
+
+$('btn-refresh').addEventListener('click', () => load());
+$('btn-settings').addEventListener('click', openSettings);
+$('sel-examinateur').addEventListener('change', () => { remember(); renderSynthese(); });
+$('sel-annee').addEventListener('change', () => { remember(); renderSynthese(); });
+$('btn-cancel').addEventListener('click', closeSettings);
+$('btn-save').addEventListener('click', saveSettings);
+$('btn-add').addEventListener('click', addPeriode);
+
+let loadSeq = 0;
+async function load() {
+  const seq = ++loadSeq;
+  setStatus('Lecture des données…');
+  try {
+    const [evaluateurs, qualifs, programmes, ecrits, oraux] = await Promise.all([
+      grist.docApi.fetchTable('Evaluateurs'),
+      grist.docApi.fetchTable('Qualifications_List'),
+      grist.docApi.fetchTable('Programmes'),
+      grist.docApi.fetchTable('Examens_ecrits'),
+      grist.docApi.fetchTable('Examens_oraux'),
+    ]);
+    if (seq !== loadSeq) return;
+    checkColumns({ Evaluateurs: evaluateurs, Qualifications_List: qualifs, Programmes: programmes, Examens_ecrits: ecrits, Examens_oraux: oraux });
+    data = { evaluateurs, qualifs, programmes, ecrits, oraux };
+    fillSelectors();
+    setStatus('');
+    if (view === 'synthese') renderSynthese(); else renderSettings();
+  } catch (err) {
+    if (seq !== loadSeq) return;
+    data = null;
+    $('main').innerHTML = `<div class="empty">${esc(err.message || err)}</div>`;
+    setStatus('Erreur de lecture', 'error');
+  }
+}
+
+function checkColumns(tables) {
+  const attendu = {
+    Evaluateurs: ['Evaluateur_Nom', 'Evaluateur_Prenom'],
+    Qualifications_List: ['Programme', 'Qualification_code', 'Qualifications', 'Ecrit'],
+    Programmes: ['Nom_du_programme'],
+    Examens_ecrits: ['Qualification', 'Examinateur_1', 'Examinateur_2', 'date_heure'],
+    Examens_oraux: ['Programme', 'Examinateur_1', 'Examinateur_2', 'date_heure', 'Duree'],
+  };
+  for (const [table, cols] of Object.entries(attendu)) {
+    for (const col of cols) {
+      if (!(col in tables[table])) throw new Error(`Colonne ${table}.${col} introuvable.`);
+    }
+  }
+}
+
+/* ──────────────────────────────────────────
+   Sélecteurs examinateur / année
+────────────────────────────────────────── */
+function remembered() {
+  try { return JSON.parse(localStorage.getItem('synthese-examinateurs') || '{}'); } catch { return {}; }
+}
+function remember() {
+  try {
+    localStorage.setItem('synthese-examinateurs', JSON.stringify({ ex: $('sel-examinateur').value, an: $('sel-annee').value }));
+  } catch { /* stockage indisponible : sans conséquence */ }
+}
+
+function fillSelectors() {
+  const { evaluateurs: ev, ecrits, oraux } = data;
+  const prev = { ex: $('sel-examinateur').value, an: $('sel-annee').value };
+  const saved = remembered();
+
+  const actifs = new Set();
+  for (const t of [ecrits, oraux]) {
+    t.id.forEach((_, i) => { actifs.add(t.Examinateur_1[i]); actifs.add(t.Examinateur_2[i]); });
+  }
+  const liste = ev.id.map((id, i) => ({
+    id,
+    nom: `${ev.Evaluateur_Nom[i] || ''} ${ev.Evaluateur_Prenom[i] || ''}`.trim() || `#${id}`,
+  })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' }));
+  // Les examinateurs n'ayant jamais corrigé ni fait passer d'oral sont relégués en fin de liste.
+  const opt = e => `<option value="${e.id}">${esc(e.nom)}</option>`;
+  $('sel-examinateur').innerHTML = '<option value="">— choisir —</option>'
+    + `<optgroup label="Avec examens">${liste.filter(e => actifs.has(e.id)).map(opt).join('')}</optgroup>`
+    + `<optgroup label="Sans examen">${liste.filter(e => !actifs.has(e.id)).map(opt).join('')}</optgroup>`;
+
+  const annees = new Set([new Date().getFullYear()]);
+  for (const t of [ecrits, oraux]) {
+    t.date_heure.forEach(d => { if (d) annees.add(Number(isoParis(d).slice(0, 4))); });
+  }
+  $('sel-annee').innerHTML = [...annees].sort((a, b) => b - a)
+    .map(a => `<option value="${a}">${a}</option>`).join('');
+
+  setIfExists('sel-examinateur', prev.ex || saved.ex);
+  setIfExists('sel-annee', prev.an || saved.an);
+}
+
+function setIfExists(id, value) {
+  const sel = $(id);
+  if (value && [...sel.options].some(o => o.value === String(value))) sel.value = String(value);
+}
+
+/* ──────────────────────────────────────────
+   Calcul de la synthèse
+────────────────────────────────────────── */
+function periodeAu(iso) {
+  let best = null;
+  for (const p of periodes) {
+    if (p.debut && p.debut <= iso && (!best || p.debut > best.debut)) best = p;
+  }
+  return best;
+}
+
+const num = v => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v);
+
+function calcul(exId, annee) {
+  const { qualifs, programmes, ecrits, oraux } = data;
+  const qIdx = new Map(qualifs.id.map((id, i) => [id, i]));
+  const pNom = new Map(programmes.id.map((id, i) => [id, String(programmes.Nom_du_programme[i] || '')]));
+  const aujourdhui = isoParis(Date.now() / 1000);
+
+  // Colonnes : programmes ayant au moins une qualification passée à l'écrit ou à l'oral.
+  const progs = new Set();
+  qualifs.id.forEach((_, i) => {
+    if (qualifs.Ecrit[i] || qualifs.Oral?.[i]) progs.add(pNom.get(qualifs.Programme[i]) || '');
+  });
+
+  const mois = MOIS.map(() => ({ ecrits: {}, oraux: {}, minutes: 0, coutEcrits: 0, coutOraux: 0, incEcrits: false, incOraux: false }));
+  const anomalies = new Map();
+  const signaler = (cle, msg) => anomalies.set(cle, msg);
+  let aVenir = 0, sansDate = 0;
+
+  ecrits.id.forEach((_, i) => {
+    // Un écrit à double correction compte pour chacun des deux correcteurs.
+    if (ecrits.Examinateur_1[i] !== exId && ecrits.Examinateur_2[i] !== exId) return;
+    const iso = isoParis(ecrits.date_heure[i]);
+    if (!iso) { sansDate++; return; }
+    if (Number(iso.slice(0, 4)) !== annee) return;
+    if (iso > aujourdhui) { aVenir++; return; }
+    const m = mois[Number(iso.slice(5, 7)) - 1];
+    const qid = ecrits.Qualification[i];
+    const qi = qIdx.get(qid);
+    const code = qi !== undefined ? String(qualifs.Qualification_code[qi] || `#${qid}`) : '(sans qualification)';
+    const prog = qi !== undefined ? (pNom.get(qualifs.Programme[qi]) || '') : '';
+    progs.add(prog);
+    m.ecrits[prog] = (m.ecrits[prog] || 0) + 1;
+
+    const p = periodeAu(iso);
+    const cout = p ? num(p.ecrits?.[qid]) : null;
+    if (cout === null) {
+      m.incEcrits = true;
+      signaler(`e:${code}:${p?.debut}`, p
+        ? `Écrit ${code} : pas de coût de correction dans la période du ${frDate(p.debut)}.`
+        : `Écrit ${code} du ${frDate(iso)} : aucune période de tarifs ne couvre cette date.`);
+    } else {
+      m.coutEcrits += cout;
+    }
+  });
+
+  oraux.id.forEach((_, i) => {
+    if (oraux.Examinateur_1[i] !== exId && oraux.Examinateur_2[i] !== exId) return;
+    const iso = isoParis(oraux.date_heure[i]);
+    if (!iso) { sansDate++; return; }
+    if (Number(iso.slice(0, 4)) !== annee) return;
+    if (iso > aujourdhui) { aVenir++; return; }
+    const m = mois[Number(iso.slice(5, 7)) - 1];
+    const prog = pNom.get(oraux.Programme[i]) || '';
+    progs.add(prog);
+    m.oraux[prog] = (m.oraux[prog] || 0) + 1;
+
+    const p = periodeAu(iso);
+    const cout10 = p ? num(p.cout10min) : null;
+    const debrief = p ? (num(p.debriefMin) ?? 0) : 0;
+    const minutes = Number(oraux.Duree[i] || 0) + debrief;
+    m.minutes += minutes;
+    if (cout10 === null) {
+      m.incOraux = true;
+      signaler(`o:${p?.debut}`, p
+        ? `Oral : pas de coût des 10 minutes dans la période du ${frDate(p.debut)}.`
+        : `Oral du ${frDate(iso)} : aucune période de tarifs ne couvre cette date.`);
+    } else {
+      m.coutOraux += minutes / 10 * cout10;
+    }
+  });
+
+  const colonnes = [...progs].filter(Boolean).sort((a, b) => a.localeCompare(b, 'fr'));
+  if (progs.has('')) colonnes.push('');
+  return { mois, colonnes, anomalies: [...anomalies.values()], aVenir, sansDate };
+}
+
+/* ──────────────────────────────────────────
+   Affichage de la synthèse
+────────────────────────────────────────── */
+function renderSynthese() {
+  view = 'synthese';
+  $('settings-footer').style.display = 'none';
+  $('footer').style.display = '';
+  $('btn-settings').disabled = false;
+  if (!data) return;
+
+  const exId = Number($('sel-examinateur').value);
+  const annee = Number($('sel-annee').value);
+  if (!exId) {
+    $('main').innerHTML = '<div class="empty">Sélectionnez un examinateur.</div>';
+    return;
+  }
+
+  const r = calcul(exId, annee);
+  const cols = r.colonnes.length ? r.colonnes : ['—'];
+  const libelle = p => p === '' ? 'Sans programme' : esc(p);
+  const cell = (v, cls = '') => `<td class="${cls}${v ? '' : ' zero'}">${v || 0}</td>`;
+  const money = (v, cls, incomplet) => `<td class="cost ${cls}${incomplet ? ' incomplete' : ''}${v ? '' : ' zero'}">${EUR.format(v)}</td>`;
+
+  const tot = { ecrits: {}, oraux: {}, minutes: 0, coutEcrits: 0, coutOraux: 0, incEcrits: false, incOraux: false };
+  const lignes = r.mois.map((m, k) => {
+    for (const p of cols) {
+      tot.ecrits[p] = (tot.ecrits[p] || 0) + (m.ecrits[p] || 0);
+      tot.oraux[p] = (tot.oraux[p] || 0) + (m.oraux[p] || 0);
+    }
+    tot.minutes += m.minutes;
+    tot.coutEcrits += m.coutEcrits;
+    tot.coutOraux += m.coutOraux;
+    tot.incEcrits ||= m.incEcrits;
+    tot.incOraux ||= m.incOraux;
+    return ligne(MOIS[k], m, '');
+  });
+
+  function ligne(titre, m, cls) {
+    return `<tr class="${cls}"><td>${titre}</td>`
+      + cols.map((p, j) => cell(m.ecrits[p], j === 0 ? 'sep' : '')).join('')
+      + money(m.coutEcrits, '', m.incEcrits)
+      + cols.map((p, j) => cell(m.oraux[p], j === 0 ? 'sep' : '')).join('')
+      + cell(m.minutes)
+      + money(m.coutOraux, '', m.incOraux)
+      + money(m.coutEcrits + m.coutOraux, 'sep total', m.incEcrits || m.incOraux)
+      + '</tr>';
+  }
+
+  const n = cols.length;
+  const notes = [];
+  if (!periodes.length) notes.push('<li class="warn">Aucun tarif n\'est paramétré : ouvrez ⚙ Paramètres.</li>');
+  r.anomalies.forEach(a => notes.push(`<li class="warn">* ${esc(a)}</li>`));
+  if (r.aVenir) notes.push(`<li>${r.aVenir} examen(s) à venir dans l'année, non comptés.</li>`);
+  if (r.sansDate) notes.push(`<li>${r.sansDate} examen(s) sans date pour cet examinateur, non comptés.</li>`);
+  notes.push('<li>Oraux : coût = (durée de l\'oral + débriefing) ÷ 10 × coût des 10 minutes. Durée de l\'oral : colonne <code>Examens_oraux.Duree</code>.</li>');
+
+  $('main').innerHTML = `
+    <table class="synthese">
+      <thead>
+        <tr>
+          <th rowspan="2">Mois</th>
+          <th class="group" colspan="${n + 1}">Écrits corrigés</th>
+          <th class="group" colspan="${n + 2}">Oraux passés</th>
+          <th class="group" rowspan="2">Total</th>
+        </tr>
+        <tr class="sub">
+          ${cols.map((p, j) => `<th class="${j === 0 ? 'sep' : ''}">${libelle(p)}</th>`).join('')}
+          <th>Coût</th>
+          ${cols.map((p, j) => `<th class="${j === 0 ? 'sep' : ''}">${libelle(p)}</th>`).join('')}
+          <th>Minutes</th>
+          <th>Coût</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lignes.join('')}
+        ${ligne(`Total ${annee}`, tot, 'sum')}
+      </tbody>
+    </table>
+    <div class="notes"><ul>${notes.join('')}</ul></div>`;
+}
+
+/* ──────────────────────────────────────────
+   Paramètres (périodes de tarifs)
+────────────────────────────────────────── */
+function openSettings() {
+  if (!data) return;
+  draft = structuredClone(periodes);
+  if (!draft.length) draft.push({ debut: `${new Date().getFullYear()}-01-01`, cout10min: '', debriefMin: '', ecrits: {} });
+  renderSettings();
+}
+
+function closeSettings() {
+  draft = null;
+  renderSynthese();
+}
+
+function addPeriode() {
+  const recente = [...draft].sort((a, b) => (b.debut || '').localeCompare(a.debut || ''))[0];
+  // La nouvelle période reprend les tarifs de la plus récente : seuls les changements sont à saisir.
+  draft.push({ ...structuredClone(recente || { cout10min: '', debriefMin: '', ecrits: {} }), debut: '' });
+  renderSettings();
+  const inputs = document.querySelectorAll('.periode input[type=date]');
+  inputs[0]?.focus();
+}
+
+function ecritsParametrables() {
+  const { qualifs, programmes } = data;
+  const pNom = new Map(programmes.id.map((id, i) => [id, String(programmes.Nom_du_programme[i] || '')]));
+  return qualifs.id.map((id, i) => ({
+    id,
+    code: String(qualifs.Qualification_code[i] || `#${id}`),
+    libelle: String(qualifs.Qualifications[i] || ''),
+    prog: pNom.get(qualifs.Programme[i]) || '',
+    ecrit: !!qualifs.Ecrit[i],
+  })).filter(q => q.ecrit)
+    .sort((a, b) => a.prog.localeCompare(b.prog, 'fr') || a.code.localeCompare(b.code, 'fr'));
+}
+
+function renderSettings() {
+  view = 'settings';
+  $('settings-footer').style.display = '';
+  $('footer').style.display = 'none';
+  $('btn-settings').disabled = true;
+  setSettingsStatus('');
+
+  const qs = ecritsParametrables();
+  const ordre = draft.map((p, idx) => ({ p, idx }))
+    .sort((a, b) => (b.p.debut || '9999').localeCompare(a.p.debut || '9999'));
+  const enCours = periodeEnCours(draft);
+
+  const html = ordre.map(({ p, idx }) => {
+    let prog = null;
+    const rows = qs.map(q => {
+      const head = q.prog !== prog ? `<tr class="prog"><td colspan="3">${esc(q.prog || 'Sans programme')}</td></tr>` : '';
+      prog = q.prog;
+      const v = p.ecrits?.[q.id] ?? '';
+      return `${head}<tr><td>${esc(q.code)}</td><td class="libelle">${esc(q.libelle)}</td>
+        <td><input type="number" min="0" step="0.01" data-idx="${idx}" data-ecrit="${q.id}" value="${esc(v)}" /> €</td></tr>`;
+    }).join('');
+    return `
+      <div class="periode${p === enCours ? ' current' : ''}">
+        <div class="periode-head">
+          <label>À partir du <input type="date" data-idx="${idx}" data-field="debut" value="${esc(p.debut || '')}" /></label>
+          ${p === enCours ? '<span class="badge">en vigueur</span>' : ''}
+          <label>Coût de 10 min d'oral <input type="number" min="0" step="0.01" data-idx="${idx}" data-field="cout10min" value="${esc(p.cout10min ?? '')}" /> €</label>
+          <label>Débriefing <input type="number" min="0" step="1" data-idx="${idx}" data-field="debriefMin" value="${esc(p.debriefMin ?? '')}" /> min</label>
+          <span class="spacer"></span>
+          <button class="btn btn-danger" data-delete="${idx}" title="Supprimer cette période">Supprimer</button>
+        </div>
+        <table class="ecrits">
+          <thead><tr><th>Écrit</th><th>Intitulé</th><th>Coût de correction</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="3">Aucune qualification marquée « Ecrit ».</td></tr>'}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+
+  $('main').innerHTML = `
+    <div class="settings">
+      <h3>Paramètres des coûts</h3>
+      <p class="hint">Chaque période s'applique aux examens datés de son début jusqu'au début de la période suivante.
+        Les écrits proposés sont les qualifications cochées <code>Ecrit</code> dans <code>Qualifications_List</code>.
+        Un coût laissé vide est signalé dans la synthèse.</p>
+      ${html}
+    </div>`;
+
+  $('main').querySelectorAll('input').forEach(inp => inp.addEventListener('input', onSettingInput));
+  $('main').querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => {
+    draft.splice(Number(b.dataset.delete), 1);
+    renderSettings();
+  }));
+}
+
+function periodeEnCours(liste) {
+  const today = isoParis(Date.now() / 1000);
+  let best = null;
+  for (const p of liste) if (p.debut && p.debut <= today && (!best || p.debut > best.debut)) best = p;
+  return best;
+}
+
+function onSettingInput(e) {
+  const inp = e.target;
+  const p = draft[Number(inp.dataset.idx)];
+  const val = inp.type === 'date' ? inp.value : (inp.value === '' ? '' : Number(inp.value));
+  if (inp.dataset.ecrit) {
+    p.ecrits ||= {};
+    if (val === '') delete p.ecrits[inp.dataset.ecrit]; else p.ecrits[inp.dataset.ecrit] = val;
+  } else {
+    p[inp.dataset.field] = val;
+  }
+  inp.classList.toggle('invalid', inp.type === 'number' && val !== '' && (isNaN(val) || val < 0));
+}
+
+async function saveSettings() {
+  const debuts = draft.map(p => p.debut);
+  if (debuts.some(d => !d)) return setSettingsStatus('Chaque période doit avoir une date de début.', 'error');
+  if (new Set(debuts).size !== debuts.length) return setSettingsStatus('Deux périodes ont la même date de début.', 'error');
+  if (document.querySelector('.settings input.invalid')) return setSettingsStatus('Certains montants sont invalides.', 'error');
+
+  const propre = draft
+    .map(p => ({
+      debut: p.debut,
+      cout10min: num(p.cout10min),
+      debriefMin: num(p.debriefMin),
+      ecrits: Object.fromEntries(Object.entries(p.ecrits || {}).filter(([, v]) => num(v) !== null).map(([k, v]) => [k, Number(v)])),
+    }))
+    .sort((a, b) => a.debut.localeCompare(b.debut));
+
+  $('btn-save').disabled = true;
+  try {
+    await grist.setOption('periodes', propre);
+    periodes = propre;
+    draft = null;
+    renderSynthese();
+    setStatus('Paramètres enregistrés.', 'ok');
+  } catch (err) {
+    setSettingsStatus(`Échec de l'enregistrement : ${err.message || err}`, 'error');
+  } finally {
+    $('btn-save').disabled = false;
+  }
+}
+
+function setStatus(msg, cls = '') {
+  $('status').textContent = msg;
+  $('status').className = `statusbar ${cls}`;
+}
+function setSettingsStatus(msg, cls = '') {
+  $('settings-status').textContent = msg;
+  $('settings-status').className = `statusbar ${cls}`;
+}
+
+load();
+</script>
+</body>
+</html>
