@@ -69,6 +69,7 @@
   }
   .msg.error { background: #fee2e2; color: #991b1b; border-left: 3px solid #dc2626; }
   .msg.warn  { background: #fef3c7; color: #78350f; border-left: 3px solid #d97706; }
+  .msg.info  { background: #dbeafe; color: #1e3a8a; border-left: 3px solid #2563eb; }
 
   .preview-frame {
     width: 100%;
@@ -183,6 +184,11 @@ const COMPETENCES_LABELS = [
   'Capacité d’expression orale et de vulgarisation',
 ];
 
+// Notes donnant un avis favorable : la qualification est alors copiée dans
+// Qualification_individuelle à l'envoi du CR (spec synthese_attestations, R1).
+const NOTES_FAVORABLES = ['3', '4'];
+const TABLE_QI = 'Qualification_individuelle';
+
 let currentReqId = 0; // anti-race : chaque sélection reçoit son propre id
 let current = null;   // { examId, to, cc, objet, corpsHtml, dateEnvoye, isSent, blocking }
 
@@ -227,7 +233,7 @@ grist.onRecord(async rec => {
    Chargement + calcul de toutes les données du CR
 ────────────────────────────────────────── */
 async function loadData(examId) {
-  const [oraux, candidats, programmes, qualifs, evaluateurs, entreprises, contacts] = await Promise.all([
+  const [oraux, candidats, programmes, qualifs, evaluateurs, entreprises, contacts, qiTable] = await Promise.all([
     grist.docApi.fetchTable('Examens_oraux'),
     grist.docApi.fetchTable('Candidats'),
     grist.docApi.fetchTable('Programmes'),
@@ -235,6 +241,7 @@ async function loadData(examId) {
     grist.docApi.fetchTable('Evaluateurs'),
     grist.docApi.fetchTable('Entreprises'),
     grist.docApi.fetchTable('Contacts'),
+    grist.docApi.fetchTable(TABLE_QI),
   ]);
 
   const i = oraux.id.indexOf(examId);
@@ -294,6 +301,13 @@ async function loadData(examId) {
     return { libelle, note, avis };
   });
 
+  const qi = analyseQualifIndividuelles(qiTable, {
+    examId, candId, qualIds,
+    notes: notesQ.map(String),
+    dateSeule: oraux.date_seule?.[i] || null,
+    codeOf: qid => { const k = rowOf(qualifs, qid); return k !== null ? String(qualifs.Qualification_code[k] || '') : `#${qid}`; },
+  });
+
   const observations = String(oraux.Observations[i] || 's.o.');
 
   // Empreinte des données couvertes par le CR déjà envoyé : qualifications, notes,
@@ -312,7 +326,33 @@ async function loadData(examId) {
     observations,
     candidat, programme, entreprise, examinateur1, examinateur2, responsable,
     qualifications, notesCompetences: notesC.map(String),
+    candId, qi,
   });
+}
+
+/* ── Qualifications à copier dans Qualification_individuelle (même règle que le
+   widget attestations) : qualification de rang i notée 3 ou 4, absente des lignes
+   déjà créées pour cet oral. Les lignes existantes ne sont jamais modifiées ni
+   supprimées ici — elles peuvent figurer sur une attestation déjà émise. ── */
+function analyseQualifIndividuelles(table, { examId, candId, qualIds, notes, dateSeule, codeOf }) {
+  const missingCols = ['Oral', 'Qualification', 'Candidat', 'Date']
+    .filter(c => !(c in table)).map(c => `${TABLE_QI}.${c}`);
+  if (missingCols.length) return { missingCols, toCopy: [], extra: [], mismatch: 0, dateSeule };
+
+  const favIds = [...new Set(qualIds.filter((_, idx) => NOTES_FAVORABLES.includes(notes[idx])))];
+  const lignes = [];
+  for (let k = 0; k < table.id.length; k++) {
+    if (table.Oral[k] === examId) lignes.push(k);
+  }
+  const copiees = new Set(lignes.map(k => table.Qualification[k]));
+
+  return {
+    missingCols,
+    dateSeule,
+    toCopy:   favIds.filter(id => !copiees.has(id)).map(id => ({ id, code: codeOf(id) })),
+    extra:    [...copiees].filter(id => !favIds.includes(id)).map(codeOf),
+    mismatch: lignes.filter(k => table.Candidat[k] !== candId || table.Date[k] !== dateSeule).length,
+  };
 }
 
 /* ──────────────────────────────────────────
@@ -338,6 +378,18 @@ function buildCR(d) {
   if (d.examinateur1 && !d.examinateur1.email) errors.push('E-mail de l’examinateur 1 manquant.');
   if (d.examinateur2 && !d.examinateur2.email) errors.push('E-mail de l’examinateur 2 manquant.');
 
+  const infos = [];
+  if (d.qi.missingCols.length)
+    errors.push('Colonne(s) introuvable(s) : ' + d.qi.missingCols.join(', '));
+  if (d.qi.extra.length)
+    warnings.push(`Qualification_individuelle contient ${d.qi.extra.join(', ')} pour cet oral, sans note 3 ou 4 — à vérifier (ligne non supprimée).`);
+  if (d.qi.mismatch)
+    warnings.push(`${d.qi.mismatch} ligne(s) de Qualification_individuelle ont un candidat ou une date différents de l’oral (voir la colonne Anomalie).`);
+  if (d.qi.toCopy.length && d.isSent)
+    infos.push(`${d.qi.toCopy.length} qualification(s) favorable(s) absente(s) de Qualification_individuelle (${d.qi.toCopy.map(q => q.code).join(', ')}) : CR envoyé avant cette fonction, à intégrer avec le widget Attestations.`);
+  else if (d.qi.toCopy.length)
+    infos.push(`À l’envoi, ${d.qi.toCopy.length} qualification(s) seront ajoutées à Qualification_individuelle : ${d.qi.toCopy.map(q => q.code).join(', ')}.`);
+
   const to = d.candidat?.email || '';
   const cc = [d.examinateur1?.email, d.examinateur2?.email, d.responsable?.email]
     .filter(Boolean);
@@ -346,7 +398,7 @@ function buildCR(d) {
   const corpsHtml = renderCorpsHtml(d);
 
   return {
-    examId: d.examId, to, cc, objet, corpsHtml, errors, warnings, d,
+    examId: d.examId, to, cc, objet, corpsHtml, errors, warnings, infos, d,
     signature: d.signature, dateEnvoye: d.dateEnvoye, isSent: d.isSent,
   };
 }
@@ -447,6 +499,7 @@ function render() {
   msgBox.innerHTML =
     current.errors.map(m => `<div class="msg error">⛔ ${esc(m)}</div>`).join('') +
     current.warnings.map(m => `<div class="msg warn">⚠️ ${esc(m)}</div>`).join('') +
+    current.infos.map(m => `<div class="msg info">ℹ️ ${esc(m)}</div>`).join('') +
     (webhookUrl ? '' : '<div class="msg warn">⚠️ URL du flux Power Automate non configurée — clique sur ⚙ ci-dessus.</div>');
 
   document.getElementById('preview').srcdoc = current.corpsHtml;
@@ -498,18 +551,33 @@ document.getElementById('btn-send').addEventListener('click', async () => {
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
     const now = Math.floor(Date.now() / 1000);
-    await grist.docApi.applyUserActions([
+    const { qi } = current.d;
+    const actions = [
       ['UpdateRecord', 'Examens_oraux', current.examId, {
         date_du_CR_envoye: now,
         contenu_du_CR_envoye: current.signature,
       }],
-    ]);
-    current.dateEnvoye = now;
-    current.isSent = true;
+    ];
+    // Même action groupée que la trace d'envoi : un seul Ctrl+Z annule les deux
+    if (qi.toCopy.length) {
+      actions.push(['BulkAddRecord', TABLE_QI, qi.toCopy.map(() => null), {
+        Oral:          qi.toCopy.map(() => current.examId),
+        Qualification: qi.toCopy.map(q => q.id),
+        Candidat:      qi.toCopy.map(() => current.d.candId),
+        Date:          qi.toCopy.map(() => qi.dateSeule),
+      }]);
+    }
+    await grist.docApi.applyUserActions(actions);
 
-    status.textContent = '✅ CR envoyé.';
+    const examId = current.examId;
+    const reqId = ++currentReqId;
+    const data = await loadData(examId);
+    if (reqId === currentReqId && data) { current = data; render(); }
+
+    status.textContent = qi.toCopy.length
+      ? `✅ CR envoyé — ${qi.toCopy.length} qualification(s) ajoutée(s) à Qualification_individuelle.`
+      : '✅ CR envoyé.';
     status.className = 'statusbar ok';
-    render();
   } catch (e) {
     status.textContent = '❌ Échec de l’envoi : ' + e.message;
     status.className = 'statusbar error';

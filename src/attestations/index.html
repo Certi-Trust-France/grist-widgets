@@ -277,7 +277,9 @@
     const blocking = [], warnings = [];
     if (!raw.candidatId) blocking.push('candidat manquant');
     if (!raw.date)       blocking.push('date manquante');
-    if (notesIncompletes) warnings.push(`notes incomplètes (${raw.notes.length}/${raw.qualIds.length})`);
+    // Notes et qualifications ne sont couplées que par leur rang : avec une note
+    // manquante, on ne sait pas à quelle qualification chaque note se rapporte.
+    if (notesIncompletes) blocking.push(`notes incomplètes (${raw.notes.length}/${raw.qualIds.length})`);
     if (extra) warnings.push(`${extra} qualification(s) copiée(s) sans note 3 ou 4 dans l'oral`);
 
     return { ...raw, quals: favorables, toCopy, blocking, warnings };
