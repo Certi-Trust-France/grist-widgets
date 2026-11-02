@@ -283,13 +283,15 @@ async function loadData(examId) {
 
   const entreprise = enti !== null ? String(entreprises.Denomination[enti] || '') : '';
 
-  // Responsable examens de l'entreprise (Contacts.Entreprise == entId && Programmes_Examens non vide)
-  // Programmes_Examens est une RefList:Programmes (ex-booléen Responsable_examens).
-  let responsable = null;
+  // Responsables examens de l'entreprise pour le programme de l'oral :
+  // Programmes_Examens (RefList:Programmes) doit contenir progId — rapprochement par id,
+  // pas par libellé. Plusieurs contacts possibles, tous en copie (dédoublonnés par e-mail).
+  const responsables = [];
   for (let k = 0; k < contacts.id.length; k++) {
-    if (contacts.Entreprise[k] === entId && asList(contacts.Programmes_Examens[k]).length > 0) {
-      responsable = { prenom: String(contacts.Prenom[k] || ''), nom: String(contacts.Nom[k] || ''), email: String(contacts.Courriel[k] || '') };
-      break;
+    if (contacts.Entreprise[k] === entId && progId && asList(contacts.Programmes_Examens[k]).includes(progId)) {
+      const email = String(contacts.Courriel[k] || '').trim();
+      if (email && responsables.some(r => r.email.toLowerCase() === email.toLowerCase())) continue;
+      responsables.push({ prenom: String(contacts.Prenom[k] || ''), nom: String(contacts.Nom[k] || ''), email });
     }
   }
 
@@ -324,7 +326,7 @@ async function loadData(examId) {
     dateHeure: oraux.date_heure[i] || 0,
     duree: Number(oraux.Duree[i] || 0),
     observations,
-    candidat, programme, entreprise, examinateur1, examinateur2, responsable,
+    candidat, programme, entreprise, examinateur1, examinateur2, responsables,
     qualifications, notesCompetences: notesC.map(String),
     candId, qi,
   });
@@ -373,8 +375,10 @@ function buildCR(d) {
     errors.push(`Note manquante : ${d.qualifications.filter(q => !q.note).length} qualification(s) sans note sur ${d.qualifications.length}.`);
   if (d.notesCompetences.length < 4)
     warnings.push('Évaluation des compétences générales incomplète (4 attendues).');
-  if (!d.responsable)
-    warnings.push('Aucun responsable examens trouvé pour l’entreprise — il ne sera pas en copie.');
+  if (!d.responsables.length)
+    warnings.push(`Aucun responsable examens ${d.programme || ''} trouvé pour l’entreprise — personne ne sera en copie côté client.`);
+  else if (d.responsables.some(r => !r.email))
+    warnings.push('Un responsable examens n’a pas d’e-mail — il ne sera pas en copie.');
   if (d.examinateur1 && !d.examinateur1.email) errors.push('E-mail de l’examinateur 1 manquant.');
   if (d.examinateur2 && !d.examinateur2.email) errors.push('E-mail de l’examinateur 2 manquant.');
 
@@ -391,7 +395,7 @@ function buildCR(d) {
     infos.push(`À l’envoi, ${d.qi.toCopy.length} qualification(s) seront ajoutées à Qualification_individuelle : ${d.qi.toCopy.map(q => q.code).join(', ')}.`);
 
   const to = d.candidat?.email || '';
-  const cc = [d.examinateur1?.email, d.examinateur2?.email, d.responsable?.email]
+  const cc = [d.examinateur1?.email, d.examinateur2?.email, ...d.responsables.map(r => r.email)]
     .filter(Boolean);
 
   const objet = `CR d'oral ${d.programme || '?'}`;
