@@ -80,7 +80,10 @@
     .devis tr.uo.off td { color: #94a3b8; text-decoration: line-through; }
     .devis tr.uo.offerte td.lib::after { content: ' (offerte)'; color: #059669; font-style: italic; }
     .devis tr.uo.partagee td { color: #64748b; font-style: italic; }
-    .devis tr.ajust td.lib { font-style: italic; color: #475569; }
+    .devis input.ja { width: 48px; text-align: right; border-color: transparent; background: transparent; }
+    .devis input.ja:hover:not(:disabled), .devis input.ja:focus { border-color: #cbd5e1; background: #fff; }
+    .devis input.ja.modif { background: #fef3c7; border-color: #f59e0b; font-weight: 600; }
+    .devis tr.uo.off input.ja { text-decoration: line-through; color: #94a3b8; }
     .devis tr.total td { font-weight: 700; border-top: 2px solid #1e3a8a; }
     .devis td.lib { width: 100%; }
 
@@ -104,6 +107,10 @@
     .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
     .params-lignes td.lot { font-weight: 600; color: #1e3a8a; background: #eff6ff; }
     .params-lignes tr.eleve td { color: #64748b; font-size: 11px; }
+    .toast { position: fixed; left: 50%; bottom: 56px; transform: translate(-50%, 10px); background: #059669; color: #fff;
+      padding: 8px 16px; border-radius: 6px; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,.18);
+      opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 10; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
     textarea.json { width: 100%; min-height: 160px; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
   </style>
 </head>
@@ -113,6 +120,7 @@
   <span class="toolbar-title">Calcul de charge</span>
   <label>Entreprise <select id="sel-entreprise"></select></label>
   <label>TEM-404 <select id="sel-tem"></select></label>
+  <label>Proposition <select id="sel-prop"></select></label>
   <span class="spacer"></span>
   <button id="btn-refresh" class="btn btn-light" title="Relire les tables Grist">↻</button>
   <button id="btn-settings" class="btn btn-light">⚙ Paramètres</button>
@@ -126,11 +134,14 @@
   <button id="btn-save" class="btn btn-primary">Enregistrer</button>
 </div>
 
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
 <div id="footer" class="footer">
   <span id="status" class="statusbar"></span>
   <button id="btn-copy-text" class="btn btn-grey" disabled>Copier le devis (texte)</button>
   <button id="btn-copy-json" class="btn btn-grey" disabled>Copier le JSON TL</button>
-  <button id="btn-create" class="btn btn-success" disabled>Créer la proposition</button>
+  <button id="btn-update" class="btn btn-primary" style="display:none" disabled>Enregistrer les modifications</button>
+  <button id="btn-create" class="btn btn-success" disabled>Créer les propositions commerciales</button>
 </div>
 
 <script>
@@ -262,27 +273,26 @@ $('btn-cancel').addEventListener('click', closeSettings);
 $('btn-save').addEventListener('click', saveSettings);
 $('sel-entreprise').addEventListener('change', () => { fillTemSelect(); const t = $('sel-tem').value; selectTem(t ? Number(t) : null); });
 $('sel-tem').addEventListener('change', () => selectTem($('sel-tem').value ? Number($('sel-tem').value) : null));
-$('btn-copy-text').addEventListener('click', () => copier(texteDevis(), 'Devis copié dans le presse-papiers.'));
-$('btn-copy-json').addEventListener('click', () => copier(JSON.stringify(jsonTL(), null, 2), 'JSON TL copié dans le presse-papiers.'));
+$('sel-prop').addEventListener('change', () => selectProposition(Number($('sel-prop').value) || null));
+$('btn-copy-text').addEventListener('click', e => copier(texteDevis(), 'Devis copié dans le presse-papiers.', e.currentTarget));
+$('btn-copy-json').addEventListener('click', e => copier(JSON.stringify(jsonTL(), null, 2), 'JSON TL copié dans le presse-papiers.', e.currentTarget));
 $('btn-create').addEventListener('click', creerProposition);
+$('btn-update').addEventListener('click', enregistrerProposition);
 
 async function load() {
   setStatus('Lecture des tables…');
   try {
-    const [ent, tem, prog, pp] = await Promise.all([
+    const [ent, tem, prog] = await Promise.all([
       grist.docApi.fetchTable('Entreprises'),
       grist.docApi.fetchTable('TEM_404'),
       grist.docApi.fetchTable('Programmes'),
-      grist.docApi.fetchTable('Propositions_prestation'),
     ]);
-    const rows = t => t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]])));
     data = {
       entreprises: new Map(rows(ent).map(r => [r.id, r])),
       tem: rows(tem),
       programmes: rows(prog),
-      pp: rows(pp),
-      ppCols: new Set(Object.keys(pp)),
     };
+    await lirePropositions();
     fillEntrepriseSelect();
     setStatus('');
     const cible = linkedTemId ?? (etat?.temId);
@@ -292,6 +302,18 @@ async function load() {
     $('main').innerHTML = `<div class="placeholder">Impossible de lire les tables Grist : ${esc(err.message || err)}</div>`;
     setStatus('Erreur de lecture.', 'error');
   }
+}
+
+const rows = t => t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]])));
+const lireTable = async nom => { try { return await grist.docApi.fetchTable(nom); } catch { return null; } };
+
+// Relu avant chaque écriture : numéros et lignes existantes à jour.
+async function lirePropositions() {
+  const [pp, tl] = await Promise.all([lireTable(TABLE_PL), lireTable(TABLE_TL)]);
+  data.pp = pp ? rows(pp) : [];
+  data.ppCols = new Set(pp ? Object.keys(pp) : []);
+  data.tl = tl ? rows(tl) : [];
+  data.tlCols = new Set(tl ? Object.keys(tl) : []);
 }
 
 function fillEntrepriseSelect() {
@@ -314,6 +336,15 @@ function fillTemSelect() {
   if (etat && tems.some(t => t.id === etat.temId)) $('sel-tem').value = String(etat.temId);
 }
 
+function fillPropSelect() {
+  const temId = etat?.temId;
+  const props = (data.tl || []).filter(t => temId && t.TEM_404 === temId)
+    .sort((a, b) => String(b.Libelle_TL).localeCompare(String(a.Libelle_TL)));
+  $('sel-prop').innerHTML = '<option value="">— nouvelle —</option>' + props.map(t =>
+    `<option value="${t.id}">${esc(t.Libelle_TL)}${t.Statut ? ' (' + esc(t.Statut) + ')' : ''}</option>`).join('');
+  $('sel-prop').value = etat?.source ? String(etat.source.tlId) : '';
+}
+
 function selectTem(temId) {
   const tem = data.tem.find(t => t.id === temId);
   if (!tem) { etat = null; renderDevis(); return; }
@@ -321,7 +352,89 @@ function selectTem(temId) {
   fillTemSelect();
   $('sel-tem').value = String(tem.id);
   if (etat?.temId !== tem.id) etat = etatDepuisTem(tem);
+  fillPropSelect();
   renderDevis();
+}
+
+function selectProposition(tlId) {
+  const tem = data.tem.find(t => t.id === etat?.temId);
+  if (!tem) return;
+  etat = etatDepuisTem(tem);
+  if (tlId) {
+    const tl = data.tl.find(t => t.id === tlId);
+    try { appliquerSaisie(tl); }
+    catch (err) { setStatus(`Proposition illisible : ${err.message || err}`, 'error'); etat = etatDepuisTem(tem); }
+  }
+  fillPropSelect();
+  renderDevis();
+}
+
+/* ──────────────────────────────────────────
+   Sauvegarde / rechargement de la saisie
+────────────────────────────────────────── */
+const TABLE_PL = 'Propositions_prestation';
+const TABLE_TL = 'Propositions_commerciales';
+const ANNULEE = 'Annulée';
+const SIGNEE = 'Signée';
+
+const numLibelle = (lib, sigle) => {
+  const m = String(lib || '').match(new RegExp(`^(\\d{4})${sigle}(\\d{4})`));
+  return m ? { annee: Number(m[1]), num: Number(m[2]) } : null;
+};
+const safeJson = t => { try { return JSON.parse(t); } catch { return null; } };
+// Une colonne Ref lue par fetchTable vaut l'id ; un ancien libellé texte est aussi accepté.
+const refId = v => typeof v === 'number' ? v : (data.tl.find(t => t.Libelle_TL === v)?.id ?? null);
+
+function saisie() {
+  return {
+    programmes: Object.fromEntries(PROGS.map(p => {
+      const e = etat.programmes[p.code];
+      return [p.code, { retenu: e.retenu, type: e.type, niveau: e.niveau }];
+    })),
+    portees: structuredClone(etat.portees),
+    sites_nouveaux: etat.sites.filter(s => s.nouveau).map(s => s.n),
+    siteSel: { ...etat.siteSel },
+    modulateurs: { ...etat.modulateurs },
+    mutualisation: etat.mutualisation,
+    appl: { ...etat.appl },
+    offert: { ...etat.offert },
+    ja: { ...etat.ja },
+    reduction: { ...etat.reduction },
+    commentaires: etat.commentaires,
+    justification: etat.justification,
+    justifEditee: etat.justifEditee,
+  };
+}
+
+// Recharge une proposition enregistrée : la saisie remplace les valeurs lues dans le TEM-404,
+// et le calcul reprend la période de paramètres utilisée à la création.
+function appliquerSaisie(tl) {
+  const j = JSON.parse(tl.Json_TL || '{}');
+  // Les PL annulées sont gardées : si le programme est remis, sa ligne est réactivée avec son numéro.
+  const plRows = data.pp.filter(r => refId(r.Proposition_commerciale) === tl.id)
+    .sort((a, b) => (a.Statut === ANNULEE) - (b.Statut === ANNULEE)).reverse();
+  const tlNum = numLibelle(tl.Libelle_TL, 'TL');
+  etat.source = {
+    tlId: tl.id, libelle: tl.Libelle_TL, annee: tlNum?.annee, tlNum: tlNum?.num,
+    pl: Object.fromEntries(plRows.map(r => {
+      const prog = PROGS.find(p => p.nom === safeJson(r.Charge)?.programme);
+      return prog ? [prog.code, { rowId: r.id, ...numLibelle(r.Libelle_PL, 'PL'), signe: !!r.devis_signe || r.Statut === SIGNEE, annulee: r.Statut === ANNULEE }] : null;
+    }).filter(Boolean)),
+    dateCreation: j.date_creation || j.date || null,
+    dateModification: j.date_modification || null,
+    debutParams: j.version_params || null,
+    statut: tl.Statut || '',
+  };
+  const s = safeJson(tl.Saisie);
+  if (!s) { etat.source.sansSaisie = true; return; }
+  for (const p of PROGS) if (s.programmes?.[p.code]) Object.assign(etat.programmes[p.code], s.programmes[p.code]);
+  if (s.portees) for (const p of PROGS) Object.assign(etat.portees[p.code], s.portees[p.code] || {});
+  for (const site of etat.sites) site.nouveau = (s.sites_nouveaux || []).includes(site.n);
+  Object.assign(etat, {
+    siteSel: s.siteSel || {}, modulateurs: { ...etat.modulateurs, ...s.modulateurs }, mutualisation: s.mutualisation ?? true,
+    appl: s.appl || {}, offert: s.offert || {}, ja: s.ja || {}, reduction: { ...etat.reduction, ...s.reduction },
+    commentaires: s.commentaires || '', justification: s.justification ?? null, justifEditee: !!s.justifEditee,
+  });
 }
 
 /* ──────────────────────────────────────────
@@ -359,14 +472,18 @@ function etatDepuisTem(tem) {
     for (const p of PROGS) progs[p.code] = j[`b.${p.code}.site_${n}`] === true;
     if (nom || Object.values(progs).some(Boolean)) sites.push({ n, nom: nom || `Site ${n}`, progs, nouveau: false });
   }
-  if (!sites.length) manques.push('f.site1.nom');
+  if (!sites.length) {
+    manques.push('f.site1.nom');
+    // Site fictif pour que le commercial puisse cocher manuellement la sécurité physique.
+    sites.push({ n: 1, nom: 'Site 1 (non renseigné)', progs: Object.fromEntries(PROGS.map(p => [p.code, false])), nouveau: false });
+  }
 
   const modulateurs = Object.fromEntries(MODULATEURS.map(m => [m.id, m.defaut]));
   return {
     temId: tem.id, numTem: tem.NumTEM404, entrepriseId: tem.Entreprise, jsonOk, manques, nonGeres,
     programmes, portees, sites, modulateurs, mutualisation: true,
-    siteSel: {}, appl: {}, offert: {}, ajust: {},
-    reduction: 0, commentaires: '', justification: null, justifEditee: false, cree: null,
+    siteSel: {}, appl: {}, offert: {}, ja: {},
+    reduction: Object.fromEntries(PROGS.map(p => [p.code, 0])), commentaires: '', justification: null, justifEditee: false, source: null,
   };
 }
 
@@ -396,11 +513,15 @@ function selectionSites(progsRet) {
       concernes.filter(s => s.nouveau).length);
     const ordre = [...concernes].sort((a, b) => (b.nouveau - a.nouveau) || (a.n - b.n));
     const parDefaut = new Set(ordre.slice(0, requis).map(s => s.n));
-    sel[p.code] = { requis, concernes: concernes.length, sites: new Set() };
-    for (const s of concernes) {
+    sel[p.code] = { requis, concernes: concernes.length, sites: new Set(), manuels: 0 };
+    for (const s of etat.sites) {
       const k = `${p.code}|${s.n}`;
-      const coche = s.nouveau ? true : (k in etat.siteSel ? etat.siteSel[k] : parDefaut.has(s.n));
+      // Un site non rattaché au programme dans le TEM-404 ne compte que s'il est coché à la main.
+      const coche = s.progs[p.code]
+        ? (s.nouveau ? true : (k in etat.siteSel ? etat.siteSel[k] : parDefaut.has(s.n)))
+        : !!etat.siteSel[k];
       if (coche) sel[p.code].sites.add(s.n);
+      if (coche && !s.progs[p.code]) sel[p.code].manuels++;
     }
   }
   return sel;
@@ -409,7 +530,9 @@ function selectionSites(progsRet) {
 function calculer() {
   const ctrl = [];
   const add = (niveau, msg) => ctrl.push({ niveau, msg });
-  const P = periodeAu(today());
+  const P = etat.source?.debutParams ? (periodes.find(p => p.debut === etat.source.debutParams) || null) : periodeAu(today());
+  if (etat.source?.sansSaisie) add('verifier', 'Proposition enregistrée sans la saisie détaillée : valeurs relues dans le TEM-404, à vérifier avant d’enregistrer.');
+  if (etat.source && signee()) add('verifier', 'Proposition déjà signée : toute modification sera visible par CPQ (date de modification postérieure à la signature).');
 
   if (!etat.jsonOk) add('bloquant', 'Json_Complet absent ou illisible dans ce TEM-404.');
   if (etat.manques.length) add('verifier', `Champs absents du TEM-404 : ${etat.manques.join(', ')}.`);
@@ -422,7 +545,13 @@ function calculer() {
     if (!TYPES.includes(e.type)) add('bloquant', `${p.nom} : type d’évaluation « ${e.type || '—'} » non géré, choisir Initiale, Surveillance ou Renouvellement.`);
     if (!NIVEAUX.includes(e.niveau)) add('bloquant', `${p.nom} : niveau manquant.`);
     if (!Object.values(etat.portees[p.code]).some(Boolean)) add('bloquant', `${p.nom} : aucune portée cochée.`);
-    if (!etat.sites.some(s => s.progs[p.code])) add('verifier', `${p.nom} : aucun site rattaché dans le TEM-404.`);
+  }
+  const sel = selectionSites(progsRet);
+  for (const p of progsRet) {
+    const s = sel[p.code];
+    if (!s.sites.size) add('bloquant', `${p.nom} : aucun site coché pour l’évaluation de la sécurité physique.`);
+    else if (!s.concernes) add('verifier', `${p.nom} : aucun site rattaché dans le TEM-404 ; site(s) coché(s) manuellement.`);
+    else if (s.manuels) add('verifier', `${p.nom} : ${s.manuels} site(s) non rattaché(s) dans le TEM-404 coché(s) manuellement.`);
   }
   if (etat.programmes.pacs.retenu && etat.portees.pacs.HOMOL && !etat.portees.pacs.RISQUE)
     add('bloquant', 'PACS : la portée HOMOL seule n’est pas autorisée, elle doit inclure RISQUE.');
@@ -431,9 +560,10 @@ function calculer() {
   if (etat.programmes.passi.retenu && progsRet.length > 1)
     add('verifier', 'Offre combinée : PASSI relève de l’accréditation, PACS et PRIS du processus aménagé. Deux régimes distincts dans la même offre.');
 
-  const sel = selectionSites(progsRet);
   if (!P) {
-    add('bloquant', `Aucun paramètre en vigueur au ${frDate(today())} : renseigner une période dans ⚙ Paramètres.`);
+    add('bloquant', etat.source?.debutParams
+      ? `Période de paramètres du ${frDate(etat.source.debutParams)}, utilisée à la création, introuvable dans ⚙ Paramètres.`
+      : `Aucun paramètre en vigueur au ${frDate(today())} : renseigner une période dans ⚙ Paramètres.`);
     return { ctrl, prestations: [], P: null, progsRet, sel };
   }
   const tjm = parseNum(P.tjm);
@@ -478,7 +608,7 @@ function calculer() {
   const niveauMax = anyEleve ? ELEVE : 'Substantiel';
   for (const p of progsRet) {
     const s = sel[p.code];
-    if (s.sites.size < s.requis) add('verifier', `${p.nom} : ${s.sites.size} site(s) évalué(s) pour ${s.requis} requis (${etat.programmes[p.code].type}, ${s.concernes} site(s)).`);
+    if (s.sites.size && s.sites.size < s.requis) add('verifier', `${p.nom} : ${s.sites.size} site(s) évalué(s) pour ${s.requis} requis (${etat.programmes[p.code].type}, ${s.concernes} site(s)).`);
   }
 
   const prestations = progsRet.map(p => ({ prog: p, e: etat.programmes[p.code], uos: [] }));
@@ -526,20 +656,27 @@ function calculer() {
       }
     }
   }
-  // Ajustements libres (lignes « Ajustement » de l'Excel) : JH saisis directement, sans coefficient.
-  for (const x of prestations) for (const lot of LOTS) {
-    const key = `ajust|${x.prog.code}|${lot.n}`;
-    const a = etat.ajust[key] || {};
-    x.uos.push({ key, ligne: { id: 'ajust', lot: lot.n, lib: 'Ajustement' }, lib: 'Ajustement', ajust: true,
-      ja: Object.fromEntries(ROLES.map(r => [r.id, r05(parseNum(a[r.id]) ?? 0)])) });
-  }
   if (manquantes.size) add('verifier', `Paramètres sans valeur (0 JH) : ${[...manquantes].join(' ; ')}.`);
 
-  const red = etat.reduction / 100;
+  // JA saisis par le commercial : remplacent la valeur calculée (conservée dans jaCalc).
+  let nbModifs = 0;
+  for (const x of prestations) for (const uo of x.uos) {
+    uo.jaCalc = { ...uo.ja };
+    uo.modif = {};
+    for (const r of ROLES) {
+      const v = parseNum(etat.ja[`${uo.key}|${r.id}`]);
+      if (v === null || r2(v) === uo.jaCalc[r.id]) continue;
+      uo.ja[r.id] = r2(v);
+      uo.modif[r.id] = true;
+      nbModifs++;
+    }
+  }
+  if (nbModifs) add('verifier', `${nbModifs} jour(s)-auditeur modifié(s) manuellement (surlignés dans le devis).`);
+
   for (const x of prestations) {
     for (const uo of x.uos) {
-      uo.appl = uo.ajust ? true : (etat.appl[uo.key] ?? true);
-      uo.offerte = !uo.ajust && !!etat.offert[uo.key];
+      uo.appl = etat.appl[uo.key] ?? true;
+      uo.offerte = !!etat.offert[uo.key];
       uo.jh = uo.appl ? r2(sum(ROLES.map(r => uo.ja[r.id]))) : 0;
     }
     x.lots = LOTS.map(lot => {
@@ -549,7 +686,8 @@ function calculer() {
     x.jh = r2(sum(x.lots.map(l => l.jh)));
     x.jhOffert = r2(sum(x.uos.filter(u => u.offerte).map(u => u.jh)));
     x.htBrut = r2((x.jh - x.jhOffert) * (tjm ?? 0));
-    x.remise = r2(x.htBrut * red);
+    x.reduction = etat.reduction[x.prog.code] ?? 0;
+    x.remise = r2(x.htBrut * x.reduction / 100);
     x.ht = r2(x.htBrut - x.remise);
     x.parRole = Object.fromEntries(ROLES.map(r => [r.id, r2(sum(x.uos.filter(u => u.appl).map(u => u.ja[r.id])))]));
   }
@@ -578,27 +716,35 @@ function progRef(p) {
 }
 const tetra = p => progRef(p)?.tetragramme || p.nom.slice(0, 4).toUpperCase();
 
-function prochainsNumeros(annee, nbPL) {
-  const max = (col, sigle) => Math.max(0, ...data.pp.map(r => {
-    const m = String(r[col] || '').match(new RegExp(`^${annee}${sigle}(\\d{4})`));
-    return m ? Number(m[1]) : 0;
+// Prochain numéro = plus grand numéro existant de l'année + 1 (PL et TL numérotées séparément).
+function derniersNumeros(annee) {
+  const max = (liste, col, sigle) => Math.max(0, ...liste.map(r => {
+    const n = numLibelle(r[col], sigle);
+    return n && n.annee === annee ? n.num : 0;
   }));
-  const pl0 = max('Libelle_PL', 'PL');
-  return { pl: Array.from({ length: nbPL }, (_, i) => pl0 + 1 + i), tl: max('Proposition_commerciale', 'TL') + 1 };
+  return { pl: max(data.pp, 'Libelle_PL', 'PL'), tl: max(data.tl, 'Libelle_TL', 'TL') };
 }
 
-function libelles(res) {
-  const annee = new Date().getFullYear();
+// En édition, les numéros existants sont conservés ; seules les prestations ajoutées reçoivent un numéro.
+function libelles(res, nouvelle = !etat.source) {
+  const src = nouvelle ? null : etat.source;
+  const annee = src?.annee ?? Number(today().slice(0, 4));
   const ent = data.entreprises.get(etat.entrepriseId);
   const code = ent?.code || '????';
   const com = etat.commentaires.trim() ? '_' + etat.commentaires.trim() : '';
-  const nums = prochainsNumeros(annee, res.prestations.length);
+  const der = derniersNumeros(annee);
+  let suivant = der.pl;
+  const nums = res.prestations.map(x => src?.pl[x.prog.code]?.num ?? ++suivant);
+  const tlNum = src?.tlNum ?? der.tl + 1;
   const pad = n => String(n).padStart(4, '0');
   const pl = res.prestations.map((x, i) =>
-    `${annee}PL${pad(nums.pl[i])}_${tetra(x.prog)}${TYPE_CODES[x.e.type] || 'XXXX'}_${code}${com}`);
-  const tl = `${annee}TL${pad(nums.tl)}_${res.prestations.map(x => tetra(x.prog)).join('')}_${code}${com}`;
+    `${annee}PL${pad(nums[i])}_${tetra(x.prog)}${TYPE_CODES[x.e.type] || 'XXXX'}_${code}${com}`);
+  const tl = `${annee}TL${pad(tlNum)}_${res.prestations.map(x => tetra(x.prog)).join('')}_${code}${com}`;
   return { pl, tl };
 }
+
+const signee = () => !!etat.source && (etat.source.statut === SIGNEE || Object.values(etat.source.pl).some(p => p.signe));
+const fmtDateHeure = iso => iso ? new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }) : '';
 
 function genererJustification(res) {
   const { prestations, tot, tjm } = res;
@@ -638,8 +784,9 @@ function genererJustification(res) {
   t += 'Ne sont pas couverts : les examens de compétence, facturés distinctement ; les travaux complémentaires demandés au jalon J2 ; les évaluations liées à une modification substantielle, une réclamation ou une demande de l’ANSSI ; les prestations témoins supplémentaires si celles présentées ne couvrent pas les portées retenues.\n\n';
   t += `Charge totale : ${JH.format(tot.jh)} j.h, répartie en ${JH.format(tot.parLot[0])} j.h de pilotage, ${JH.format(tot.parLot[1])} j.h d’évaluation siège et ${JH.format(tot.parLot[2])} j.h d’évaluation métier, soit ${EUR.format(r2(tot.jh * (tjm ?? 0)))} HT.`;
   if (tot.jhOffert > 0) t += ` ${JH.format(tot.jhOffert)} j.h sont offerts.`;
-  if (etat.reduction > 0) t += ` Une remise de ${etat.reduction} % est appliquée.`;
-  if (tot.jhOffert > 0 || etat.reduction > 0) t += ` Montant net : ${EUR.format(tot.ht)} HT.`;
+  const remises = res.prestations.filter(x => x.reduction > 0).map(x => `${x.reduction} % sur ${x.prog.nom}`);
+  if (remises.length) t += ` Remise appliquée : ${remises.join(', ')}.`;
+  if (tot.jhOffert > 0 || remises.length) t += ` Montant net : ${EUR.format(tot.ht)} HT.`;
   if (amenage) {
     const initAmenage = actifs.some(x => x.prog.code !== 'passi' && x.e.type === 'Initiale');
     t += '\n\n' + (initAmenage
@@ -718,10 +865,11 @@ function cardSites() {
     <td><input type="checkbox" data-nouveau="${s.n}" ${s.nouveau ? 'checked' : ''} title="Nouveau site : toujours évalué"></td>
     ${progs.map(p => s.progs[p.code]
       ? `<td class="num"><input type="checkbox" data-site="${p.code}|${s.n}" ${sel[p.code]?.sites.has(s.n) ? 'checked' : ''} ${s.nouveau ? 'disabled' : ''}></td>`
-      : '<td class="num muted">–</td>').join('')}
+      : `<td class="num"><input type="checkbox" data-site="${p.code}|${s.n}" ${sel[p.code]?.sites.has(s.n) ? 'checked' : ''} title="Site non rattaché à ${p.nom} dans le TEM-404 : cocher pour l’évaluer"><span class="muted">*</span></td>`).join('')}
   </tr>`).join('');
   return `<div class="card"><h3>Sites à évaluer (sécurité physique)</h3><div class="body">
-    <p class="hint">1 UO par site évalué. Un site commun à plusieurs programmes est compté sur le programme principal.</p>
+    <p class="hint">1 UO par site évalué. Un site commun à plusieurs programmes est compté sur le programme principal.
+      * = site non rattaché au programme dans le TEM-404, à cocher manuellement si besoin.</p>
     <table><thead><tr><th>Site</th><th>Nouveau</th>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 
@@ -755,25 +903,23 @@ function cardDevis() {
   const { prestations, tot } = resultat;
   if (!prestations.length) return `<div class="card"><h3>Devis</h3><div class="body muted">Aucune prestation à calculer.</div></div>`;
   const th = ROLES.map(r => `<th class="num" title="${esc(r.titre)}">${r.lib}</th>`).join('');
-  const cells = ja => ROLES.map(r => `<td class="num">${ja[r.id] ? JH.format(ja[r.id]) : '<span class="muted">·</span>'}</td>`).join('');
+  const cells = u => ROLES.map(r => {
+    const m = u.modif[r.id];
+    const titre = m ? `Calculé : ${JH.format(u.jaCalc[r.id])} – vider le champ pour revenir au calcul` : r.titre;
+    return `<td class="num"><input class="ja${m ? ' modif' : ''}" type="text" inputmode="decimal" data-ja="${esc(u.key)}|${r.id}"
+      value="${u.ja[r.id] || m ? fmtNum(u.ja[r.id]) : ''}" placeholder="·" title="${esc(titre)}" ${u.appl ? '' : 'disabled'}></td>`;
+  }).join('');
   let html = '';
   for (const x of prestations) {
     html += `<tr class="prest"><td></td><td>${esc(x.prog.nom)} ${esc(x.e.type)} – ${esc(x.e.niveau)}</td>${ROLES.map(r => `<td class="num">${JH.format(x.parRole[r.id])}</td>`).join('')}<td class="num">${JH.format(x.jh)}</td><td></td></tr>`;
     for (const l of x.lots) {
       html += `<tr class="lot"><td></td><td colspan="${ROLES.length + 1}">${esc(l.lot.lib)}</td><td class="num">${JH.format(l.jh)}</td><td></td></tr>`;
       for (const u of l.uos) {
-        if (u.ajust) {
-          const a = etat.ajust[u.key] || {};
-          html += `<tr class="uo ajust"><td></td><td class="lib">Ajustement</td>${ROLES.map(r =>
-            `<td class="num"><input class="n" type="text" inputmode="decimal" data-ajust="${u.key}|${r.id}" value="${esc(a[r.id] ?? '')}" placeholder="0"></td>`).join('')}
-            <td class="num">${u.jh ? JH.format(u.jh) : ''}</td><td></td></tr>`;
-          continue;
-        }
         const cls = ['uo', u.appl ? '' : 'off', u.offerte ? 'offerte' : '', u.partagee ? 'partagee' : ''].join(' ');
         html += `<tr class="${cls}">
           <td><input type="checkbox" data-appl="${u.key}" ${u.appl ? 'checked' : ''} title="Appl."></td>
           <td class="lib">${esc(u.lib)}${u.partagee ? ` <span class="muted">(comptée sur ${esc(u.partagee)})</span>` : ''}</td>
-          ${cells(u.ja)}
+          ${cells(u)}
           <td class="num">${JH.format(u.jh)}</td>
           <td><input type="checkbox" data-offert="${u.key}" ${u.offerte ? 'checked' : ''} ${u.appl && u.jh > 0 ? '' : 'disabled'} title="Offerte"></td>
         </tr>`;
@@ -795,23 +941,25 @@ function cardTotaux() {
     <td class="num">${JH.format(x.jh)}</td>
     <td class="num">${x.jhOffert ? JH.format(x.jhOffert) : ''}</td>
     <td class="num">${EUR2.format(x.htBrut)}</td>
+    <td class="num"><select data-reduction="${x.prog.code}">${[0, 5, 10, 15, 20].map(r => `<option value="${r}" ${r === x.reduction ? 'selected' : ''}>${r} %</option>`).join('')}</select></td>
     <td class="num">${x.remise ? '− ' + EUR2.format(x.remise) : ''}</td>
     <td class="num"><b>${EUR2.format(x.ht)}</b></td></tr>`).join('');
   return `<div class="card"><h3>Proposition commerciale</h3><div class="body">
     <div class="row-flex" style="margin-bottom:8px">
-      <label>Remise <select id="sel-reduction">${[0, 5, 10, 15, 20].map(r => `<option value="${r}" ${r === etat.reduction ? 'selected' : ''}>${r} %</option>`).join('')}</select></label>
       <label>Commentaires <input type="text" id="txt-comment" size="34" value="${esc(etat.commentaires)}" placeholder="fin de libellé"></label>
       <span class="muted">TJM : ${tjm === null || tjm === undefined ? '?' : EUR.format(tjm)}</span>
     </div>
-    <table class="totaux"><thead><tr><th>Prestation (PL)</th><th class="num">JH</th><th class="num">Offerts</th><th class="num">Brut HT</th><th class="num">Remise</th><th class="num">Net HT</th></tr></thead>
+    <table class="totaux"><thead><tr><th>Prestation (PL)</th><th class="num">JH</th><th class="num">Offerts</th><th class="num">Brut HT</th><th class="num">Remise %</th><th class="num">Remise</th><th class="num">Net HT</th></tr></thead>
     <tbody>${rows}
       <tr class="grand"><td>Total <span class="libelle">${esc(lib.tl)}</span></td><td class="num">${JH.format(tot.jh)}</td>
-        <td class="num">${tot.jhOffert ? JH.format(tot.jhOffert) : ''}</td><td class="num">${EUR2.format(tot.htBrut)}</td>
+        <td class="num">${tot.jhOffert ? JH.format(tot.jhOffert) : ''}</td><td class="num">${EUR2.format(tot.htBrut)}</td><td></td>
         <td class="num">${tot.remise ? '− ' + EUR2.format(tot.remise) : ''}</td><td class="num">${EUR2.format(tot.ht)}</td></tr>
     </tbody></table>
     <p class="hint">Lots : ${LOTS.map((l, i) => `${l.court} ${JH.format(tot.parLot[i])} j.h`).join(' · ')}.
-      Numéros provisoires : ils sont recalculés à la création.</p>
-    ${etat.cree ? `<p class="statusbar ok">Proposition créée : <span class="libelle">${esc(etat.cree.tl)}</span> (${etat.cree.pl.length} ligne(s) dans Propositions_prestation).</p>` : ''}
+      ${etat.source ? '' : 'Numéros provisoires : ils sont attribués définitivement à la création.'}</p>
+    ${etat.source ? `<p class="statusbar ${signee() ? 'warn' : 'ok'}">Édition de <span class="libelle">${esc(etat.source.libelle)}</span>
+      — créée le ${esc(fmtDateHeure(etat.source.dateCreation))}${etat.source.dateModification ? `, modifiée le ${esc(fmtDateHeure(etat.source.dateModification))}` : ''}${etat.source.statut ? ` — ${esc(etat.source.statut)}` : ''}${signee() ? ' — <b>déjà signée</b>' : ''}.
+      Les numéros sont conservés ; « Créer de nouvelles propositions » en fait une copie avec de nouveaux numéros.</p>` : ''}
   </div></div>`;
 }
 
@@ -836,17 +984,24 @@ function bindDevis() {
   on('[data-mod]', 'change', e => { etat.modulateurs[e.target.dataset.mod] = e.target.value; renderDevis(); });
   on('[data-appl]', 'change', e => { etat.appl[e.target.dataset.appl] = e.target.checked; renderDevis(); });
   on('[data-offert]', 'change', e => { etat.offert[e.target.dataset.offert] = e.target.checked; renderDevis(); });
-  on('[data-ajust]', 'change', e => {
-    const parts = e.target.dataset.ajust.split('|');
-    const role = parts.pop(), key = parts.join('|');
+  on('[data-ja]', 'change', e => {
     const v = e.target.value.trim();
-    if (v !== '' && parseNum(v) === null) { e.target.classList.add('invalid'); return; }
-    etat.ajust[key] ||= {};
-    etat.ajust[key][role] = v;
-    renderDevis();
+    const n = parseNum(v);
+    if (v !== '' && (n === null || n < 0)) { e.target.classList.add('invalid'); return; }
+    if (v === '') delete etat.ja[e.target.dataset.ja];
+    else etat.ja[e.target.dataset.ja] = v;
+    // Le re-rendu détruit les champs : on attend que le focus (Tab / clic) soit posé pour le restaurer.
+    setTimeout(() => {
+      const cible = document.activeElement?.dataset?.ja;
+      renderDevis();
+      if (!cible) return;
+      const el = [...$('main').querySelectorAll('[data-ja]')].find(i => i.dataset.ja === cible);
+      if (el) { el.focus(); el.select(); }
+    });
   });
+  on('[data-ja]', 'keydown', e => { if (e.key === 'Enter') e.target.blur(); });
   $('chk-mut')?.addEventListener('change', e => { etat.mutualisation = e.target.checked; renderDevis(); });
-  $('sel-reduction')?.addEventListener('change', e => { etat.reduction = Number(e.target.value); renderDevis(); });
+  on('[data-reduction]', 'change', e => { etat.reduction[e.target.dataset.reduction] = Number(e.target.value); renderDevis(); });
   $('txt-comment')?.addEventListener('change', e => { etat.commentaires = e.target.value.replace(/\s+/g, ' '); renderDevis(); });
   $('txt-justif')?.addEventListener('input', e => { etat.justification = e.target.value; etat.justifEditee = true; });
   $('btn-regen')?.addEventListener('click', () => { etat.justifEditee = false; renderDevis(); });
@@ -856,14 +1011,16 @@ function majBoutons() {
   const ok = !!(resultat && resultat.prestations.length && !resultat.ctrl.some(c => c.niveau === 'bloquant'));
   $('btn-copy-text').disabled = !ok;
   $('btn-copy-json').disabled = !ok;
-  $('btn-create').disabled = !ok || !!etat?.cree;
-  if (etat?.cree) $('btn-create').title = 'Proposition déjà créée pour ce calcul.';
+  $('btn-create').disabled = !ok;
+  $('btn-create').textContent = etat?.source ? 'Créer de nouvelles propositions commerciales' : 'Créer les propositions commerciales';
+  $('btn-update').style.display = etat?.source ? '' : 'none';
+  $('btn-update').disabled = !ok;
 }
 
 /* ──────────────────────────────────────────
    Export : JSON PL / TL et texte
 ────────────────────────────────────────── */
-function jsonPL(x, libPL, libTL) {
+function jsonPL(x, libPL, libTL, dates = datesProposition()) {
   const res = resultat;
   const ent = data.entreprises.get(etat.entrepriseId);
   return {
@@ -872,12 +1029,14 @@ function jsonPL(x, libPL, libTL) {
     entreprise: { id: etat.entrepriseId, denomination: ent?.Denomination ?? null, code: ent?.code ?? null },
     tem404: etat.numTem,
     version_params: res.P.debut,
+    date_creation: dates.creation,
+    date_modification: dates.modification,
     programme: x.prog.nom,
     version: x.e.version || x.prog.sansVersion,
     type: x.e.type,
     niveau: x.e.niveau,
     tjm: res.tjm,
-    reduction_pct: etat.reduction,
+    reduction_pct: x.reduction,
     JH: x.jh,
     JH_offerts: x.jhOffert,
     HT_brut: x.htBrut,
@@ -893,7 +1052,8 @@ function jsonPL(x, libPL, libTL) {
         JH: u.jh,
         offerte: u.offerte,
         ...(u.partagee ? { comptee_sur: u.partagee } : {}),
-        ja: ROLES.filter(r => u.ja[r.id] > 0).map(r => ({ role: r.lib, JH: u.ja[r.id] })),
+        ja: ROLES.filter(r => u.ja[r.id] > 0 || u.modif[r.id]).map(r => ({ role: r.lib, JH: u.ja[r.id],
+          ...(u.modif[r.id] ? { modifie: true, JH_calcule: u.jaCalc[r.id] } : {}) })),
       })),
     })),
     entrees: {
@@ -908,22 +1068,28 @@ function jsonPL(x, libPL, libTL) {
   };
 }
 
-function jsonTL(lib = libelles(resultat)) {
+function datesProposition(nouvelle = !etat.source) {
+  const maintenant = new Date().toISOString();
+  return { creation: (!nouvelle && etat.source?.dateCreation) || maintenant, modification: maintenant };
+}
+
+function jsonTL(lib = libelles(resultat), dates = datesProposition()) {
   const res = resultat;
   const ent = data.entreprises.get(etat.entrepriseId);
   return {
     libelle_TL: lib.tl,
     entreprise: { id: etat.entrepriseId, denomination: ent?.Denomination ?? null, code: ent?.code ?? null },
     tem404: etat.numTem,
-    date: today(),
+    date_creation: dates.creation,
+    date_modification: dates.modification,
     version_params: res.P.debut,
     commentaires: etat.commentaires.trim(),
-    reduction_pct: etat.reduction,
+    reductions_pct: Object.fromEntries(res.prestations.map(x => [x.prog.nom, x.reduction])),
     totaux: { JH: res.tot.jh, JH_offerts: res.tot.jhOffert, HT_brut: res.tot.htBrut, remise: res.tot.remise, HT: res.tot.ht,
       par_lot: Object.fromEntries(LOTS.map((l, i) => [l.lib, res.tot.parLot[i]])),
       par_role: Object.fromEntries(ROLES.map(r => [r.lib, res.tot.parRole[r.id]])) },
     justification: etat.justification,
-    PL: res.prestations.map((x, i) => jsonPL(x, lib.pl[i], lib.tl)),
+    PL: res.prestations.map((x, i) => jsonPL(x, lib.pl[i], lib.tl, dates)),
   };
 }
 
@@ -933,9 +1099,9 @@ function texteDevis() {
   const L = [];
   L.push(`Proposition commerciale ${lib.tl}`);
   L.push(`Client : ${ent?.Denomination ?? ''} — TEM-404 ${etat.numTem} — ${frDate(today())}`);
-  L.push(`TJM : ${EUR.format(res.tjm)} HT${etat.reduction ? ` — remise ${etat.reduction} %` : ''}`);
+  L.push(`TJM : ${EUR.format(res.tjm)} HT`);
   for (const [i, x] of res.prestations.entries()) {
-    L.push('', `■ ${lib.pl[i]} — ${x.prog.nom} ${x.e.type} ${x.e.niveau} : ${JH.format(x.jh)} j.h — ${EUR2.format(x.ht)} HT`);
+    L.push('', `■ ${lib.pl[i]} — ${x.prog.nom} ${x.e.type} ${x.e.niveau} : ${JH.format(x.jh)} j.h — ${EUR2.format(x.ht)} HT${x.reduction ? ` (remise ${x.reduction} %)` : ''}`);
     for (const l of x.lots) {
       if (!l.jh && !l.uos.some(u => u.partagee && u.appl)) continue;
       L.push(`  ${l.lot.lib} : ${JH.format(l.jh)} j.h`);
@@ -951,59 +1117,156 @@ function texteDevis() {
   return L.join('\n');
 }
 
-async function copier(txt, msg) {
+async function copier(txt, msg, bouton) {
+  let ok = false;
   try {
     await navigator.clipboard.writeText(txt);
-    setStatus(msg, 'ok');
+    ok = true;
   } catch {
-    // Le presse-papiers peut être refusé dans l'iframe Grist : on propose le texte à copier à la main.
-    window.prompt('Copier (Ctrl+C) :', txt);
+    // L'API presse-papiers peut être refusée dans l'iframe Grist : repli sur execCommand.
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove();
   }
+  if (!ok) { window.prompt('Copie automatique impossible. Copier le texte (Ctrl+C) :', txt); return; }
+  toast(msg);
+  if (bouton) {
+    const lib = bouton.dataset.lib ||= bouton.textContent;
+    bouton.textContent = '✓ Copié';
+    clearTimeout(bouton._t);
+    bouton._t = setTimeout(() => { bouton.textContent = lib; }, 2000);
+  }
+}
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 2500);
 }
 
 /* ──────────────────────────────────────────
    Création dans Propositions_prestation
 ────────────────────────────────────────── */
-const COLS_REQUISES = ['Libelle_PL', 'Proposition_commerciale', 'TEM_404', 'Charge'];
+const COLS = {
+  [TABLE_PL]: ['Libelle_PL', 'Proposition_commerciale', 'TEM_404', 'Charge', 'Statut'],
+  [TABLE_TL]: ['Libelle_TL', 'Entreprise', 'TEM_404', 'Json_TL', 'Saisie', 'Montant_HT', 'Date_creation', 'Date_modification', 'Statut'],
+};
+
+function verifierSchema() {
+  const presentes = { [TABLE_PL]: data.ppCols, [TABLE_TL]: data.tlCols };
+  const manques = Object.entries(COLS).flatMap(([t, cols]) => cols.filter(c => !presentes[t].has(c)).map(c => `${t}.${c}`));
+  if (manques.length) { setStatus(`Colonnes absentes : ${manques.join(', ')}.`, 'error'); return false; }
+  const ent = data.entreprises.get(etat.entrepriseId);
+  if (!ent?.code) { setStatus('L’entreprise n’a pas de code (Entreprises.code) : libellé impossible.', 'error'); return false; }
+  return true;
+}
+
+const secondes = iso => Math.floor(new Date(iso).getTime() / 1000);
+const jourSec = iso => secondes(iso.slice(0, 10) + 'T00:00:00Z');
+
+function champsPL(x, i, lib, tlId, dates) {
+  return {
+    Denomination: etat.entrepriseId,
+    Date: jourSec(dates.creation),
+    Programme: progRef(x.prog)?.id ?? 0,
+    Type_d_evaluation: ['L', x.e.type],
+    Commentaires: etat.commentaires.trim(),
+    Montant_Jour_HT: resultat.tjm,
+    Montant_PO: x.ht,
+    Libelle_PL: lib.pl[i],
+    Proposition_commerciale: tlId,
+    TEM_404: etat.temId,
+    Charge: JSON.stringify(jsonPL(x, lib.pl[i], lib.tl, dates)),
+  };
+}
 
 async function creerProposition() {
   if (!resultat?.prestations.length) return;
   $('btn-create').disabled = true;
   try {
-    // Relecture pour des numéros PL/TL à jour.
-    const pp = await grist.docApi.fetchTable('Propositions_prestation');
-    data.pp = pp.id.map((id, i) => Object.fromEntries(Object.keys(pp).map(k => [k, pp[k][i]])));
-    data.ppCols = new Set(Object.keys(pp));
-    const manquantes = COLS_REQUISES.filter(c => !data.ppCols.has(c));
-    if (manquantes.length) { setStatus(`Colonnes absentes de Propositions_prestation : ${manquantes.join(', ')}.`, 'error'); return; }
-    const ent = data.entreprises.get(etat.entrepriseId);
-    if (!ent?.code) { setStatus('L’entreprise n’a pas de code (Entreprises.code) : libellé impossible.', 'error'); return; }
-
-    const lib = libelles(resultat);
+    await lirePropositions();
+    if (!verifierSchema()) return;
+    resultat = calculer();
+    if (!resultat.prestations.length || resultat.ctrl.some(c => c.niveau === 'bloquant')) { setStatus('Contrôle bloquant : corriger avant d’écrire.', 'error'); return; }
+    const lib = libelles(resultat, true);
+    const dates = datesProposition(true);
     const resume = resultat.prestations.map((x, i) => `• ${lib.pl[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT`).join('\n');
-    if (!window.confirm(`Créer la proposition ${lib.tl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT`)) return;
+    if (!window.confirm(`Créer les propositions commerciales ${lib.tl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT`)) return;
 
-    const dateSec = Math.floor(new Date(today() + 'T00:00:00Z').getTime() / 1000);
+    // Le TL doit exister avant les PL qui le référencent : deux envois successifs.
+    const r = await grist.docApi.applyUserActions([
+      ['AddRecord', TABLE_TL, null, {
+        Libelle_TL: lib.tl, Entreprise: etat.entrepriseId, TEM_404: etat.temId,
+        Json_TL: JSON.stringify(jsonTL(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
+        Date_creation: jourSec(dates.creation), Date_modification: secondes(dates.modification), Statut: 'Brouillon',
+      }],
+    ]);
+    const tlId = r.retValues[0];
     const xs = resultat.prestations;
-    const cols = {
-      Denomination: xs.map(() => etat.entrepriseId),
-      Date: xs.map(() => dateSec),
-      Programme: xs.map(x => progRef(x.prog)?.id ?? 0),
-      Type_d_evaluation: xs.map(x => ['L', x.e.type]),
-      Commentaires: xs.map(() => etat.commentaires.trim()),
-      Montant_Jour_HT: xs.map(() => resultat.tjm),
-      Montant_PO: xs.map(x => x.ht),
-      Libelle_PL: lib.pl,
-      Proposition_commerciale: xs.map(() => lib.tl),
-      TEM_404: xs.map(() => etat.temId),
-      Charge: xs.map((x, i) => JSON.stringify(jsonPL(x, lib.pl[i], lib.tl))),
-    };
-    await grist.docApi.applyUserActions([['BulkAddRecord', 'Propositions_prestation', xs.map(() => null), cols]]);
-    etat.cree = lib;
-    setStatus(`Proposition ${lib.tl} créée (${xs.length} prestation(s)). Copier le JSON TL ou le devis pour CPQ.`, 'ok');
-    renderDevis();
+    const lignes = xs.map((x, i) => ({ ...champsPL(x, i, lib, tlId, dates), Statut: 'Brouillon' }));
+    const cols = Object.fromEntries(Object.keys(lignes[0]).map(k => [k, lignes.map(l => l[k])]));
+    await grist.docApi.applyUserActions([['BulkAddRecord', TABLE_PL, xs.map(() => null), cols]]);
+
+    await lirePropositions();
+    const temId = etat.temId;
+    selectProposition(tlId);
+    if (etat.temId !== temId) return;
+    setStatus(`${lib.tl} créée (${xs.length} prestation(s)). Copier le JSON TL ou le devis pour CPQ.`, 'ok');
   } catch (err) {
     setStatus(`Échec de la création : ${err.message || err}`, 'error');
+  } finally {
+    majBoutons();
+  }
+}
+
+async function enregistrerProposition() {
+  if (!resultat?.prestations.length || !etat.source) return;
+  $('btn-update').disabled = true;
+  try {
+    await lirePropositions();
+    if (!verifierSchema()) return;
+    const src = etat.source;
+    const tl = data.tl.find(t => t.id === src.tlId);
+    if (!tl) { setStatus('La proposition a été supprimée de Grist.', 'error'); return; }
+    resultat = calculer();
+    if (!resultat.prestations.length || resultat.ctrl.some(c => c.niveau === 'bloquant')) { setStatus('Contrôle bloquant : corriger avant d’écrire.', 'error'); return; }
+    const lib = libelles(resultat, false);
+    const dates = datesProposition(false);
+    const xs = resultat.prestations;
+    const ajouts = xs.filter(x => !src.pl[x.prog.code]);
+    const annulees = Object.entries(src.pl).filter(([code, ex]) => !ex.annulee && !xs.some(x => x.prog.code === code));
+    const resume = xs.map((x, i) => `• ${lib.pl[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT${src.pl[x.prog.code] ? '' : ' (nouvelle)'}`)
+      .concat(annulees.map(([code]) => `• ${PROGS.find(p => p.code === code).nom} : ligne PL marquée « ${ANNULEE} »`)).join('\n');
+    const alerte = signee() ? '\n\n⚠ Proposition déjà signée : la modification sera visible par CPQ.' : '';
+    if (!window.confirm(`Enregistrer les modifications de ${lib.tl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT${alerte}`)) return;
+
+    const actions = [['UpdateRecord', TABLE_TL, src.tlId, {
+      Libelle_TL: lib.tl, Json_TL: JSON.stringify(jsonTL(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
+      Date_modification: secondes(dates.modification),
+    }]];
+    xs.forEach((x, i) => {
+      const champs = champsPL(x, i, lib, src.tlId, dates);
+      const ex = src.pl[x.prog.code];
+      if (ex) {
+        delete champs.Date;
+        if (ex.annulee) champs.Statut = 'Brouillon';
+        actions.push(['UpdateRecord', TABLE_PL, ex.rowId, champs]);
+      } else actions.push(['AddRecord', TABLE_PL, null, { ...champs, Statut: 'Brouillon' }]);
+    });
+    for (const [, ex] of annulees) actions.push(['UpdateRecord', TABLE_PL, ex.rowId, { Statut: ANNULEE }]);
+    await grist.docApi.applyUserActions(actions);
+
+    await lirePropositions();
+    selectProposition(src.tlId);
+    setStatus(`${lib.tl} enregistrée${ajouts.length ? `, ${ajouts.length} PL ajoutée(s)` : ''}${annulees.length ? `, ${annulees.length} PL annulée(s)` : ''}.`, 'ok');
+  } catch (err) {
+    setStatus(`Échec de l’enregistrement : ${err.message || err}`, 'error');
   } finally {
     majBoutons();
   }
@@ -1101,8 +1364,11 @@ function renderSettings() {
         <table class="params-lignes"><thead><tr><th>Unité d’œuvre</th>${ROLES.map(r => `<th title="${esc(r.titre)}">${r.lib}</th>`).join('')}<th>R</th><th>S</th><th>Y</th></tr></thead>
         <tbody>${lignes}</tbody></table></div></div>
       <div class="card"><h3>Import / export JSON (toutes les périodes)</h3><div class="body">
-        <textarea class="json" id="txt-json"></textarea>
+        <p class="hint">Glisser-déposer un fichier .json dans la zone, le choisir avec « Charger un fichier », ou coller son contenu puis cliquer sur « Importer ».</p>
+        <textarea class="json" id="txt-json" placeholder="Déposer ici un fichier .json ou coller son contenu"></textarea>
         <div class="row-flex"><button class="btn btn-grey" id="btn-export">Exporter</button>
+          <button class="btn btn-grey" id="btn-file">Charger un fichier…</button>
+          <input type="file" id="inp-file" accept=".json,application/json" style="display:none">
           <button class="btn btn-grey" id="btn-import">Importer (remplace le brouillon)</button></div>
       </div></div>
     </div>`;
@@ -1129,18 +1395,36 @@ function renderSettings() {
     renderSettings();
   });
   $('btn-export').addEventListener('click', () => { $('txt-json').value = JSON.stringify(draft, null, 2); });
-  $('btn-import').addEventListener('click', () => {
-    try {
-      const v = JSON.parse($('txt-json').value);
-      const liste = Array.isArray(v) ? v : Array.isArray(v?.periodes) ? v.periodes : [v];
-      draft = liste.map(normaliser);
-      draftSel = 0;
-      renderSettings();
-      setSettingsStatus('JSON importé dans le brouillon : vérifier puis Enregistrer.', 'ok');
-    } catch (err) {
-      setSettingsStatus(`JSON invalide : ${err.message}`, 'error');
-    }
+  $('btn-import').addEventListener('click', () => importerJson($('txt-json').value));
+  $('btn-file').addEventListener('click', () => $('inp-file').click());
+  $('inp-file').addEventListener('change', async e => {
+    const f = e.target.files?.[0];
+    if (f) importerJson(await f.text());
   });
+  const zone = $('txt-json');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = '#2563eb'; });
+  zone.addEventListener('dragleave', () => { zone.style.borderColor = ''; });
+  zone.addEventListener('drop', async e => {
+    e.preventDefault();
+    zone.style.borderColor = '';
+    const f = e.dataTransfer?.files?.[0];
+    if (f) importerJson(await f.text());
+    else importerJson(e.dataTransfer?.getData('text') || '');
+  });
+}
+
+function importerJson(texte) {
+  try {
+    const v = JSON.parse(texte);
+    const liste = Array.isArray(v) ? v : Array.isArray(v?.periodes) ? v.periodes : [v];
+    draft = liste.map(normaliser);
+    const enCours = periodeAu(today(), draft);
+    draftSel = enCours ? draft.indexOf(enCours) : 0;
+    renderSettings();
+    setSettingsStatus(`${liste.length} période(s) importée(s) dans le brouillon : vérifier puis cliquer sur Enregistrer.`, 'ok');
+  } catch (err) {
+    setSettingsStatus(`JSON invalide : ${err.message}`, 'error');
+  }
 }
 
 function onSettingInput(e) {
