@@ -1871,10 +1871,8 @@
 
   async function doSave() {
     const jsonComplet = {};
-    const jsonUtile = {};
     schema.fields.forEach(f => {
       jsonComplet[f.id] = pdfFields[f.id];
-      if (!f.grist_table) jsonUtile[f.id] = pdfFields[f.id];
     });
 
     const fields = {
@@ -1883,7 +1881,6 @@
       Version: String(schema.schema_version || ''),
       Entreprise: gristCandidates[gristIdx]?.id ?? null, // lien de confort, n'écrit pas dans Entreprises
       Json_Complet: JSON.stringify(jsonComplet),
-      Json_Utile: JSON.stringify(jsonUtile),
     };
 
     try {
