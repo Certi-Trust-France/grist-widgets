@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calcul de charge — proposition commerciale</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      color: #1e293b;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+    .toolbar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 6px 12px;
+      background: #1e3a8a;
+      color: #fff;
+    }
+    .toolbar-title { font-size: 12px; font-weight: 600; color: #bfdbfe; }
+    .toolbar label { font-size: 12px; color: #dbeafe; }
+    .toolbar select { padding: 3px 6px; border: none; border-radius: 4px; font-size: 12px; max-width: 260px; }
+    .spacer { flex: 1; }
+    .btn { padding: 5px 14px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn-light { background: rgba(255,255,255,.18); color: #fff; }
+    .btn-light:hover:not(:disabled) { background: rgba(255,255,255,.3); }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-success { background: #059669; color: #fff; }
+    .btn-success:hover:not(:disabled) { background: #047857; }
+    .btn-grey { background: #e2e8f0; color: #334155; }
+    .btn-grey:hover:not(:disabled) { background: #cbd5e1; }
+    .btn-danger { background: transparent; color: #b91c1c; padding: 3px 8px; }
+    .btn-danger:hover { background: #fee2e2; }
+
+    #main { flex: 1; overflow: auto; padding: 12px; }
+    .placeholder { color: #64748b; padding: 40px; text-align: center; }
+    .layout { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(520px, 2fr); gap: 12px; align-items: start; }
+    @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 12px; }
+    .card h3 { margin: 0; padding: 7px 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .03em;
+      color: #1e3a8a; background: #eff6ff; border-bottom: 1px solid #dbeafe; border-radius: 6px 6px 0 0; }
+    .card .body { padding: 8px 10px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 3px 6px; border-bottom: 1px solid #f1f5f9; text-align: left; vertical-align: middle; }
+    th { font-size: 11px; color: #64748b; font-weight: 600; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    select, input[type=text], input[type=number], input[type=date], textarea {
+      font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;
+    }
+    input.n { width: 58px; text-align: right; }
+    input.invalid { border-color: #dc2626; background: #fef2f2; }
+    .muted { color: #94a3b8; }
+    .hint { color: #64748b; font-size: 12px; margin: 4px 0 8px; }
+    .portees label { display: inline-flex; align-items: center; gap: 2px; margin-right: 8px; white-space: nowrap; }
+    .row-flex { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+
+    .ctrl { list-style: none; margin: 0; padding: 0; }
+    .ctrl li { padding: 3px 0 3px 8px; border-left: 3px solid; margin-bottom: 3px; }
+    .ctrl li.bloquant { border-color: #dc2626; color: #b91c1c; }
+    .ctrl li.verifier { border-color: #d97706; color: #92400e; }
+    .ctrl li.info { border-color: #2563eb; color: #1e40af; }
+    .ctrl li.ok { border-color: #059669; color: #047857; }
+
+    .devis td { border-bottom: 1px solid #f1f5f9; }
+    .devis tr.prest td { background: #1e3a8a; color: #fff; font-weight: 600; padding: 5px 6px; }
+    .devis tr.lot td { background: #dbeafe; color: #1e3a8a; font-weight: 600; }
+    .devis tr.uo.off td { color: #94a3b8; text-decoration: line-through; }
+    .devis tr.uo.offerte td.lib::after { content: ' (offerte)'; color: #059669; font-style: italic; }
+    .devis tr.uo.partagee td { color: #64748b; font-style: italic; }
+    .devis tr.ajust td.lib { font-style: italic; color: #475569; }
+    .devis tr.total td { font-weight: 700; border-top: 2px solid #1e3a8a; }
+    .devis td.lib { width: 100%; }
+
+    .totaux td { padding: 4px 6px; }
+    .totaux tr.grand td { font-weight: 700; font-size: 14px; color: #1e3a8a; border-top: 2px solid #1e3a8a; }
+    .libelle { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
+    textarea.justif { width: 100%; min-height: 220px; font-size: 12px; line-height: 1.4; }
+
+    .footer, .settings-footer { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+      border-top: 1px solid #e2e8f0; background: #fff; }
+    .statusbar { flex: 1; font-size: 12px; }
+    .statusbar.ok { color: #059669; }
+    .statusbar.error { color: #dc2626; }
+    .statusbar.warn { color: #d97706; }
+
+    .settings h3.title { margin: 0 0 6px; color: #1e3a8a; }
+    .periodes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .periodes button { border: 1px solid #cbd5e1; background: #fff; border-radius: 14px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
+    .periodes button.sel { background: #2563eb; color: #fff; border-color: #2563eb; }
+    .periodes .badge { font-size: 10px; background: #059669; color: #fff; border-radius: 8px; padding: 0 5px; margin-left: 4px; }
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .params-lignes td.lot { font-weight: 600; color: #1e3a8a; background: #eff6ff; }
+    .params-lignes tr.eleve td { color: #64748b; font-size: 11px; }
+    textarea.json { width: 100%; min-height: 160px; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="toolbar-title">Calcul de charge</span>
+  <label>Entreprise <select id="sel-entreprise"></select></label>
+  <label>TEM-404 <select id="sel-tem"></select></label>
+  <span class="spacer"></span>
+  <button id="btn-refresh" class="btn btn-light" title="Relire les tables Grist">↻</button>
+  <button id="btn-settings" class="btn btn-light">⚙ Paramètres</button>
+</div>
+
+<div id="main"><div class="placeholder">Chargement…</div></div>
+
+<div id="settings-footer" class="settings-footer" style="display:none">
+  <span id="settings-status" class="statusbar"></span>
+  <button id="btn-cancel" class="btn btn-grey">Annuler</button>
+  <button id="btn-save" class="btn btn-primary">Enregistrer</button>
+</div>
+
+<div id="footer" class="footer">
+  <span id="status" class="statusbar"></span>
+  <button id="btn-copy-text" class="btn btn-grey" disabled>Copier le devis (texte)</button>
+  <button id="btn-copy-json" class="btn btn-grey" disabled>Copier le JSON TL</button>
+  <button id="btn-create" class="btn btn-success" disabled>Créer la proposition</button>
+</div>
+
+<script>
+// Les valeurs chiffrées (JH par rôle, coefficients, TJM) ne figurent PAS dans ce fichier public :
+// elles sont stockées dans les options du widget (document Grist) sous la forme
+// { periodes: [{ debut:'AAAA-MM-JJ', tjm, bornes:{min,max}, mutualisation:[c1,c2,c3],
+//   couverture:{Initiale,Surveillance,Renouvellement}, modulateurs:{<critère>:{<choix>:effet %}},
+//   lignes:{<id>:{base:{CE,RE,ET_ORG,ETA,ETM}, eleve:{…}, R,S,Y}} }]
+// La période appliquée est celle dont le début est le plus récent sans dépasser la date du jour.
+
+const ROLES = [
+  { id: 'CE', lib: 'CE', titre: "Chargé d'évaluation" },
+  { id: 'RE', lib: 'RE', titre: "Responsable d'évaluation" },
+  { id: 'ET_ORG', lib: 'ET-ORG', titre: 'Évaluateur organisationnel' },
+  { id: 'ETA', lib: 'ETA', titre: 'Évaluateur technique' },
+  { id: 'ETM', lib: 'ETM', titre: 'Évaluateur métier' },
+];
+
+const LOTS = [
+  { n: 1, lib: 'Lot 1 – Pilotage', court: 'pilotage' },
+  { n: 2, lib: 'Lot 2 – Évaluation siège', court: 'évaluation siège' },
+  { n: 3, lib: 'Lot 3 – Évaluation métier', court: 'évaluation métier' },
+];
+
+// Ordre = priorité du programme principal (spec § 3.5).
+const PROGS = [
+  { code: 'passi', nom: 'PASSI', sansVersion: '2.2', bloc: 'c1',
+    portees: [['archi', 'ARCHI'], ['conf', 'CONFIG'], ['code', 'CODE'], ['intrusion', 'INTRUS'], ['orgaphy', 'ORGPHY']] },
+  { code: 'pacs', nom: 'PACS', sansVersion: '2.0', bloc: 'c2',
+    portees: [['homol', 'HOMOL'], ['risque', 'RISQUE'], ['archi', 'ARCHI'], ['crise', 'CRISE']] },
+  { code: 'pris', nom: 'PRIS', sansVersion: '3.2', bloc: 'c3',
+    portees: [['rec', 'REC'], ['inv', 'INV'], ['code', 'CODE'], ['pci', 'PCI'], ['crise', 'CRISE']] },
+];
+const PROGS_NON_GERES = [['pdis', 'PDIS'], ['pams', 'PAMS'], ['secnumcloud', 'SecNumCloud']];
+
+const TYPES = ['Initiale', 'Surveillance', 'Renouvellement'];
+const TYPE_CODES = { 'Initiale': 'INIT', 'Surveillance': 'SURV', 'Renouvellement': 'RENO',
+  'Complémentaire': 'COMP', "Extension d'activité": 'EXTN', 'Extension d’activité': 'EXTN', 'Autre': 'XXXX' };
+const NIVEAUX = ['Substantiel', 'Élevé'];
+const ELEVE = 'Élevé';
+
+const MODULATEURS = [
+  { id: 'maturite', lib: "Maturité de l’entité", choix: ['Forte', 'Moyenne', 'Faible'], defaut: 'Moyenne' },
+  { id: 'complexite', lib: 'Complexité organisation et SI', choix: ['Faible', 'Moyenne', 'Forte'], defaut: 'Moyenne' },
+  { id: 'antecedent', lib: 'Antécédent de qualification ANSSI', choix: ['Déjà qualifié ANSSI', 'Première qualification'], defaut: 'Première qualification' },
+  { id: 'taille', lib: "Taille de l’entreprise", choix: ['PME', 'ETI', 'Grand Groupe'], defaut: 'ETI' },
+];
+
+// Catalogue des UO (1 ligne de la grille TEM-402 = 1 UO). Le rattachement suit la spec § 3.5 :
+// commune → prestation principale ; programme → une UO par programme ; si → JH sur la principale,
+// UO à 0 JH dans les autres ; site → une UO par site évalué ; portee → une UO par portée retenue.
+const CATALOGUE = [
+  { id: 'recevabilite', lot: 1, type: 'commune', lib: 'Étude de recevabilité' },
+  { id: 'suivi', lot: 1, type: 'commune', lib: 'Suivi de la prestation' },
+  { id: 'anssi', lot: 1, type: 'commune', lib: 'Relation avec l’ANSSI' },
+  { id: 'pilotage', lot: 1, type: 'commune', lib: 'Pilotage de la prestation' },
+  { id: 'comite', lot: 1, type: 'programme', lib: 'Comité de certification et émission du certificat' },
+  { id: 'plan', lot: 2, type: 'programme', lib: 'Plan d’évaluation' },
+  { id: 'doc_siege', lot: 2, type: 'programme', lib: 'Évaluation documentaire siège' },
+  { id: 'doc_service', lot: 2, type: 'programme', lib: 'Évaluation documentaire service' },
+  { id: 'secu_physique', lot: 2, type: 'site', lib: 'Évaluation sécurité physique' },
+  { id: 'si_doc', lot: 2, type: 'si', cond: 'toujours', lib: 'Évaluation documentaire technique du système d’information' },
+  { id: 'si_ii901', lot: 2, type: 'si', cond: 'eleve', lib: 'Évaluation SI DR II901' },
+  { id: 'si_ghy_renforce', lot: 2, type: 'si', cond: 'eleve', lib: 'Évaluation SI DR GHY renforcé' },
+  { id: 'si_ghy_standard', lot: 2, type: 'si', cond: 'non_eleve', lib: 'Évaluation SI GHY standard' },
+  { id: 'livrables', lot: 2, type: 'programme', lib: 'Rédaction des livrables' },
+  { id: 'metier_doc', lot: 3, type: 'portee', niveaux: true, lib: 'Évaluation documentaire métier' },
+  { id: 'metier_temoin', lot: 3, type: 'portee', niveaux: true, lib: 'Évaluation métier applicabilité (prestation témoin)' },
+];
+
+const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+const EUR2 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
+const JH = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const PARIS = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const today = () => PARIS.format(new Date());
+const frDate = iso => iso ? iso.split('-').reverse().join('/') : '';
+const r05 = x => Number((Math.round(x * 20) / 20).toFixed(2));
+const r2 = x => Math.round(x * 100) / 100;
+const sum = arr => arr.reduce((a, b) => a + b, 0);
+
+function parseNum(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  const s = String(v).trim().replace(',', '.');
+  if (s === '') return null;
+  if (s.includes('/')) {
+    const [a, b] = s.split('/').map(Number);
+    return (isFinite(a) && isFinite(b) && b !== 0) ? a / b : null;
+  }
+  const n = Number(s);
+  return isFinite(n) ? n : null;
+}
+const fmtNum = v => v === null || v === undefined ? '' : String(Number(v.toFixed ? v.toFixed(6) : v)).replace('.', ',');
+
+/* ──────────────────────────────────────────
+   État
+────────────────────────────────────────── */
+let periodes = [];
+let data = null;          // tables Grist
+let etat = null;          // saisie du commercial pour le TEM-404 courant
+let resultat = null;      // dernier calcul
+let view = 'devis';
+let draft = null;         // périodes en cours d'édition
+let draftSel = 0;
+let linkedTemId = null;
+
+// fetchTable sur d'autres tables que la table liée exige l'accès complet.
+grist.ready({ requiredAccess: 'full', onEditOptions: openSettings });
+
+grist.onOptions(options => {
+  periodes = Array.isArray(options?.periodes) ? options.periodes : [];
+  if (view === 'devis') renderDevis();
+});
+
+// Si le widget est posé sur la table TEM_404, la ligne sélectionnée présélectionne le dossier.
+grist.onRecord(rec => {
+  if (rec && rec.id && 'Json_Complet' in rec && rec.id !== linkedTemId) {
+    linkedTemId = rec.id;
+    if (data) selectTem(rec.id);
+  }
+});
+
+$('btn-refresh').addEventListener('click', () => load());
+$('btn-settings').addEventListener('click', openSettings);
+$('btn-cancel').addEventListener('click', closeSettings);
+$('btn-save').addEventListener('click', saveSettings);
+$('sel-entreprise').addEventListener('change', () => { fillTemSelect(); const t = $('sel-tem').value; selectTem(t ? Number(t) : null); });
+$('sel-tem').addEventListener('change', () => selectTem($('sel-tem').value ? Number($('sel-tem').value) : null));
+$('btn-copy-text').addEventListener('click', () => copier(texteDevis(), 'Devis copié dans le presse-papiers.'));
+$('btn-copy-json').addEventListener('click', () => copier(JSON.stringify(jsonTL(), null, 2), 'JSON TL copié dans le presse-papiers.'));
+$('btn-create').addEventListener('click', creerProposition);
+
+async function load() {
+  setStatus('Lecture des tables…');
+  try {
+    const [ent, tem, prog, pp] = await Promise.all([
+      grist.docApi.fetchTable('Entreprises'),
+      grist.docApi.fetchTable('TEM_404'),
+      grist.docApi.fetchTable('Programmes'),
+      grist.docApi.fetchTable('Propositions_prestation'),
+    ]);
+    const rows = t => t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]])));
+    data = {
+      entreprises: new Map(rows(ent).map(r => [r.id, r])),
+      tem: rows(tem),
+      programmes: rows(prog),
+      pp: rows(pp),
+      ppCols: new Set(Object.keys(pp)),
+    };
+    fillEntrepriseSelect();
+    setStatus('');
+    const cible = linkedTemId ?? (etat?.temId);
+    if (cible && data.tem.some(t => t.id === cible)) selectTem(cible); else renderDevis();
+  } catch (err) {
+    data = null;
+    $('main').innerHTML = `<div class="placeholder">Impossible de lire les tables Grist : ${esc(err.message || err)}</div>`;
+    setStatus('Erreur de lecture.', 'error');
+  }
+}
+
+function fillEntrepriseSelect() {
+  const avecTem = new Set(data.tem.map(t => t.Entreprise).filter(Boolean));
+  const ents = [...avecTem].map(id => data.entreprises.get(id)).filter(Boolean)
+    .sort((a, b) => String(a.Denomination).localeCompare(String(b.Denomination), 'fr'));
+  const cur = $('sel-entreprise').value;
+  $('sel-entreprise').innerHTML = '<option value="">— choisir —</option>' +
+    ents.map(e => `<option value="${e.id}">${esc(e.Denomination)}</option>`).join('');
+  if (cur && avecTem.has(Number(cur))) $('sel-entreprise').value = cur;
+  fillTemSelect();
+}
+
+function fillTemSelect() {
+  const entId = Number($('sel-entreprise').value) || null;
+  const tems = data.tem.filter(t => t.Entreprise === entId)
+    .sort((a, b) => String(b.NumTEM404).localeCompare(String(a.NumTEM404)));
+  $('sel-tem').innerHTML = (tems.length ? '' : '<option value="">—</option>') +
+    tems.map(t => `<option value="${t.id}">${esc(t.NumTEM404 || '#' + t.id)}</option>`).join('');
+  if (etat && tems.some(t => t.id === etat.temId)) $('sel-tem').value = String(etat.temId);
+}
+
+function selectTem(temId) {
+  const tem = data.tem.find(t => t.id === temId);
+  if (!tem) { etat = null; renderDevis(); return; }
+  $('sel-entreprise').value = String(tem.Entreprise || '');
+  fillTemSelect();
+  $('sel-tem').value = String(tem.id);
+  if (etat?.temId !== tem.id) etat = etatDepuisTem(tem);
+  renderDevis();
+}
+
+/* ──────────────────────────────────────────
+   Lecture du TEM-404 (Json_Complet)
+────────────────────────────────────────── */
+function etatDepuisTem(tem) {
+  const manques = [];
+  let j = {};
+  let jsonOk = true;
+  try { j = JSON.parse(tem.Json_Complet || '{}'); } catch { jsonOk = false; }
+  if (!tem.Json_Complet) jsonOk = false;
+  const get = k => { if (!(k in j)) manques.push(k); return j[k]; };
+  const val = v => (v === undefined || v === null || v === '-' ? '' : String(v).trim());
+
+  const programmes = {};
+  const portees = {};
+  for (const p of PROGS) {
+    const demande = get(`b.${p.code}.demande`) === true;
+    programmes[p.code] = {
+      retenu: demande,
+      demande,
+      version: val(j[`b.${p.code}.version`]),
+      niveau: demande ? val(get(`b.${p.code}.niveau`)) : val(j[`b.${p.code}.niveau`]),
+      type: demande ? val(get(`b.${p.code}.type_demande`)) : val(j[`b.${p.code}.type_demande`]),
+    };
+    portees[p.code] = {};
+    for (const [k, code] of p.portees) portees[p.code][code] = (demande ? get(`${p.bloc}.${k}`) : j[`${p.bloc}.${k}`]) === true;
+  }
+  const nonGeres = PROGS_NON_GERES.filter(([c]) => j[`b.${c}.demande`] === true).map(([, nom]) => nom);
+
+  const sites = [];
+  for (let n = 1; n <= 6; n++) {
+    const nom = val(j[`f.site${n}.nom`]);
+    const progs = {};
+    for (const p of PROGS) progs[p.code] = j[`b.${p.code}.site_${n}`] === true;
+    if (nom || Object.values(progs).some(Boolean)) sites.push({ n, nom: nom || `Site ${n}`, progs, nouveau: false });
+  }
+  if (!sites.length) manques.push('f.site1.nom');
+
+  const modulateurs = Object.fromEntries(MODULATEURS.map(m => [m.id, m.defaut]));
+  return {
+    temId: tem.id, numTem: tem.NumTEM404, entrepriseId: tem.Entreprise, jsonOk, manques, nonGeres,
+    programmes, portees, sites, modulateurs, mutualisation: true,
+    siteSel: {}, appl: {}, offert: {}, ajust: {},
+    reduction: 0, commentaires: '', justification: null, justifEditee: false, cree: null,
+  };
+}
+
+/* ──────────────────────────────────────────
+   Calcul
+────────────────────────────────────────── */
+function periodeAu(iso, liste = periodes) {
+  let best = null;
+  for (const p of liste) if (p.debut && p.debut <= iso && (!best || p.debut > best.debut)) best = p;
+  return best;
+}
+
+function nbSitesRequis(type, n) {
+  if (n <= 0) return 0;
+  if (type === 'Surveillance') return n <= 3 ? 1 : 2;
+  if (type === 'Renouvellement') return n <= 2 ? 1 : n <= 4 ? 2 : n === 5 ? 3 : 4;
+  return n;
+}
+
+// Sites évalués par programme : sélection par défaut (nouveaux, puis siège, puis ordre),
+// remplacée case par case par les choix du commercial (etat.siteSel).
+function selectionSites(progsRet) {
+  const sel = {};
+  for (const p of progsRet) {
+    const concernes = etat.sites.filter(s => s.progs[p.code]);
+    const requis = Math.max(nbSitesRequis(etat.programmes[p.code].type, concernes.length),
+      concernes.filter(s => s.nouveau).length);
+    const ordre = [...concernes].sort((a, b) => (b.nouveau - a.nouveau) || (a.n - b.n));
+    const parDefaut = new Set(ordre.slice(0, requis).map(s => s.n));
+    sel[p.code] = { requis, concernes: concernes.length, sites: new Set() };
+    for (const s of concernes) {
+      const k = `${p.code}|${s.n}`;
+      const coche = s.nouveau ? true : (k in etat.siteSel ? etat.siteSel[k] : parDefaut.has(s.n));
+      if (coche) sel[p.code].sites.add(s.n);
+    }
+  }
+  return sel;
+}
+
+function calculer() {
+  const ctrl = [];
+  const add = (niveau, msg) => ctrl.push({ niveau, msg });
+  const P = periodeAu(today());
+
+  if (!etat.jsonOk) add('bloquant', 'Json_Complet absent ou illisible dans ce TEM-404.');
+  if (etat.manques.length) add('verifier', `Champs absents du TEM-404 : ${etat.manques.join(', ')}.`);
+  if (etat.nonGeres.length) add('verifier', `Programmes demandés non gérés par le calcul (ignorés) : ${etat.nonGeres.join(', ')}.`);
+
+  const progsRet = PROGS.filter(p => etat.programmes[p.code].retenu);
+  if (!progsRet.length) add('bloquant', 'Aucun programme retenu.');
+  for (const p of progsRet) {
+    const e = etat.programmes[p.code];
+    if (!TYPES.includes(e.type)) add('bloquant', `${p.nom} : type d’évaluation « ${e.type || '—'} » non géré, choisir Initiale, Surveillance ou Renouvellement.`);
+    if (!NIVEAUX.includes(e.niveau)) add('bloquant', `${p.nom} : niveau manquant.`);
+    if (!Object.values(etat.portees[p.code]).some(Boolean)) add('bloquant', `${p.nom} : aucune portée cochée.`);
+    if (!etat.sites.some(s => s.progs[p.code])) add('verifier', `${p.nom} : aucun site rattaché dans le TEM-404.`);
+  }
+  if (etat.programmes.pacs.retenu && etat.portees.pacs.HOMOL && !etat.portees.pacs.RISQUE)
+    add('bloquant', 'PACS : la portée HOMOL seule n’est pas autorisée, elle doit inclure RISQUE.');
+  if (etat.programmes.pris.retenu && etat.portees.pris.REC !== etat.portees.pris.INV)
+    add('bloquant', 'PRIS : les activités REC et INV sont indissociables.');
+  if (etat.programmes.passi.retenu && progsRet.length > 1)
+    add('verifier', 'Offre combinée : PASSI relève de l’accréditation, PACS et PRIS du processus aménagé. Deux régimes distincts dans la même offre.');
+
+  const sel = selectionSites(progsRet);
+  if (!P) {
+    add('bloquant', `Aucun paramètre en vigueur au ${frDate(today())} : renseigner une période dans ⚙ Paramètres.`);
+    return { ctrl, prestations: [], P: null, progsRet, sel };
+  }
+  const tjm = parseNum(P.tjm);
+  if (tjm === null) add('bloquant', 'Paramètres : TJM manquant.');
+  const effets = MODULATEURS.map(m => parseNum(P.modulateurs?.[m.id]?.[etat.modulateurs[m.id]]));
+  if (effets.some(v => v === null)) add('bloquant', 'Paramètres : effet de modulateur manquant.');
+  const bmin = parseNum(P.bornes?.min), bmax = parseNum(P.bornes?.max);
+  if (bmin === null || bmax === null) add('bloquant', 'Paramètres : bornes des modulateurs manquantes.');
+  const moy = effets.some(v => v === null) ? 0 : sum(effets) / effets.length;
+  const coefMod = 1 + Math.max(Math.min(moy, bmax ?? 0), bmin ?? 0) / 100;
+  const nProg = progsRet.length;
+  const coefMutRaw = nProg ? parseNum(P.mutualisation?.[Math.min(nProg, 3) - 1]) : 1;
+  if (etat.mutualisation && coefMutRaw === null) add('bloquant', 'Paramètres : coefficient de mutualisation manquant.');
+  const coefMut = etat.mutualisation ? (coefMutRaw ?? 1) : 1;
+  const couv = t => parseNum(P.couverture?.[t]);
+  for (const p of progsRet) if (TYPES.includes(etat.programmes[p.code].type) && couv(etat.programmes[p.code].type) === null)
+    add('bloquant', `Paramètres : couverture « ${etat.programmes[p.code].type} » manquante.`);
+
+  const manquantes = new Set();
+  const valeurs = (ligne, niveau) => {
+    const pl = P.lignes?.[ligne.id];
+    if (!pl) { manquantes.add(ligne.lib); return {}; }
+    const src = (ligne.niveaux && niveau === ELEVE && pl.eleve && ROLES.some(r => parseNum(pl.eleve[r.id]) !== null)) ? pl.eleve : pl.base;
+    if (!src || !ROLES.some(r => parseNum(src[r.id]) !== null)) manquantes.add(ligne.lib);
+    return src || {};
+  };
+  const flags = ligne => P.lignes?.[ligne.id] || {};
+  const calcJA = (ligne, niveau, coefCouv) => {
+    const v = valeurs(ligne, niveau), f = flags(ligne);
+    const ja = {};
+    for (const r of ROLES) {
+      const base = parseNum(v[r.id]) ?? 0;
+      ja[r.id] = r05(base * (f.R ? coefMod : 1) * (f.S ? coefMut : 1) * (f.Y ? (coefCouv ?? 1) : 1));
+    }
+    return ja;
+  };
+  const zero = () => Object.fromEntries(ROLES.map(r => [r.id, 0]));
+
+  const principal = progsRet[0];
+  const anyEleve = progsRet.some(p => etat.programmes[p.code].niveau === ELEVE);
+  const couvMin = Math.min(...progsRet.map(p => couv(etat.programmes[p.code].type) ?? 1));
+  const niveauMax = anyEleve ? ELEVE : 'Substantiel';
+  for (const p of progsRet) {
+    const s = sel[p.code];
+    if (s.sites.size < s.requis) add('verifier', `${p.nom} : ${s.sites.size} site(s) évalué(s) pour ${s.requis} requis (${etat.programmes[p.code].type}, ${s.concernes} site(s)).`);
+  }
+
+  const prestations = progsRet.map(p => ({ prog: p, e: etat.programmes[p.code], uos: [] }));
+  const parCode = Object.fromEntries(prestations.map(x => [x.prog.code, x]));
+  const pousser = (code, uo) => parCode[code].uos.push(uo);
+
+  for (const L of CATALOGUE) {
+    if (!principal) break;
+    if (L.type === 'commune') {
+      const e = etat.programmes[principal.code];
+      pousser(principal.code, { key: `${L.id}|${principal.code}`, ligne: L, lib: L.lib, ja: calcJA(L, niveauMax, couv(e.type)) });
+    } else if (L.type === 'programme') {
+      for (const p of progsRet) {
+        const e = etat.programmes[p.code];
+        pousser(p.code, { key: `${L.id}|${p.code}`, ligne: L, lib: `${L.lib} ${p.nom}`, ja: calcJA(L, e.niveau, couv(e.type)) });
+      }
+    } else if (L.type === 'si') {
+      if ((L.cond === 'eleve' && !anyEleve) || (L.cond === 'non_eleve' && anyEleve)) continue;
+      const ja = calcJA(L, niveauMax, couvMin);
+      for (const p of progsRet) {
+        pousser(p.code, p === principal
+          ? { key: `${L.id}|${p.code}`, ligne: L, lib: L.lib, ja }
+          : { key: `${L.id}|${p.code}`, ligne: L, lib: L.lib, ja: zero(), partagee: principal.nom });
+      }
+    } else if (L.type === 'site') {
+      for (const s of etat.sites) {
+        const progsSite = progsRet.filter(p => sel[p.code]?.sites.has(s.n));
+        if (!progsSite.length) continue;
+        const owner = progsSite[0];
+        const e = etat.programmes[owner.code];
+        const lib = `${L.lib} – site ${s.n} (${s.nom})`;
+        for (const p of progsSite) {
+          pousser(p.code, p === owner
+            ? { key: `${L.id}|${p.code}|${s.n}`, ligne: L, lib, ja: calcJA(L, e.niveau, couv(e.type)) }
+            : { key: `${L.id}|${p.code}|${s.n}`, ligne: L, lib, ja: zero(), partagee: owner.nom });
+        }
+      }
+    } else if (L.type === 'portee') {
+      for (const p of progsRet) {
+        const e = etat.programmes[p.code];
+        for (const [, code] of p.portees) {
+          if (!etat.portees[p.code][code]) continue;
+          pousser(p.code, { key: `${L.id}|${p.code}|${code}`, ligne: L, lib: `${L.lib} ${p.nom} ${code}`, ja: calcJA(L, e.niveau, couv(e.type)) });
+        }
+      }
+    }
+  }
+  // Ajustements libres (lignes « Ajustement » de l'Excel) : JH saisis directement, sans coefficient.
+  for (const x of prestations) for (const lot of LOTS) {
+    const key = `ajust|${x.prog.code}|${lot.n}`;
+    const a = etat.ajust[key] || {};
+    x.uos.push({ key, ligne: { id: 'ajust', lot: lot.n, lib: 'Ajustement' }, lib: 'Ajustement', ajust: true,
+      ja: Object.fromEntries(ROLES.map(r => [r.id, r05(parseNum(a[r.id]) ?? 0)])) });
+  }
+  if (manquantes.size) add('verifier', `Paramètres sans valeur (0 JH) : ${[...manquantes].join(' ; ')}.`);
+
+  const red = etat.reduction / 100;
+  for (const x of prestations) {
+    for (const uo of x.uos) {
+      uo.appl = uo.ajust ? true : (etat.appl[uo.key] ?? true);
+      uo.offerte = !uo.ajust && !!etat.offert[uo.key];
+      uo.jh = uo.appl ? r2(sum(ROLES.map(r => uo.ja[r.id]))) : 0;
+    }
+    x.lots = LOTS.map(lot => {
+      const uos = x.uos.filter(u => u.ligne.lot === lot.n);
+      return { lot, uos, jh: r2(sum(uos.map(u => u.jh))) };
+    });
+    x.jh = r2(sum(x.lots.map(l => l.jh)));
+    x.jhOffert = r2(sum(x.uos.filter(u => u.offerte).map(u => u.jh)));
+    x.htBrut = r2((x.jh - x.jhOffert) * (tjm ?? 0));
+    x.remise = r2(x.htBrut * red);
+    x.ht = r2(x.htBrut - x.remise);
+    x.parRole = Object.fromEntries(ROLES.map(r => [r.id, r2(sum(x.uos.filter(u => u.appl).map(u => u.ja[r.id])))]));
+  }
+  const tot = {
+    jh: r2(sum(prestations.map(x => x.jh))),
+    jhOffert: r2(sum(prestations.map(x => x.jhOffert))),
+    htBrut: r2(sum(prestations.map(x => x.htBrut))),
+    remise: r2(sum(prestations.map(x => x.remise))),
+    ht: r2(sum(prestations.map(x => x.ht))),
+    parLot: LOTS.map(l => r2(sum(prestations.map(x => x.lots[l.n - 1].jh)))),
+    parRole: Object.fromEntries(ROLES.map(r => [r.id, r2(sum(prestations.map(x => x.parRole[r.id])))])),
+  };
+  const nbSitesEvalues = etat.sites.filter(s => progsRet.some(p => sel[p.code]?.sites.has(s.n))).length;
+  if (prestations.length && tot.jh === 0) add('info', 'Charges nulles : vérifier les paramètres.');
+
+  return { ctrl, prestations, tot, P, tjm, coefMod, coefMut, moy, couvMin, sel, progsRet, principal, anyEleve, nbSitesEvalues };
+}
+
+/* ──────────────────────────────────────────
+   Libellés et justification
+────────────────────────────────────────── */
+function progRef(p) {
+  const e = etat.programmes[p.code];
+  const nom = (p.code === 'passi' && e.version.startsWith('2.0')) ? 'PASSI_2.0' : p.nom;
+  return data.programmes.find(r => r.Nom_du_programme === nom) || null;
+}
+const tetra = p => progRef(p)?.tetragramme || p.nom.slice(0, 4).toUpperCase();
+
+function prochainsNumeros(annee, nbPL) {
+  const max = (col, sigle) => Math.max(0, ...data.pp.map(r => {
+    const m = String(r[col] || '').match(new RegExp(`^${annee}${sigle}(\\d{4})`));
+    return m ? Number(m[1]) : 0;
+  }));
+  const pl0 = max('Libelle_PL', 'PL');
+  return { pl: Array.from({ length: nbPL }, (_, i) => pl0 + 1 + i), tl: max('Proposition_commerciale', 'TL') + 1 };
+}
+
+function libelles(res) {
+  const annee = new Date().getFullYear();
+  const ent = data.entreprises.get(etat.entrepriseId);
+  const code = ent?.code || '????';
+  const com = etat.commentaires.trim() ? '_' + etat.commentaires.trim() : '';
+  const nums = prochainsNumeros(annee, res.prestations.length);
+  const pad = n => String(n).padStart(4, '0');
+  const pl = res.prestations.map((x, i) =>
+    `${annee}PL${pad(nums.pl[i])}_${tetra(x.prog)}${TYPE_CODES[x.e.type] || 'XXXX'}_${code}${com}`);
+  const tl = `${annee}TL${pad(nums.tl)}_${res.prestations.map(x => tetra(x.prog)).join('')}_${code}${com}`;
+  return { pl, tl };
+}
+
+function genererJustification(res) {
+  const { prestations, tot, tjm } = res;
+  const has = c => prestations.some(x => x.prog.code === c && x.jh > 0);
+  const amenage = has('pacs') || has('pris');
+  const passi = has('passi');
+  const actifs = prestations.filter(x => x.jh > 0);
+  const version = x => x.e.version || x.prog.sansVersion;
+  const liste = arr => arr.join(', ');
+  let t = 'Justification :\n\n';
+  if (amenage) t += 'La charge a été estimée conformément au règlement de certification de Certi-Trust, à la stratégie d’évaluation type élaborée par l’ANSSI et aux référentiels d’exigences applicables, dans le cadre du processus aménagé de qualification d’un service (note ANSSI n°2905/ANSSI/SDE/PSS/BQA du 3 juin 2026). Dans ce cadre, l’ANSSI ne valide ni la stratégie, ni le plan, ni les charges, ni le calendrier d’évaluation, et la décision de certification est prise par un comité de certification au sein duquel elle siège de plein droit avec voix consultative.\n';
+  if (passi) t += `La prestation PASSI est conduite sous accréditation, conformément au règlement de certification PASSI de Certi-Trust et au référentiel d’exigences PASSI v${version(prestations.find(x => x.prog.code === 'passi'))}. Le programme PASSI n’entre pas dans le champ du processus aménagé de qualification d’un service.\n`;
+  if (passi && amenage) t += 'Cette offre couvre donc deux régimes distincts. Les travaux mutualisables – pilotage de la prestation, socle documentaire commun et évaluation du système d’information – sont conduits une seule fois ; les livrables et les décisions restent propres à chaque référentiel.\n';
+  t += '\nCette offre repose sur les éléments transmis par le commanditaire :';
+  for (const x of actifs) {
+    const codes = x.prog.portees.map(([, c]) => c).filter(c => etat.portees[x.prog.code][c]);
+    t += '\n- ' + (x.e.type === 'Initiale' ? 'une demande de qualification initiale ' : `une évaluation de ${x.e.type.toLowerCase()} `)
+      + `${x.prog.nom} v${version(x)} au niveau ${x.e.niveau.toUpperCase()} sur ${codes.length} portée(s) : ${liste(codes)}. `
+      + 'Chaque portée retenue fait l’objet d’une prestation témoin, '
+      + (x.prog.code === 'passi' ? 'observée in situ, en conditions réelles, dans les locaux du client audité' : 'observée sur preuves post-mortem') + ' ;';
+  }
+  const init = actifs.filter(x => x.e.type === 'Initiale');
+  const oblig = init.filter(x => x.e.niveau === ELEVE).map(x => x.prog.nom);
+  const nonOblig = init.filter(x => x.e.niveau !== ELEVE).map(x => x.prog.nom);
+  if (oblig.length) t += `\n- examens écrits et oraux de compétence obligatoires pour ${liste(oblig)}, sur l’ensemble des portées candidatées, facturés distinctement ;`;
+  if (nonOblig.length) t += `\n- examens de compétence non obligatoires pour ${liste(nonOblig)} ; le processus interne de gestion des compétences est évalué lors de l’évaluation siège ;`;
+  if (actifs.some(x => x.e.type === 'Surveillance')) t += '\n- pas de réévaluation obligatoire de la compétence et du savoir-faire des intervenants ; vérification du maintien, au niveau élevé, d’au moins un auditeur et responsable d’équipe disposant d’une attestation de compétence en cours de validité ;';
+  if (actifs.some(x => x.e.type === 'Renouvellement')) t += '\n- pas de réévaluation obligatoire de la compétence et du savoir-faire des intervenants ; les attestations de compétence doivent être renouvelées dans un délai maximum de 36 mois ;';
+  t += `\n- ${res.nbSitesEvalues} site(s) à évaluer ;`;
+  t += actifs.some(x => x.e.niveau === ELEVE)
+    ? '\n- un système d’information de diffusion restreinte homologué, évalué au regard de l’II901 et du guide d’hygiène renforcé ;'
+    : '\n- un système d’information évalué au regard du guide d’hygiène de l’ANSSI, niveau standard ;';
+  if (amenage) t += '\n- une organisation et un système d’information déclarés non complexes au sens du chapitre 3 de la note n°2905, condition d’éligibilité au processus aménagé.';
+  t += '\n\nLa prestation est décomposée en trois lots : pilotage de la prestation, évaluation siège et évaluation métier.';
+  t += (init.length ? ' Elle couvre la revue de la demande de certification, ' : ' Elle couvre ')
+    + 'les travaux d’évaluation, la production et la revue des livrables, la décision de certification et sa transmission à l’ANSSI, ainsi que le suivi du service certifié.\n';
+  t += 'Ne sont pas couverts : les examens de compétence, facturés distinctement ; les travaux complémentaires demandés au jalon J2 ; les évaluations liées à une modification substantielle, une réclamation ou une demande de l’ANSSI ; les prestations témoins supplémentaires si celles présentées ne couvrent pas les portées retenues.\n\n';
+  t += `Charge totale : ${JH.format(tot.jh)} j.h, répartie en ${JH.format(tot.parLot[0])} j.h de pilotage, ${JH.format(tot.parLot[1])} j.h d’évaluation siège et ${JH.format(tot.parLot[2])} j.h d’évaluation métier, soit ${EUR.format(r2(tot.jh * (tjm ?? 0)))} HT.`;
+  if (tot.jhOffert > 0) t += ` ${JH.format(tot.jhOffert)} j.h sont offerts.`;
+  if (etat.reduction > 0) t += ` Une remise de ${etat.reduction} % est appliquée.`;
+  if (tot.jhOffert > 0 || etat.reduction > 0) t += ` Montant net : ${EUR.format(tot.ht)} HT.`;
+  if (amenage) {
+    const initAmenage = actifs.some(x => x.prog.code !== 'passi' && x.e.type === 'Initiale');
+    t += '\n\n' + (initAmenage
+      ? 'Cette offre est établie sous réserve de la décision de l’ANSSI d’instruire la demande selon le processus aménagé et de la décision favorable de revue de la demande de certification par Certi-Trust.'
+      : 'Cette offre s’inscrit dans le cycle de certification en cours, conduit selon le processus aménagé.');
+  }
+  return t;
+}
+
+/* ──────────────────────────────────────────
+   Rendu de l'écran commercial
+────────────────────────────────────────── */
+function renderDevis() {
+  view = 'devis';
+  $('settings-footer').style.display = 'none';
+  $('footer').style.display = '';
+  $('btn-settings').disabled = false;
+  if (!data) return;
+  if (!etat) {
+    resultat = null;
+    majBoutons();
+    $('main').innerHTML = `<div class="placeholder">Choisir une entreprise puis un TEM-404.
+      ${periodes.length ? '' : '<br><br>Aucun paramètre enregistré : ouvrir ⚙ Paramètres.'}</div>`;
+    return;
+  }
+  resultat = calculer();
+  if (!etat.justifEditee && resultat.prestations.length) etat.justification = genererJustification(resultat);
+
+  $('main').innerHTML = `
+    <div class="layout">
+      <div>
+        ${cardProgrammes()}
+        ${cardSites()}
+        ${cardModulateurs()}
+        ${cardControles()}
+      </div>
+      <div>
+        ${cardDevis()}
+        ${cardTotaux()}
+        ${cardJustification()}
+      </div>
+    </div>`;
+  bindDevis();
+  majBoutons();
+}
+
+function cardProgrammes() {
+  const rows = PROGS.map(p => {
+    const e = etat.programmes[p.code];
+    const typeOpts = [...new Set([...TYPES, e.type].filter(Boolean))]
+      .map(t => `<option ${t === e.type ? 'selected' : ''}>${esc(t)}</option>`).join('');
+    const nivOpts = ['', ...NIVEAUX].map(n => `<option value="${esc(n)}" ${n === e.niveau ? 'selected' : ''}>${esc(n || '—')}</option>`).join('');
+    const portees = p.portees.map(([, c]) =>
+      `<label><input type="checkbox" data-portee="${p.code}|${c}" ${etat.portees[p.code][c] ? 'checked' : ''} ${e.retenu ? '' : 'disabled'}>${c}</label>`).join('');
+    return `<tr>
+      <td><label><input type="checkbox" data-prog="${p.code}" ${e.retenu ? 'checked' : ''}> <b>${p.nom}</b></label>
+        ${e.version ? `<span class="muted">v${esc(e.version)}</span>` : ''}${e.demande ? '' : ' <span class="muted">(non demandé)</span>'}</td>
+      <td><select data-type="${p.code}" ${e.retenu ? '' : 'disabled'}>${e.type ? '' : '<option value="">—</option>'}${typeOpts}</select></td>
+      <td><select data-niveau="${p.code}" ${e.retenu ? '' : 'disabled'}>${nivOpts}</select></td>
+    </tr><tr><td colspan="3" class="portees">${portees}</td></tr>`;
+  }).join('');
+  return `<div class="card"><h3>Programmes et portées (TEM-404 ${esc(etat.numTem)})</h3><div class="body">
+    <table><thead><tr><th>Programme</th><th>Type</th><th>Niveau</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function cardSites() {
+  const progs = PROGS.filter(p => etat.programmes[p.code].retenu);
+  if (!etat.sites.length) return `<div class="card"><h3>Sites</h3><div class="body muted">Aucun site dans le TEM-404.</div></div>`;
+  const sel = resultat?.sel || {};
+  const head = progs.map(p => {
+    const s = sel[p.code];
+    return `<th class="num">${p.nom}${s ? `<br><span class="muted">${s.sites.size}/${s.requis} requis</span>` : ''}</th>`;
+  }).join('');
+  const rows = etat.sites.map(s => `<tr>
+    <td>${s.n}. ${esc(s.nom)}</td>
+    <td><input type="checkbox" data-nouveau="${s.n}" ${s.nouveau ? 'checked' : ''} title="Nouveau site : toujours évalué"></td>
+    ${progs.map(p => s.progs[p.code]
+      ? `<td class="num"><input type="checkbox" data-site="${p.code}|${s.n}" ${sel[p.code]?.sites.has(s.n) ? 'checked' : ''} ${s.nouveau ? 'disabled' : ''}></td>`
+      : '<td class="num muted">–</td>').join('')}
+  </tr>`).join('');
+  return `<div class="card"><h3>Sites à évaluer (sécurité physique)</h3><div class="body">
+    <p class="hint">1 UO par site évalué. Un site commun à plusieurs programmes est compté sur le programme principal.</p>
+    <table><thead><tr><th>Site</th><th>Nouveau</th>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function cardModulateurs() {
+  const P = resultat?.P;
+  const rows = MODULATEURS.map(m => {
+    const eff = parseNum(P?.modulateurs?.[m.id]?.[etat.modulateurs[m.id]]);
+    return `<tr><td>${esc(m.lib)}</td>
+      <td><select data-mod="${m.id}">${m.choix.map(c => `<option ${c === etat.modulateurs[m.id] ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></td>
+      <td class="num">${eff === null ? '<span class="muted">?</span>' : (eff > 0 ? '+' : '') + fmtNum(eff) + ' %'}</td></tr>`;
+  }).join('');
+  const r = resultat || {};
+  return `<div class="card"><h3>Modulateurs de charge</h3><div class="body">
+    <table><tbody>${rows}
+      <tr><td colspan="2">Coefficient modulateurs</td><td class="num"><b>${r.coefMod ? fmtNum(r2(r.coefMod * 10000) / 10000) : '–'}</b></td></tr>
+      <tr><td colspan="2"><label><input type="checkbox" id="chk-mut" ${etat.mutualisation ? 'checked' : ''}> Appliquer la mutualisation multi-programmes</label></td>
+        <td class="num"><b>${r.coefMut ? fmtNum(r2(r.coefMut * 10000) / 10000) : '–'}</b></td></tr>
+    </tbody></table>
+    ${P ? `<p class="hint">Paramètres en vigueur depuis le ${frDate(P.debut)}.</p>` : ''}
+  </div></div>`;
+}
+
+function cardControles() {
+  const c = resultat.ctrl;
+  const items = c.length ? c.map(x => `<li class="${x.niveau}">${x.niveau === 'bloquant' ? '[BLOQUANT] ' : x.niveau === 'verifier' ? '[VÉRIFIER] ' : ''}${esc(x.msg)}</li>`).join('')
+    : '<li class="ok">Aucune anomalie détectée.</li>';
+  return `<div class="card"><h3>Contrôles</h3><div class="body"><ul class="ctrl">${items}</ul></div></div>`;
+}
+
+function cardDevis() {
+  const { prestations, tot } = resultat;
+  if (!prestations.length) return `<div class="card"><h3>Devis</h3><div class="body muted">Aucune prestation à calculer.</div></div>`;
+  const th = ROLES.map(r => `<th class="num" title="${esc(r.titre)}">${r.lib}</th>`).join('');
+  const cells = ja => ROLES.map(r => `<td class="num">${ja[r.id] ? JH.format(ja[r.id]) : '<span class="muted">·</span>'}</td>`).join('');
+  let html = '';
+  for (const x of prestations) {
+    html += `<tr class="prest"><td></td><td>${esc(x.prog.nom)} ${esc(x.e.type)} – ${esc(x.e.niveau)}</td>${ROLES.map(r => `<td class="num">${JH.format(x.parRole[r.id])}</td>`).join('')}<td class="num">${JH.format(x.jh)}</td><td></td></tr>`;
+    for (const l of x.lots) {
+      html += `<tr class="lot"><td></td><td colspan="${ROLES.length + 1}">${esc(l.lot.lib)}</td><td class="num">${JH.format(l.jh)}</td><td></td></tr>`;
+      for (const u of l.uos) {
+        if (u.ajust) {
+          const a = etat.ajust[u.key] || {};
+          html += `<tr class="uo ajust"><td></td><td class="lib">Ajustement</td>${ROLES.map(r =>
+            `<td class="num"><input class="n" type="text" inputmode="decimal" data-ajust="${u.key}|${r.id}" value="${esc(a[r.id] ?? '')}" placeholder="0"></td>`).join('')}
+            <td class="num">${u.jh ? JH.format(u.jh) : ''}</td><td></td></tr>`;
+          continue;
+        }
+        const cls = ['uo', u.appl ? '' : 'off', u.offerte ? 'offerte' : '', u.partagee ? 'partagee' : ''].join(' ');
+        html += `<tr class="${cls}">
+          <td><input type="checkbox" data-appl="${u.key}" ${u.appl ? 'checked' : ''} title="Appl."></td>
+          <td class="lib">${esc(u.lib)}${u.partagee ? ` <span class="muted">(comptée sur ${esc(u.partagee)})</span>` : ''}</td>
+          ${cells(u.ja)}
+          <td class="num">${JH.format(u.jh)}</td>
+          <td><input type="checkbox" data-offert="${u.key}" ${u.offerte ? 'checked' : ''} ${u.appl && u.jh > 0 ? '' : 'disabled'} title="Offerte"></td>
+        </tr>`;
+      }
+    }
+  }
+  html += `<tr class="total"><td></td><td>Total</td>${ROLES.map(r => `<td class="num">${JH.format(tot.parRole[r.id])}</td>`).join('')}<td class="num">${JH.format(tot.jh)}</td><td></td></tr>`;
+  return `<div class="card"><h3>Devis — prestations, lots, unités d’œuvre, jours-auditeur</h3><div class="body">
+    <table class="devis"><thead><tr><th title="Appl.">Appl.</th><th>Unité d’œuvre</th>${th}<th class="num">JH</th><th title="UO offerte">Off.</th></tr></thead>
+    <tbody>${html}</tbody></table></div></div>`;
+}
+
+function cardTotaux() {
+  const { prestations, tot, tjm } = resultat;
+  if (!prestations.length) return '';
+  const lib = libelles(resultat);
+  const rows = prestations.map((x, i) => `<tr>
+    <td><span class="libelle">${esc(lib.pl[i])}</span></td>
+    <td class="num">${JH.format(x.jh)}</td>
+    <td class="num">${x.jhOffert ? JH.format(x.jhOffert) : ''}</td>
+    <td class="num">${EUR2.format(x.htBrut)}</td>
+    <td class="num">${x.remise ? '− ' + EUR2.format(x.remise) : ''}</td>
+    <td class="num"><b>${EUR2.format(x.ht)}</b></td></tr>`).join('');
+  return `<div class="card"><h3>Proposition commerciale</h3><div class="body">
+    <div class="row-flex" style="margin-bottom:8px">
+      <label>Remise <select id="sel-reduction">${[0, 5, 10, 15, 20].map(r => `<option value="${r}" ${r === etat.reduction ? 'selected' : ''}>${r} %</option>`).join('')}</select></label>
+      <label>Commentaires <input type="text" id="txt-comment" size="34" value="${esc(etat.commentaires)}" placeholder="fin de libellé"></label>
+      <span class="muted">TJM : ${tjm === null || tjm === undefined ? '?' : EUR.format(tjm)}</span>
+    </div>
+    <table class="totaux"><thead><tr><th>Prestation (PL)</th><th class="num">JH</th><th class="num">Offerts</th><th class="num">Brut HT</th><th class="num">Remise</th><th class="num">Net HT</th></tr></thead>
+    <tbody>${rows}
+      <tr class="grand"><td>Total <span class="libelle">${esc(lib.tl)}</span></td><td class="num">${JH.format(tot.jh)}</td>
+        <td class="num">${tot.jhOffert ? JH.format(tot.jhOffert) : ''}</td><td class="num">${EUR2.format(tot.htBrut)}</td>
+        <td class="num">${tot.remise ? '− ' + EUR2.format(tot.remise) : ''}</td><td class="num">${EUR2.format(tot.ht)}</td></tr>
+    </tbody></table>
+    <p class="hint">Lots : ${LOTS.map((l, i) => `${l.court} ${JH.format(tot.parLot[i])} j.h`).join(' · ')}.
+      Numéros provisoires : ils sont recalculés à la création.</p>
+    ${etat.cree ? `<p class="statusbar ok">Proposition créée : <span class="libelle">${esc(etat.cree.tl)}</span> (${etat.cree.pl.length} ligne(s) dans Propositions_prestation).</p>` : ''}
+  </div></div>`;
+}
+
+function cardJustification() {
+  if (!resultat.prestations.length) return '';
+  return `<div class="card"><h3>Justification</h3><div class="body">
+    <textarea class="justif" id="txt-justif">${esc(etat.justification || '')}</textarea>
+    <div class="row-flex"><span class="hint">${etat.justifEditee ? 'Texte modifié à la main : il n’est plus recalculé.' : 'Texte recalculé automatiquement.'}</span>
+    ${etat.justifEditee ? '<button class="btn btn-grey" id="btn-regen">Régénérer</button>' : ''}</div>
+  </div></div>`;
+}
+
+function bindDevis() {
+  const main = $('main');
+  const on = (sel, ev, fn) => main.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  on('[data-prog]', 'change', e => { etat.programmes[e.target.dataset.prog].retenu = e.target.checked; renderDevis(); });
+  on('[data-type]', 'change', e => { etat.programmes[e.target.dataset.type].type = e.target.value; renderDevis(); });
+  on('[data-niveau]', 'change', e => { etat.programmes[e.target.dataset.niveau].niveau = e.target.value; renderDevis(); });
+  on('[data-portee]', 'change', e => { const [p, c] = e.target.dataset.portee.split('|'); etat.portees[p][c] = e.target.checked; renderDevis(); });
+  on('[data-nouveau]', 'change', e => { etat.sites.find(s => s.n === Number(e.target.dataset.nouveau)).nouveau = e.target.checked; renderDevis(); });
+  on('[data-site]', 'change', e => { etat.siteSel[e.target.dataset.site] = e.target.checked; renderDevis(); });
+  on('[data-mod]', 'change', e => { etat.modulateurs[e.target.dataset.mod] = e.target.value; renderDevis(); });
+  on('[data-appl]', 'change', e => { etat.appl[e.target.dataset.appl] = e.target.checked; renderDevis(); });
+  on('[data-offert]', 'change', e => { etat.offert[e.target.dataset.offert] = e.target.checked; renderDevis(); });
+  on('[data-ajust]', 'change', e => {
+    const parts = e.target.dataset.ajust.split('|');
+    const role = parts.pop(), key = parts.join('|');
+    const v = e.target.value.trim();
+    if (v !== '' && parseNum(v) === null) { e.target.classList.add('invalid'); return; }
+    etat.ajust[key] ||= {};
+    etat.ajust[key][role] = v;
+    renderDevis();
+  });
+  $('chk-mut')?.addEventListener('change', e => { etat.mutualisation = e.target.checked; renderDevis(); });
+  $('sel-reduction')?.addEventListener('change', e => { etat.reduction = Number(e.target.value); renderDevis(); });
+  $('txt-comment')?.addEventListener('change', e => { etat.commentaires = e.target.value.replace(/\s+/g, ' '); renderDevis(); });
+  $('txt-justif')?.addEventListener('input', e => { etat.justification = e.target.value; etat.justifEditee = true; });
+  $('btn-regen')?.addEventListener('click', () => { etat.justifEditee = false; renderDevis(); });
+}
+
+function majBoutons() {
+  const ok = !!(resultat && resultat.prestations.length && !resultat.ctrl.some(c => c.niveau === 'bloquant'));
+  $('btn-copy-text').disabled = !ok;
+  $('btn-copy-json').disabled = !ok;
+  $('btn-create').disabled = !ok || !!etat?.cree;
+  if (etat?.cree) $('btn-create').title = 'Proposition déjà créée pour ce calcul.';
+}
+
+/* ──────────────────────────────────────────
+   Export : JSON PL / TL et texte
+────────────────────────────────────────── */
+function jsonPL(x, libPL, libTL) {
+  const res = resultat;
+  const ent = data.entreprises.get(etat.entrepriseId);
+  return {
+    libelle_PL: libPL,
+    libelle_TL: libTL,
+    entreprise: { id: etat.entrepriseId, denomination: ent?.Denomination ?? null, code: ent?.code ?? null },
+    tem404: etat.numTem,
+    version_params: res.P.debut,
+    programme: x.prog.nom,
+    version: x.e.version || x.prog.sansVersion,
+    type: x.e.type,
+    niveau: x.e.niveau,
+    tjm: res.tjm,
+    reduction_pct: etat.reduction,
+    JH: x.jh,
+    JH_offerts: x.jhOffert,
+    HT_brut: x.htBrut,
+    remise: x.remise,
+    HT: x.ht,
+    lots: x.lots.map(l => ({
+      lot: l.lot.n,
+      libelle: l.lot.lib,
+      JH: l.jh,
+      uo: l.uos.filter(u => u.appl && (u.jh > 0 || u.partagee)).map(u => ({
+        id: u.key,
+        libelle: u.lib,
+        JH: u.jh,
+        offerte: u.offerte,
+        ...(u.partagee ? { comptee_sur: u.partagee } : {}),
+        ja: ROLES.filter(r => u.ja[r.id] > 0).map(r => ({ role: r.lib, JH: u.ja[r.id] })),
+      })),
+    })),
+    entrees: {
+      modulateurs: { ...etat.modulateurs },
+      coef_modulateurs: r2(res.coefMod * 10000) / 10000,
+      mutualisation: etat.mutualisation,
+      coef_mutualisation: res.coefMut,
+      portees: x.prog.portees.map(([, c]) => c).filter(c => etat.portees[x.prog.code][c]),
+      sites_evalues: [...(res.sel[x.prog.code]?.sites || [])],
+      sites: etat.sites.map(s => ({ n: s.n, nom: s.nom, nouveau: s.nouveau })),
+    },
+  };
+}
+
+function jsonTL(lib = libelles(resultat)) {
+  const res = resultat;
+  const ent = data.entreprises.get(etat.entrepriseId);
+  return {
+    libelle_TL: lib.tl,
+    entreprise: { id: etat.entrepriseId, denomination: ent?.Denomination ?? null, code: ent?.code ?? null },
+    tem404: etat.numTem,
+    date: today(),
+    version_params: res.P.debut,
+    commentaires: etat.commentaires.trim(),
+    reduction_pct: etat.reduction,
+    totaux: { JH: res.tot.jh, JH_offerts: res.tot.jhOffert, HT_brut: res.tot.htBrut, remise: res.tot.remise, HT: res.tot.ht,
+      par_lot: Object.fromEntries(LOTS.map((l, i) => [l.lib, res.tot.parLot[i]])),
+      par_role: Object.fromEntries(ROLES.map(r => [r.lib, res.tot.parRole[r.id]])) },
+    justification: etat.justification,
+    PL: res.prestations.map((x, i) => jsonPL(x, lib.pl[i], lib.tl)),
+  };
+}
+
+function texteDevis() {
+  const res = resultat, lib = libelles(res);
+  const ent = data.entreprises.get(etat.entrepriseId);
+  const L = [];
+  L.push(`Proposition commerciale ${lib.tl}`);
+  L.push(`Client : ${ent?.Denomination ?? ''} — TEM-404 ${etat.numTem} — ${frDate(today())}`);
+  L.push(`TJM : ${EUR.format(res.tjm)} HT${etat.reduction ? ` — remise ${etat.reduction} %` : ''}`);
+  for (const [i, x] of res.prestations.entries()) {
+    L.push('', `■ ${lib.pl[i]} — ${x.prog.nom} ${x.e.type} ${x.e.niveau} : ${JH.format(x.jh)} j.h — ${EUR2.format(x.ht)} HT`);
+    for (const l of x.lots) {
+      if (!l.jh && !l.uos.some(u => u.partagee && u.appl)) continue;
+      L.push(`  ${l.lot.lib} : ${JH.format(l.jh)} j.h`);
+      for (const u of l.uos.filter(u => u.appl && (u.jh > 0 || u.partagee))) {
+        const ja = ROLES.filter(r => u.ja[r.id] > 0).map(r => `${r.lib} ${JH.format(u.ja[r.id])}`).join(', ');
+        L.push(`    - ${u.lib} : ${JH.format(u.jh)} j.h${ja ? ` (${ja})` : ''}${u.offerte ? ' — offerte' : ''}${u.partagee ? ` — comptée sur ${u.partagee}` : ''}`);
+      }
+    }
+  }
+  L.push('', `TOTAL : ${JH.format(res.tot.jh)} j.h — brut ${EUR2.format(res.tot.htBrut)} HT`
+    + (res.tot.remise ? ` — remise ${EUR2.format(res.tot.remise)}` : '') + ` — net ${EUR2.format(res.tot.ht)} HT`);
+  L.push('', etat.justification || '');
+  return L.join('\n');
+}
+
+async function copier(txt, msg) {
+  try {
+    await navigator.clipboard.writeText(txt);
+    setStatus(msg, 'ok');
+  } catch {
+    // Le presse-papiers peut être refusé dans l'iframe Grist : on propose le texte à copier à la main.
+    window.prompt('Copier (Ctrl+C) :', txt);
+  }
+}
+
+/* ──────────────────────────────────────────
+   Création dans Propositions_prestation
+────────────────────────────────────────── */
+const COLS_REQUISES = ['Libelle_PL', 'Proposition_commerciale', 'TEM_404', 'Charge'];
+
+async function creerProposition() {
+  if (!resultat?.prestations.length) return;
+  $('btn-create').disabled = true;
+  try {
+    // Relecture pour des numéros PL/TL à jour.
+    const pp = await grist.docApi.fetchTable('Propositions_prestation');
+    data.pp = pp.id.map((id, i) => Object.fromEntries(Object.keys(pp).map(k => [k, pp[k][i]])));
+    data.ppCols = new Set(Object.keys(pp));
+    const manquantes = COLS_REQUISES.filter(c => !data.ppCols.has(c));
+    if (manquantes.length) { setStatus(`Colonnes absentes de Propositions_prestation : ${manquantes.join(', ')}.`, 'error'); return; }
+    const ent = data.entreprises.get(etat.entrepriseId);
+    if (!ent?.code) { setStatus('L’entreprise n’a pas de code (Entreprises.code) : libellé impossible.', 'error'); return; }
+
+    const lib = libelles(resultat);
+    const resume = resultat.prestations.map((x, i) => `• ${lib.pl[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT`).join('\n');
+    if (!window.confirm(`Créer la proposition ${lib.tl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT`)) return;
+
+    const dateSec = Math.floor(new Date(today() + 'T00:00:00Z').getTime() / 1000);
+    const xs = resultat.prestations;
+    const cols = {
+      Denomination: xs.map(() => etat.entrepriseId),
+      Date: xs.map(() => dateSec),
+      Programme: xs.map(x => progRef(x.prog)?.id ?? 0),
+      Type_d_evaluation: xs.map(x => ['L', x.e.type]),
+      Commentaires: xs.map(() => etat.commentaires.trim()),
+      Montant_Jour_HT: xs.map(() => resultat.tjm),
+      Montant_PO: xs.map(x => x.ht),
+      Libelle_PL: lib.pl,
+      Proposition_commerciale: xs.map(() => lib.tl),
+      TEM_404: xs.map(() => etat.temId),
+      Charge: xs.map((x, i) => JSON.stringify(jsonPL(x, lib.pl[i], lib.tl))),
+    };
+    await grist.docApi.applyUserActions([['BulkAddRecord', 'Propositions_prestation', xs.map(() => null), cols]]);
+    etat.cree = lib;
+    setStatus(`Proposition ${lib.tl} créée (${xs.length} prestation(s)). Copier le JSON TL ou le devis pour CPQ.`, 'ok');
+    renderDevis();
+  } catch (err) {
+    setStatus(`Échec de la création : ${err.message || err}`, 'error');
+  } finally {
+    majBoutons();
+  }
+}
+
+/* ──────────────────────────────────────────
+   Paramètres (périodes)
+────────────────────────────────────────── */
+function periodeVide() {
+  return {
+    debut: today(), tjm: '', bornes: { min: '', max: '' }, mutualisation: ['', '', ''],
+    couverture: Object.fromEntries(TYPES.map(t => [t, ''])),
+    modulateurs: Object.fromEntries(MODULATEURS.map(m => [m.id, Object.fromEntries(m.choix.map(c => [c, '']))])),
+    lignes: Object.fromEntries(CATALOGUE.map(l => [l.id, { base: {}, eleve: {}, R: false, S: false, Y: false }])),
+  };
+}
+
+// Complète une période (éventuellement importée) avec toutes les clés attendues.
+function normaliser(p) {
+  const v = periodeVide();
+  const out = { ...v, ...structuredClone(p) };
+  out.bornes = { ...v.bornes, ...(p.bornes || {}) };
+  out.couverture = { ...v.couverture, ...(p.couverture || {}) };
+  out.mutualisation = [0, 1, 2].map(i => p.mutualisation?.[i] ?? '');
+  out.modulateurs = Object.fromEntries(MODULATEURS.map(m => [m.id, { ...v.modulateurs[m.id], ...(p.modulateurs?.[m.id] || {}) }]));
+  out.lignes = Object.fromEntries(CATALOGUE.map(l => [l.id, { ...v.lignes[l.id], ...(p.lignes?.[l.id] || {}) }]));
+  return out;
+}
+
+function openSettings() {
+  if (!data) return;
+  draft = periodes.map(normaliser);
+  if (!draft.length) draft.push(periodeVide());
+  const enCours = periodeAu(today(), draft);
+  draftSel = enCours ? draft.indexOf(enCours) : draft.length - 1;
+  renderSettings();
+}
+
+function closeSettings() { draft = null; renderDevis(); }
+
+function renderSettings() {
+  view = 'settings';
+  $('settings-footer').style.display = '';
+  $('footer').style.display = 'none';
+  $('btn-settings').disabled = true;
+  setSettingsStatus('');
+  const enCours = periodeAu(today(), draft);
+  const ordre = draft.map((p, i) => ({ p, i })).sort((a, b) => (b.p.debut || '9999').localeCompare(a.p.debut || '9999'));
+  const chips = ordre.map(({ p, i }) =>
+    `<button data-psel="${i}" class="${i === draftSel ? 'sel' : ''}">${p.debut ? 'du ' + frDate(p.debut) : '(sans date)'}${p === enCours ? '<span class="badge">en vigueur</span>' : ''}</button>`).join('');
+  const p = draft[draftSel];
+  const inp = (path, val, cls = 'n') => `<input class="${cls}" type="text" inputmode="decimal" data-path="${path}" value="${esc(val ?? '')}">`;
+
+  const mods = MODULATEURS.map(m => `<tr><td>${esc(m.lib)}</td><td>${m.choix.map(c =>
+    `<label style="margin-right:8px">${esc(c)} ${inp(`modulateurs.${m.id}.${c}`, p.modulateurs[m.id][c])} %</label>`).join('')}</td></tr>`).join('');
+
+  let lignes = '';
+  for (const lot of LOTS) {
+    lignes += `<tr><td class="lot" colspan="${ROLES.length + 4}">${esc(lot.lib)}</td></tr>`;
+    for (const l of CATALOGUE.filter(x => x.lot === lot.n)) {
+      const pl = p.lignes[l.id];
+      const flags = ['R', 'S', 'Y'].map(f => `<td><input type="checkbox" data-flag="${l.id}|${f}" ${pl[f] ? 'checked' : ''}></td>`).join('');
+      lignes += `<tr><td>${esc(l.lib)}${l.niveaux ? ' <span class="muted">(Substantiel)</span>' : ''}</td>
+        ${ROLES.map(r => `<td>${inp(`lignes.${l.id}.base.${r.id}`, pl.base?.[r.id])}</td>`).join('')}${flags}</tr>`;
+      if (l.niveaux) lignes += `<tr class="eleve"><td>… au niveau Élevé</td>
+        ${ROLES.map(r => `<td>${inp(`lignes.${l.id}.eleve.${r.id}`, pl.eleve?.[r.id])}</td>`).join('')}<td colspan="3"></td></tr>`;
+    }
+  }
+
+  $('main').innerHTML = `
+    <div class="settings">
+      <h3 class="title">Paramètres du calcul de charge</h3>
+      <p class="hint">Ces valeurs sont enregistrées dans les options du widget (document Grist), jamais dans le code publié.
+        Chaque période s’applique aux propositions calculées à partir de sa date de début. Les nombres acceptent la virgule et les fractions (1/3).</p>
+      <div class="periodes">${chips}<button id="btn-add-periode">+ Nouvelle période</button></div>
+      <div class="card"><h3>Période</h3><div class="body row-flex">
+        <label>À partir du <input type="date" data-path="debut" value="${esc(p.debut || '')}"></label>
+        <label>TJM ${inp('tjm', p.tjm)} € HT</label>
+        <span class="spacer"></span>
+        <button class="btn btn-danger" id="btn-del-periode">Supprimer cette période</button>
+      </div></div>
+      <div class="grid2">
+        <div class="card"><h3>Modulateurs de charge (effet en %)</h3><div class="body">
+          <table><tbody>${mods}
+            <tr><td>Bornes de la moyenne</td><td>plancher ${inp('bornes.min', p.bornes.min)} % · plafond ${inp('bornes.max', p.bornes.max)} %</td></tr>
+          </tbody></table></div></div>
+        <div class="card"><h3>Mutualisation et couverture</h3><div class="body">
+          <table><tbody>
+            <tr><td>Mutualisation 1 / 2 / 3 programmes</td><td>${[0, 1, 2].map(i => inp(`mutualisation.${i}`, p.mutualisation[i])).join(' ')}</td></tr>
+            ${TYPES.map(t => `<tr><td>Couverture ${t}</td><td>${inp(`couverture.${t}`, p.couverture[t])}</td></tr>`).join('')}
+          </tbody></table></div></div>
+      </div>
+      <div class="card"><h3>Charges de base par UO (JH par rôle)</h3><div class="body">
+        <p class="hint">R = appliquer le coefficient modulateurs · S = appliquer la mutualisation · Y = appliquer la couverture.</p>
+        <table class="params-lignes"><thead><tr><th>Unité d’œuvre</th>${ROLES.map(r => `<th title="${esc(r.titre)}">${r.lib}</th>`).join('')}<th>R</th><th>S</th><th>Y</th></tr></thead>
+        <tbody>${lignes}</tbody></table></div></div>
+      <div class="card"><h3>Import / export JSON (toutes les périodes)</h3><div class="body">
+        <textarea class="json" id="txt-json"></textarea>
+        <div class="row-flex"><button class="btn btn-grey" id="btn-export">Exporter</button>
+          <button class="btn btn-grey" id="btn-import">Importer (remplace le brouillon)</button></div>
+      </div></div>
+    </div>`;
+
+  const main = $('main');
+  main.querySelectorAll('[data-path]').forEach(el => el.addEventListener('change', onSettingInput));
+  main.querySelectorAll('[data-flag]').forEach(el => el.addEventListener('change', e => {
+    const [id, f] = e.target.dataset.flag.split('|');
+    draft[draftSel].lignes[id][f] = e.target.checked;
+  }));
+  main.querySelectorAll('[data-psel]').forEach(el => el.addEventListener('click', () => { draftSel = Number(el.dataset.psel); renderSettings(); }));
+  $('btn-add-periode').addEventListener('click', () => {
+    const recente = [...draft].sort((a, b) => (b.debut || '').localeCompare(a.debut || ''))[0];
+    // La nouvelle période reprend les valeurs de la plus récente : seuls les changements sont à saisir.
+    draft.push({ ...structuredClone(recente || periodeVide()), debut: '' });
+    draftSel = draft.length - 1;
+    renderSettings();
+  });
+  $('btn-del-periode').addEventListener('click', () => {
+    if (!window.confirm('Supprimer cette période ?')) return;
+    draft.splice(draftSel, 1);
+    if (!draft.length) draft.push(periodeVide());
+    draftSel = Math.min(draftSel, draft.length - 1);
+    renderSettings();
+  });
+  $('btn-export').addEventListener('click', () => { $('txt-json').value = JSON.stringify(draft, null, 2); });
+  $('btn-import').addEventListener('click', () => {
+    try {
+      const v = JSON.parse($('txt-json').value);
+      const liste = Array.isArray(v) ? v : Array.isArray(v?.periodes) ? v.periodes : [v];
+      draft = liste.map(normaliser);
+      draftSel = 0;
+      renderSettings();
+      setSettingsStatus('JSON importé dans le brouillon : vérifier puis Enregistrer.', 'ok');
+    } catch (err) {
+      setSettingsStatus(`JSON invalide : ${err.message}`, 'error');
+    }
+  });
+}
+
+function onSettingInput(e) {
+  const el = e.target;
+  const path = el.dataset.path.split('.');
+  let o = draft[draftSel];
+  for (const k of path.slice(0, -1)) o = (o[k] ||= {});
+  const last = path[path.length - 1];
+  if (el.type === 'date') { o[last] = el.value; return; }
+  const v = el.value.trim();
+  const ok = v === '' || parseNum(v) !== null;
+  el.classList.toggle('invalid', !ok);
+  o[last] = v === '' ? '' : (ok ? parseNum(v) : v);
+}
+
+async function saveSettings() {
+  const debuts = draft.map(p => p.debut);
+  if (debuts.some(d => !d)) return setSettingsStatus('Chaque période doit avoir une date de début.', 'error');
+  if (new Set(debuts).size !== debuts.length) return setSettingsStatus('Deux périodes ont la même date de début.', 'error');
+  if (document.querySelector('.settings input.invalid')) return setSettingsStatus('Certaines valeurs sont invalides.', 'error');
+  const nettoie = v => (v === '' || v === null || v === undefined) ? null : (typeof v === 'number' ? v : parseNum(v));
+  const propre = draft.map(p => ({
+    debut: p.debut,
+    tjm: nettoie(p.tjm),
+    bornes: { min: nettoie(p.bornes.min), max: nettoie(p.bornes.max) },
+    mutualisation: p.mutualisation.map(nettoie),
+    couverture: Object.fromEntries(TYPES.map(t => [t, nettoie(p.couverture[t])])),
+    modulateurs: Object.fromEntries(MODULATEURS.map(m => [m.id, Object.fromEntries(m.choix.map(c => [c, nettoie(p.modulateurs[m.id][c])]))])),
+    lignes: Object.fromEntries(CATALOGUE.map(l => {
+      const pl = p.lignes[l.id] || {};
+      const roles = src => Object.fromEntries(ROLES.map(r => [r.id, nettoie(src?.[r.id])]).filter(([, v]) => v !== null));
+      return [l.id, { base: roles(pl.base), ...(l.niveaux ? { eleve: roles(pl.eleve) } : {}), R: !!pl.R, S: !!pl.S, Y: !!pl.Y }];
+    })),
+  })).sort((a, b) => a.debut.localeCompare(b.debut));
+
+  $('btn-save').disabled = true;
+  try {
+    await grist.setOption('periodes', propre);
+    periodes = propre;
+    draft = null;
+    renderDevis();
+    setStatus('Paramètres enregistrés.', 'ok');
+  } catch (err) {
+    setSettingsStatus(`Échec de l’enregistrement : ${err.message || err}`, 'error');
+  } finally {
+    $('btn-save').disabled = false;
+  }
+}
+
+function setStatus(msg, cls = '') { $('status').textContent = msg; $('status').className = `statusbar ${cls}`; }
+function setSettingsStatus(msg, cls = '') { $('settings-status').textContent = msg; $('settings-status').className = `statusbar ${cls}`; }
+
+load();
+</script>
+</body>
+</html>
