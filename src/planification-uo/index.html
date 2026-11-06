@@ -230,7 +230,13 @@
 
       state.evaluation = rows(ev).find(r => r.id === state.evalId) || null;
       state.uos = rows(uo).filter(r => r.Evaluation === state.evalId);
-      state.uos.sort((a, b) => (a.manualSort || 0) - (b.manualSort || 0));
+      state.uos.sort((a, b) => {
+        const da = a.date_debut_incluse, db = b.date_debut_incluse;
+        const ha = da != null && da !== '', hb = db != null && db !== '';
+        if (ha !== hb) return ha ? -1 : 1;
+        if (ha && da !== db) return da - db;
+        return (a.manualSort || 0) - (b.manualSort || 0);
+      });
 
       state.evaluateurs = new Map(rows(evals).map(r => [r.id, r]));
 
@@ -270,13 +276,23 @@
     const re = evaluation.RE || null;
     const eta = findEta(evaluation, rdc, profils, progs);
     const slots = [
-      { key: 'RE',  label: 'RE',  def: re },
-      { key: 'ETA', label: 'ETA', def: eta },
+      { key: 'RE',  label: 'RE',  def: re,  field: 'evaluateurs' },
+      { key: 'ETA', label: 'ETA', def: eta, field: 'evaluateurs' },
     ];
     const etms = refList(evaluation.ETM).filter(id => id && id !== re && id !== eta);
-    etms.forEach((id, i) => slots.push({ key: 'ETM' + (i + 1), label: etms.length > 1 ? 'ETM ' + (i + 1) : 'ETM', def: id }));
+    etms.forEach((id, i) => slots.push({
+      key: 'ETM' + (i + 1), label: etms.length > 1 ? 'ETM ' + (i + 1) : 'ETM', def: id, field: 'evaluateurs',
+    }));
+    // Les observateurs vont dans Unites_d_oeuvre.OBS, pas dans evaluateurs :
+    // ils ne comptent ni dans les JH ni dans les coûts calculés par Grist.
+    const obs = refList(evaluation.OBS).filter(Boolean);
+    obs.forEach((id, i) => slots.push({
+      key: 'OBS' + (i + 1), label: obs.length > 1 ? 'OBS ' + (i + 1) : 'OBS', def: id, field: 'OBS',
+    }));
     return slots;
   }
+
+  const FIELDS = ['evaluateurs', 'OBS'];
 
   function evalName(id) {
     const e = state.evaluateurs.get(id);
@@ -292,23 +308,23 @@
 
   // Associe chaque membre de la RefList à une colonne. Les membres sans colonne vont dans « Autres ».
   function resolveRow(uo) {
-    const members = refList(uo.evaluateurs);
-    const used = new Set();
+    const lists = {}, used = {};
+    for (const f of FIELDS) { lists[f] = refList(uo[f]); used[f] = new Set(); }
     const cells = state.slots.map(s => {
       const ov = slotOverrides.get(uo.id + ':' + s.key);
       const candidate = ov !== undefined ? ov : s.def;
-      const checked = !!candidate && members.includes(candidate) && !used.has(candidate);
-      if (checked) used.add(candidate);
+      const checked = !!candidate && lists[s.field].includes(candidate) && !used[s.field].has(candidate);
+      if (checked) used[s.field].add(candidate);
       return { slot: s, value: candidate, checked };
     });
-    const others = members.filter(id => !used.has(id));
-    return { members, cells, others };
+    const others = FIELDS.flatMap(f => lists[f].filter(id => !used[f].has(id)).map(id => ({ id, field: f })));
+    return { lists, members: lists.evaluateurs, cells, others };
   }
 
-  function defaultMembers() {
-    const ids = [];
-    for (const s of state.slots) if (s.def && !ids.includes(s.def)) ids.push(s.def);
-    return ids;
+  function defaultLists() {
+    const out = { evaluateurs: [], OBS: [] };
+    for (const s of state.slots) if (s.def && !out[s.field].includes(s.def)) out[s.field].push(s.def);
+    return { evaluateurs: ['L', ...out.evaluateurs], OBS: ['L', ...out.OBS] };
   }
 
   function render() {
@@ -343,7 +359,11 @@
     const table = document.createElement('table');
     const thead = table.createTHead().insertRow();
     thead.appendChild(th("Unité d'œuvre"));
-    for (const s of state.slots) thead.appendChild(th(s.label, s.def ? evalName(s.def) : 'non défini'));
+    for (const s of state.slots) {
+      const h = th(s.label, s.def ? evalName(s.def) : 'non défini');
+      if (s.field === 'OBS') h.title = 'Observateur : non compté dans les JH';
+      thead.appendChild(h);
+    }
     if (showOthers) thead.appendChild(th('Autres'));
     thead.appendChild(th('Date de début'));
     const thDuree = th('Durée (j)');
@@ -452,24 +472,25 @@
     const sel = document.createElement('select');
     evaluateurOptions(sel, c.value);
 
+    const field = c.slot.field;
     cb.addEventListener('change', () => {
-      const members = [...r.members];
+      const members = [...r.lists[field]];
       if (cb.checked) {
         if (!members.includes(c.value)) members.push(c.value);
       } else {
         const i = members.indexOf(c.value);
         if (i >= 0) members.splice(i, 1);
       }
-      update(r.uo.id, { evaluateurs: ['L', ...members] });
+      update(r.uo.id, { [field]: ['L', ...members] });
     });
 
     sel.addEventListener('change', () => {
       const newId = sel.value ? Number(sel.value) : null;
       slotOverrides.set(r.uo.id + ':' + c.slot.key, newId);
       if (!c.checked) { render(); return; }
-      let members = r.members.filter(id => id !== c.value);
+      const members = r.lists[field].filter(id => id !== c.value);
       if (newId && !members.includes(newId)) members.push(newId);
-      update(r.uo.id, { evaluateurs: ['L', ...members] });
+      update(r.uo.id, { [field]: ['L', ...members] });
     });
 
     wrap.append(cb, sel);
@@ -479,17 +500,17 @@
   function othersCell(r) {
     const wrap = document.createElement('div');
     wrap.className = 'others';
-    for (const id of r.others) {
+    for (const { id, field } of r.others) {
       const lab = document.createElement('label');
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = true;
-      cb.title = "Décocher pour retirer cet évaluateur de l'UO";
+      cb.title = field === 'OBS' ? "Décocher pour retirer cet observateur de l'UO" : "Décocher pour retirer cet évaluateur de l'UO";
       cb.addEventListener('change', () => {
-        update(r.uo.id, { evaluateurs: ['L', ...r.members.filter(m => m !== id)] });
+        update(r.uo.id, { [field]: ['L', ...r.lists[field].filter(m => m !== id)] });
       });
-      lab.title = fullName(id);
-      lab.append(cb, document.createTextNode(evalName(id)));
+      lab.title = fullName(id) + (field === 'OBS' ? ' (observateur)' : '');
+      lab.append(cb, document.createTextNode(evalName(id) + (field === 'OBS' ? ' (OBS)' : '')));
       wrap.appendChild(lab);
     }
     return wrap;
@@ -579,7 +600,7 @@
     if (!state.evaluation) return;
     apply([['AddRecord', T_UO, null, {
       Evaluation: state.evaluation.id,
-      evaluateurs: ['L', ...defaultMembers()],
+      ...defaultLists(),
       Jours: 1,
     }]]);
   });
@@ -587,11 +608,11 @@
   $('btn-default').addEventListener('click', () => {
     const ev = state.evaluation;
     if (!ev || state.uos.length) return;
-    const members = ['L', ...defaultMembers()];
+    const lists = defaultLists();
     apply(DEFAULT_UOS.map(d => ['AddRecord', T_UO, null, {
       Evaluation: ev.id,
       Unite_d_oeuvre: d.uo,
-      evaluateurs: members,
+      ...lists,
       date_debut_incluse: addOffset(ev.Date_Debut_prevue, d.offset),
       Jours: d.jours,
     }]));
@@ -602,6 +623,7 @@
       Evaluation: uo.Evaluation,
       Unite_d_oeuvre: uo.Unite_d_oeuvre || null,
       evaluateurs: ['L', ...refList(uo.evaluateurs)],
+      OBS: ['L', ...refList(uo.OBS)],
       date_debut_incluse: uo.date_debut_incluse ?? null,
       Jours: uo.Jours ?? null,
       Lot: uo.Lot === '' ? null : (uo.Lot ?? null),
