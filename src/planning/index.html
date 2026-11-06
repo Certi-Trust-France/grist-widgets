@@ -401,8 +401,8 @@ function parseLot(r) {
 
   const planEval = String(getField(r, 'PlanEval') ?? r.Unite_d_oeuvre ?? '');
 
-  // Les records reçus par onRecords contiennent toutes les colonnes de la table liée,
-  // pas seulement celles mappées : Evaluation et OBS sont lus directement.
+  // Evaluation et OBS ne sont pas mappés : onRecords peut ne pas les fournir,
+  // loadRefs() les relit depuis Unites_d_oeuvre via docApi.
   const evaluationId = typeof r.Evaluation === 'number' ? r.Evaluation : 0;
   const obsIds       = parseRawEvalIds(r.OBS);
 
@@ -413,13 +413,25 @@ function parseLot(r) {
 // Le tetra est dans Entreprises.code (libellé « tetra » dans Grist)
 async function loadRefs() {
   try {
-    const [evals, ents] = await Promise.all([
+    const [uos, evals, ents] = await Promise.all([
+      grist.docApi.fetchTable('Unites_d_oeuvre'),
       grist.docApi.fetchTable('Evaluations'),
       grist.docApi.fetchTable('Entreprises'),
     ]);
+    const uoById = new Map(uos.id.map((id, i) => [id, {
+      evaluation: uos.Evaluation?.[i] ?? 0,
+      obs:        parseRawEvalIds(uos.OBS?.[i]),
+    }]));
     const tetraByEnt = new Map(ents.id.map((id, i) => [id, String(ents.code?.[i] ?? '').trim()]));
     const tetraByEval = new Map(evals.id.map((id, i) => [id, tetraByEnt.get(evals.Entreprise?.[i]) ?? '']));
-    lots.forEach(lot => { lot.tetra = tetraByEval.get(lot.evaluationId) ?? ''; });
+    lots.forEach(lot => {
+      const uo = uoById.get(lot.id);
+      if (uo) {
+        lot.evaluationId = uo.evaluation || lot.evaluationId;
+        if (uo.obs.length) lot.obsIds = uo.obs;
+      }
+      lot.tetra = tetraByEval.get(lot.evaluationId) ?? '';
+    });
   } catch (e) {
     showStatus('Tables Evaluations/Entreprises inaccessibles (' + e.message + ')', 'error');
   }
@@ -873,7 +885,9 @@ function render() {
   const lotsAvecDate  = lots.filter(l => l.dateDebut).length;
 
   const lotsResolus = lots.filter(l => resolveEvalIds(l).length > 0).length;
-  showStatus(`${lotCount} lot(s) dont ${lotsResolus} placés · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
+  const lotsTetra = lots.filter(l => l.tetra).length;
+  const lotsObs   = lots.filter(l => resolveObsIds(l).length > 0).length;
+  showStatus(`${lotCount} lot(s) dont ${lotsResolus} placés, ${lotsTetra} avec tetra, ${lotsObs} avec OBS · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────
