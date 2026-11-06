@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Planification des UO</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      color: #1e293b;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+
+    .toolbar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 6px 12px;
+      background: #1e3a8a;
+      color: #fff;
+    }
+    .toolbar-title { font-size: 12px; font-weight: 600; color: #bfdbfe; }
+    .spacer { flex: 1; }
+    .btn {
+      padding: 5px 14px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn-light { background: rgba(255,255,255,.18); color: #fff; }
+    .btn-light:hover:not(:disabled) { background: rgba(255,255,255,.3); }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-icon {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #64748b;
+    }
+    .btn-icon:hover { background: #e2e8f0; color: #1e293b; }
+    .btn-icon.danger { color: #b91c1c; }
+    .btn-icon.danger:hover { background: #fee2e2; }
+
+    .warning {
+      flex-shrink: 0;
+      padding: 6px 12px;
+      background: #fef3c7;
+      color: #92400e;
+      border-bottom: 1px solid #fcd34d;
+      font-weight: 600;
+    }
+    .error {
+      flex-shrink: 0;
+      padding: 6px 12px;
+      background: #fee2e2;
+      color: #b91c1c;
+      border-bottom: 1px solid #fca5a5;
+    }
+
+    .main { flex: 1; min-height: 0; overflow: auto; }
+    .empty {
+      padding: 40px;
+      text-align: center;
+      color: #94a3b8;
+      font-style: italic;
+      font-size: 14px;
+    }
+
+    table { border-collapse: collapse; background: #fff; width: 100%; }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #e2e8f0;
+      font-size: 11px;
+      font-weight: 700;
+      color: #334155;
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid #cbd5e1;
+      white-space: nowrap;
+    }
+    th .sub { display: block; font-weight: 400; color: #64748b; }
+    td {
+      padding: 4px 8px;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+    tr:hover td { background: #f8fafc; }
+    tfoot td { font-weight: 700; background: #f1f5f9; border-top: 1px solid #cbd5e1; }
+
+    select, input[type=date], input[type=text] {
+      font: inherit;
+      padding: 3px 5px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      background: #fff;
+    }
+    select:focus, input:focus { outline: 2px solid #2563eb; outline-offset: -1px; border-color: #2563eb; }
+    .slot { display: flex; align-items: center; gap: 4px; }
+    .slot select { max-width: 150px; }
+    .slot.off select { color: #94a3b8; }
+    .slot input[type=checkbox] { accent-color: #059669; width: 15px; height: 15px; cursor: pointer; }
+    .others { display: flex; flex-direction: column; gap: 2px; }
+    .others label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .duree { width: 64px; text-align: right; }
+    .uo-select { max-width: 220px; }
+    .lot-select { width: 52px; }
+    .actions { white-space: nowrap; text-align: right; }
+    .muted { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button class="btn btn-light" id="btn-add" disabled>+ Ajouter une UO</button>
+    <span class="toolbar-title" id="title">Unités d'œuvre</span>
+    <span class="spacer"></span>
+    <button class="btn btn-primary" id="btn-default" hidden>Ajouter des UO par défaut</button>
+    <button class="btn btn-primary" id="btn-charge" hidden disabled title="Fonction à venir">Ajouter la charge</button>
+  </div>
+  <div class="warning" id="warning" hidden>Aucun RE ni ET n'est renseigné pour cette évaluation.</div>
+  <div class="error" id="error" hidden></div>
+  <div class="main" id="main"><div class="empty">Sélectionnez une évaluation.</div></div>
+
+  <datalist id="durees">
+    <option value="0.25"></option><option value="0.5"></option><option value="0.75"></option>
+    <option value="1"></option><option value="1.5"></option><option value="2"></option><option value="3"></option>
+  </datalist>
+
+  <script>
+  const T_UO = 'Unites_d_oeuvre';
+  const FALLBACK_UO_CHOICES = [
+    'Journée de lancement', 'Revue documentaire', 'évaluation siège', 'évaluation prestation témoin',
+    'Réunion de clôture', 'Rédaction du rapport', "Soutenance des travaux à l'ANSSI et suivi",
+    "Plan d'évaluation", 'Planification',
+  ];
+  // Les libellés doivent correspondre exactement aux choix Grist : la formule
+  // Cycles_services.date_debut_cycle s'appuie sur « Journée de lancement » et « Rédaction du rapport ».
+  const DEFAULT_UOS = [
+    { uo: 'Journée de lancement', offset: { days: 0 },   jours: 1, lot: 1 },
+    { uo: 'Revue documentaire',   offset: { days: 1 },   jours: 2, lot: 1 },
+    { uo: 'évaluation siège',     offset: { days: 3 },   jours: 2, lot: 2 },
+    { uo: 'Rédaction du rapport', offset: { months: 1 }, jours: 1, lot: 3 },
+  ];
+  const LOTS = [1, 2, 3, 4];
+
+  const state = {
+    evalId: null,
+    evaluation: null,
+    uos: [],
+    evaluateurs: new Map(),
+    uoChoices: FALLBACK_UO_CHOICES,
+    slots: [],
+    busy: false,
+  };
+  // Sélection d'un évaluateur dans une colonne dont la case est décochée : rien n'est écrit
+  // en base (evaluateurs est une RefList sans rôle), on mémorise donc le choix localement.
+  const slotOverrides = new Map();
+
+  const $ = id => document.getElementById(id);
+
+  grist.ready({ requiredAccess: 'full' });
+  grist.onRecord(rec => {
+    if (!rec) return;
+    if (rec.id !== state.evalId) slotOverrides.clear();
+    state.evalId = rec.id;
+    if (!state.busy) load();
+  });
+
+  // fetchTable renvoie les RefList au format brut ['L', id1, id2, ...]
+  function refList(v) {
+    if (Array.isArray(v)) return v[0] === 'L' ? v.slice(1) : v;
+    return [];
+  }
+
+  function rows(table) {
+    const ids = table.id || [];
+    return ids.map((id, i) => {
+      const r = { id };
+      for (const k of Object.keys(table)) r[k] = table[k][i];
+      return r;
+    });
+  }
+
+  async function load() {
+    showError('');
+    try {
+      const [ev, uo, evals, rdc, profils, progs, cols, tabs] = await Promise.all([
+        grist.docApi.fetchTable('Evaluations'),
+        grist.docApi.fetchTable(T_UO),
+        grist.docApi.fetchTable('Evaluateurs'),
+        grist.docApi.fetchTable('Reconnaissance_de_competences'),
+        grist.docApi.fetchTable('Profils_evaluateur'),
+        grist.docApi.fetchTable('Programmes'),
+        grist.docApi.fetchTable('_grist_Tables_column'),
+        grist.docApi.fetchTable('_grist_Tables'),
+      ]);
+
+      state.evaluation = rows(ev).find(r => r.id === state.evalId) || null;
+      state.uos = rows(uo).filter(r => r.Evaluation === state.evalId);
+      state.uos.sort((a, b) => (a.manualSort || 0) - (b.manualSort || 0));
+
+      state.evaluateurs = new Map(rows(evals).map(r => [r.id, r]));
+
+      const uoTableRef = rows(tabs).find(t => t.tableId === T_UO)?.id;
+      const uoCol = rows(cols).find(c => c.parentId === uoTableRef && c.colId === 'Unite_d_oeuvre');
+      try {
+        const choices = JSON.parse(uoCol?.widgetOptions || '{}').choices;
+        if (Array.isArray(choices) && choices.length) state.uoChoices = choices;
+      } catch (e) { /* options illisibles : on garde la liste de secours */ }
+
+      state.slots = buildSlots(state.evaluation, rows(rdc), rows(profils), rows(progs));
+      render();
+    } catch (e) {
+      console.error(e);
+      showError('Erreur de chargement : ' + (e.message || e));
+    }
+  }
+
+  function findEta(evaluation, rdc, profils, progs) {
+    const prog = progs.find(p => p.id === evaluation.Programme);
+    if (!prog || !prog.Nom_du_programme) return null;
+    const nom = String(prog.Nom_du_programme);
+    // PASSI_2.0 n'a pas de profil propre : on retombe sur PASSI_ETA
+    const codes = [nom + '_ETA', nom.split('_')[0] + '_ETA'];
+    const profilIds = new Set(profils
+      .filter(p => codes.includes(String(p.Profil_code || '').trim()))
+      .map(p => p.id));
+    if (!profilIds.size) return null;
+    const qualifies = new Set(rdc
+      .filter(r => profilIds.has(r.Profil) && !r.Inactif)
+      .map(r => r.evaluateur));
+    return refList(evaluation.ET).find(id => qualifies.has(id)) || null;
+  }
+
+  function buildSlots(evaluation, rdc, profils, progs) {
+    if (!evaluation) return [];
+    const re = evaluation.RE || null;
+    const eta = findEta(evaluation, rdc, profils, progs);
+    const slots = [
+      { key: 'RE',  label: 'RE',  def: re },
+      { key: 'ETA', label: 'ETA', def: eta },
+    ];
+    const etms = refList(evaluation.ETM).filter(id => id && id !== re && id !== eta);
+    etms.forEach((id, i) => slots.push({ key: 'ETM' + (i + 1), label: etms.length > 1 ? 'ETM ' + (i + 1) : 'ETM', def: id }));
+    return slots;
+  }
+
+  function evalName(id) {
+    const e = state.evaluateurs.get(id);
+    if (!e) return id ? '#' + id : '—';
+    const nom = [e.Evaluateur_Prenom, e.Evaluateur_Nom].filter(Boolean).join(' ');
+    return nom || e.Evaluateur_Trigramme || '#' + id;
+  }
+
+  // Associe chaque membre de la RefList à une colonne. Les membres sans colonne vont dans « Autres ».
+  function resolveRow(uo) {
+    const members = refList(uo.evaluateurs);
+    const used = new Set();
+    const cells = state.slots.map(s => {
+      const ov = slotOverrides.get(uo.id + ':' + s.key);
+      const candidate = ov !== undefined ? ov : s.def;
+      const checked = !!candidate && members.includes(candidate) && !used.has(candidate);
+      if (checked) used.add(candidate);
+      return { slot: s, value: candidate, checked };
+    });
+    const others = members.filter(id => !used.has(id));
+    return { members, cells, others };
+  }
+
+  function defaultMembers() {
+    const ids = [];
+    for (const s of state.slots) if (s.def && !ids.includes(s.def)) ids.push(s.def);
+    return ids;
+  }
+
+  function render() {
+    const ev = state.evaluation;
+    const main = $('main');
+    if (!ev) {
+      $('btn-add').disabled = true;
+      $('btn-default').hidden = true;
+      $('btn-charge').hidden = true;
+      $('warning').hidden = true;
+      main.innerHTML = '<div class="empty">Sélectionnez une évaluation.</div>';
+      return;
+    }
+
+    $('title').textContent = "Unités d'œuvre — " + (ev.Libelle || 'évaluation #' + ev.id);
+    $('btn-add').disabled = false;
+    $('warning').hidden = !!(ev.RE || refList(ev.ET).length);
+
+    const noUo = state.uos.length === 0;
+    const hasCharge = hasChargeJson(ev.Charge);
+    $('btn-default').hidden = !(noUo && !hasCharge);
+    $('btn-charge').hidden = !(noUo && hasCharge);
+
+    if (noUo) {
+      main.innerHTML = '<div class="empty">Aucune unité d\'œuvre pour cette évaluation.</div>';
+      return;
+    }
+
+    const resolved = state.uos.map(uo => ({ uo, ...resolveRow(uo) }));
+    const showOthers = resolved.some(r => r.others.length);
+
+    const table = document.createElement('table');
+    const thead = table.createTHead().insertRow();
+    thead.appendChild(th("Unité d'œuvre"));
+    for (const s of state.slots) thead.appendChild(th(s.label, s.def ? evalName(s.def) : 'non défini'));
+    if (showOthers) thead.appendChild(th('Autres'));
+    thead.appendChild(th('Date de début'));
+    thead.appendChild(th('Durée (j)'));
+    thead.appendChild(th('Lot'));
+    thead.appendChild(th(''));
+
+    const tbody = table.createTBody();
+    let totalJours = 0, totalJH = 0;
+    for (const r of resolved) {
+      const tr = tbody.insertRow();
+      tr.insertCell().appendChild(uoSelect(r.uo));
+      for (const c of r.cells) tr.insertCell().appendChild(slotCell(r, c));
+      if (showOthers) tr.insertCell().appendChild(othersCell(r));
+      tr.insertCell().appendChild(dateInput(r.uo));
+      tr.insertCell().appendChild(dureeInput(r.uo));
+      tr.insertCell().appendChild(lotSelect(r.uo));
+      const act = tr.insertCell();
+      act.className = 'actions';
+      act.appendChild(iconBtn('⧉', 'Dupliquer', () => duplicate(r.uo)));
+      act.appendChild(iconBtn('🗑', 'Supprimer', () => remove(r.uo), 'danger'));
+      const j = Number(r.uo.Jours) || 0;
+      totalJours += j;
+      totalJH += j * r.members.length;
+    }
+
+    const foot = table.createTFoot().insertRow();
+    const label = foot.insertCell();
+    label.textContent = 'Total';
+    const span = state.slots.length + (showOthers ? 1 : 0) + 1;
+    const info = foot.insertCell();
+    info.colSpan = span;
+    info.innerHTML = '<span class="muted">' + fmt(totalJH) + ' JH (jours × évaluateurs)</span>';
+    foot.insertCell().textContent = fmt(totalJours);
+    foot.insertCell().colSpan = 2;
+
+    main.replaceChildren(table);
+  }
+
+  function th(text, sub) {
+    const el = document.createElement('th');
+    el.textContent = text;
+    if (sub) {
+      const s = document.createElement('span');
+      s.className = 'sub';
+      s.textContent = sub;
+      el.appendChild(s);
+    }
+    return el;
+  }
+
+  function fmt(n) { return Math.round(n * 100) / 100; }
+
+  function hasChargeJson(v) {
+    if (v == null || String(v).trim() === '') return false;
+    try { JSON.parse(v); return true; } catch (e) { return false; }
+  }
+
+  function iconBtn(txt, title, fn, cls) {
+    const b = document.createElement('button');
+    b.className = 'btn-icon' + (cls ? ' ' + cls : '');
+    b.textContent = txt;
+    b.title = title;
+    b.addEventListener('click', fn);
+    return b;
+  }
+
+  function uoSelect(uo) {
+    const sel = document.createElement('select');
+    sel.className = 'uo-select';
+    const choices = [...state.uoChoices];
+    if (uo.Unite_d_oeuvre && !choices.includes(uo.Unite_d_oeuvre)) choices.unshift(uo.Unite_d_oeuvre);
+    sel.appendChild(new Option('—', ''));
+    for (const c of choices) sel.appendChild(new Option(c, c, false, c === uo.Unite_d_oeuvre));
+    sel.addEventListener('change', () => update(uo.id, { Unite_d_oeuvre: sel.value || null }));
+    return sel;
+  }
+
+  function evaluateurOptions(sel, current) {
+    const list = [...state.evaluateurs.values()]
+      .sort((a, b) => evalName(a.id).localeCompare(evalName(b.id), 'fr'));
+    sel.appendChild(new Option('—', ''));
+    for (const e of list) sel.appendChild(new Option(evalName(e.id), e.id, false, e.id === current));
+  }
+
+  function slotCell(r, c) {
+    const wrap = document.createElement('div');
+    wrap.className = 'slot' + (c.checked ? '' : ' off');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = c.checked;
+    cb.disabled = !c.value;
+    const sel = document.createElement('select');
+    evaluateurOptions(sel, c.value);
+
+    cb.addEventListener('change', () => {
+      const members = [...r.members];
+      if (cb.checked) {
+        if (!members.includes(c.value)) members.push(c.value);
+      } else {
+        const i = members.indexOf(c.value);
+        if (i >= 0) members.splice(i, 1);
+      }
+      update(r.uo.id, { evaluateurs: ['L', ...members] });
+    });
+
+    sel.addEventListener('change', () => {
+      const newId = sel.value ? Number(sel.value) : null;
+      slotOverrides.set(r.uo.id + ':' + c.slot.key, newId);
+      if (!c.checked) { render(); return; }
+      let members = r.members.filter(id => id !== c.value);
+      if (newId && !members.includes(newId)) members.push(newId);
+      update(r.uo.id, { evaluateurs: ['L', ...members] });
+    });
+
+    wrap.append(cb, sel);
+    return wrap;
+  }
+
+  function othersCell(r) {
+    const wrap = document.createElement('div');
+    wrap.className = 'others';
+    for (const id of r.others) {
+      const lab = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.title = "Décocher pour retirer cet évaluateur de l'UO";
+      cb.addEventListener('change', () => {
+        update(r.uo.id, { evaluateurs: ['L', ...r.members.filter(m => m !== id)] });
+      });
+      lab.append(cb, document.createTextNode(evalName(id)));
+      wrap.appendChild(lab);
+    }
+    return wrap;
+  }
+
+  // Les dates Grist sont des secondes depuis l'epoch, à minuit UTC
+  function toIso(ts) {
+    if (ts == null || ts === '') return '';
+    return new Date(ts * 1000).toISOString().slice(0, 10);
+  }
+  function fromIso(s) {
+    if (!s) return null;
+    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 1000;
+  }
+  function addOffset(ts, { days = 0, months = 0 }) {
+    if (ts == null || ts === '') return null;
+    const d = new Date(ts * 1000);
+    if (months) {
+      const day = d.getUTCDate();
+      d.setUTCDate(1);
+      d.setUTCMonth(d.getUTCMonth() + months);
+      const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+      d.setUTCDate(Math.min(day, last));
+    }
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.getTime() / 1000;
+  }
+
+  function dateInput(uo) {
+    const inp = document.createElement('input');
+    inp.type = 'date';
+    inp.value = toIso(uo.date_debut_incluse);
+    inp.addEventListener('change', () => update(uo.id, { date_debut_incluse: fromIso(inp.value) }));
+    return inp;
+  }
+
+  function dureeInput(uo) {
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.inputMode = 'decimal';
+    inp.className = 'duree';
+    inp.setAttribute('list', 'durees');
+    inp.value = uo.Jours ?? '';
+    inp.addEventListener('change', () => {
+      const raw = inp.value.trim().replace(',', '.');
+      const n = Number(raw);
+      if (raw === '' || !isFinite(n) || n < 0 || n > 100) {
+        showError('Durée invalide : saisir un nombre entre 0 et 100.');
+        inp.value = uo.Jours ?? '';
+        return;
+      }
+      // Arrondi au centième pour accepter les valeurs proposées (.25, .75)
+      update(uo.id, { Jours: Math.round(n * 100) / 100 });
+    });
+    return inp;
+  }
+
+  function lotSelect(uo) {
+    const sel = document.createElement('select');
+    sel.className = 'lot-select';
+    const cur = uo.Lot === '' || uo.Lot == null ? null : Number(uo.Lot);
+    sel.appendChild(new Option('—', ''));
+    for (const l of LOTS) sel.appendChild(new Option(String(l), l, false, l === cur));
+    sel.addEventListener('change', () => update(uo.id, { Lot: sel.value ? Number(sel.value) : null }));
+    return sel;
+  }
+
+  async function apply(actions) {
+    state.busy = true;
+    showError('');
+    try {
+      await grist.docApi.applyUserActions(actions);
+    } catch (e) {
+      console.error(e);
+      showError("Erreur d'écriture : " + (e.message || e));
+    } finally {
+      state.busy = false;
+      await load();
+    }
+  }
+
+  function update(id, fields) {
+    return apply([['UpdateRecord', T_UO, id, fields]]);
+  }
+
+  $('btn-add').addEventListener('click', () => {
+    if (!state.evaluation) return;
+    apply([['AddRecord', T_UO, null, {
+      Evaluation: state.evaluation.id,
+      evaluateurs: ['L', ...defaultMembers()],
+      Jours: 1,
+    }]]);
+  });
+
+  $('btn-default').addEventListener('click', () => {
+    const ev = state.evaluation;
+    if (!ev || state.uos.length) return;
+    const members = ['L', ...defaultMembers()];
+    apply(DEFAULT_UOS.map(d => ['AddRecord', T_UO, null, {
+      Evaluation: ev.id,
+      Unite_d_oeuvre: d.uo,
+      evaluateurs: members,
+      date_debut_incluse: addOffset(ev.Date_Debut_prevue, d.offset),
+      Jours: d.jours,
+      Lot: d.lot,
+    }]));
+  });
+
+  function duplicate(uo) {
+    apply([['AddRecord', T_UO, null, {
+      Evaluation: uo.Evaluation,
+      Unite_d_oeuvre: uo.Unite_d_oeuvre || null,
+      evaluateurs: ['L', ...refList(uo.evaluateurs)],
+      date_debut_incluse: uo.date_debut_incluse ?? null,
+      Jours: uo.Jours ?? null,
+      Lot: uo.Lot === '' ? null : (uo.Lot ?? null),
+      PO_ref: uo.PO_ref || '',
+    }]]);
+  }
+
+  function remove(uo) {
+    const label = (uo.Unite_d_oeuvre || 'UO sans libellé') + (uo.date_debut_incluse ? ' du ' + toIso(uo.date_debut_incluse) : '');
+    if (!confirm('Supprimer l\'unité d\'œuvre « ' + label + ' » ?')) return;
+    apply([['RemoveRecord', T_UO, uo.id]]);
+  }
+
+  function showError(msg) {
+    $('error').textContent = msg;
+    $('error').hidden = !msg;
+  }
+  </script>
+</body>
+</html>
