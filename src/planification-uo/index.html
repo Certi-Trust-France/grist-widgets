@@ -115,7 +115,7 @@
     }
     select:focus, input:focus { outline: 2px solid #2563eb; outline-offset: -1px; border-color: #2563eb; }
     .slot { display: flex; align-items: center; gap: 4px; }
-    .slot select { max-width: 150px; }
+    .slot select { max-width: 90px; }
     .slot.off select { color: #94a3b8; }
     .slot input[type=checkbox] { accent-color: #059669; width: 15px; height: 15px; cursor: pointer; }
     .others { display: flex; flex-direction: column; gap: 2px; }
@@ -154,10 +154,10 @@
   // Les libellés doivent correspondre exactement aux choix Grist : la formule
   // Cycles_services.date_debut_cycle s'appuie sur « Journée de lancement » et « Rédaction du rapport ».
   const DEFAULT_UOS = [
-    { uo: 'Journée de lancement', offset: { days: 0 },   jours: 1, lot: 1 },
-    { uo: 'Revue documentaire',   offset: { days: 1 },   jours: 2, lot: 1 },
-    { uo: 'évaluation siège',     offset: { days: 3 },   jours: 2, lot: 2 },
-    { uo: 'Rédaction du rapport', offset: { months: 1 }, jours: 1, lot: 3 },
+    { uo: 'Journée de lancement', offset: { days: 0 },   jours: 1 },
+    { uo: 'Revue documentaire',   offset: { days: 1 },   jours: 2 },
+    { uo: 'évaluation siège',     offset: { days: 3 },   jours: 2 },
+    { uo: 'Rédaction du rapport', offset: { months: 1 }, jours: 1 },
   ];
   const LOTS = [1, 2, 3, 4];
 
@@ -177,8 +177,21 @@
   const $ = id => document.getElementById(id);
 
   grist.ready({ requiredAccess: 'full' });
+
+  // Le widget doit être lié à Evaluations : lié à Unites_d_oeuvre, onRecord ne reçoit
+  // rien pour une évaluation sans UO et l'id reçu serait celui d'une UO.
+  let wrongTable = false;
+  grist.selectedTable.getTableId().then(tid => {
+    if (tid && tid !== 'Evaluations') {
+      wrongTable = true;
+      $('main').innerHTML = '<div class="empty">Configuration incorrecte : le widget est lié à la table « '
+        + tid + ' ».<br>Dans le panneau de droite, choisir la table <b>Evaluations</b> et '
+        + '« Sélectionner par » la vue des évaluations.</div>';
+    }
+  }).catch(() => {});
+
   grist.onRecord(rec => {
-    if (!rec) return;
+    if (!rec || wrongTable) return;
     if (rec.id !== state.evalId) slotOverrides.clear();
     state.evalId = rec.id;
     if (!state.busy) load();
@@ -266,8 +279,13 @@
   function evalName(id) {
     const e = state.evaluateurs.get(id);
     if (!e) return id ? '#' + id : '—';
-    const nom = [e.Evaluateur_Prenom, e.Evaluateur_Nom].filter(Boolean).join(' ');
-    return nom || e.Evaluateur_Trigramme || '#' + id;
+    return e.Evaluateur_Trigramme || fullName(id);
+  }
+
+  function fullName(id) {
+    const e = state.evaluateurs.get(id);
+    if (!e) return id ? '#' + id : '—';
+    return [e.Evaluateur_Prenom, e.Evaluateur_Nom].filter(Boolean).join(' ') || '#' + id;
   }
 
   // Associe chaque membre de la RefList à une colonne. Les membres sans colonne vont dans « Autres ».
@@ -331,7 +349,7 @@
     thead.appendChild(th(''));
 
     const tbody = table.createTBody();
-    let totalJours = 0, totalJH = 0;
+    let totalJH = 0;
     for (const r of resolved) {
       const tr = tbody.insertRow();
       tr.insertCell().appendChild(uoSelect(r.uo));
@@ -345,18 +363,14 @@
       act.appendChild(iconBtn('⧉', 'Dupliquer', () => duplicate(r.uo)));
       act.appendChild(iconBtn('🗑', 'Supprimer', () => remove(r.uo), 'danger'));
       const j = Number(r.uo.Jours) || 0;
-      totalJours += j;
       totalJH += j * r.members.length;
     }
 
     const foot = table.createTFoot().insertRow();
     const label = foot.insertCell();
-    label.textContent = 'Total';
-    const span = state.slots.length + (showOthers ? 1 : 0) + 1;
-    const info = foot.insertCell();
-    info.colSpan = span;
-    info.innerHTML = '<span class="muted">' + fmt(totalJH) + ' JH (jours × évaluateurs)</span>';
-    foot.insertCell().textContent = fmt(totalJours);
+    label.textContent = 'Total JH (jours × évaluateurs)';
+    label.colSpan = 1 + state.slots.length + (showOthers ? 1 : 0) + 1;
+    foot.insertCell().textContent = fmt(totalJH);
     foot.insertCell().colSpan = 2;
 
     main.replaceChildren(table);
@@ -405,7 +419,12 @@
     const list = [...state.evaluateurs.values()]
       .sort((a, b) => evalName(a.id).localeCompare(evalName(b.id), 'fr'));
     sel.appendChild(new Option('—', ''));
-    for (const e of list) sel.appendChild(new Option(evalName(e.id), e.id, false, e.id === current));
+    for (const e of list) {
+      const opt = new Option(evalName(e.id), e.id, false, e.id === current);
+      opt.title = fullName(e.id);
+      sel.appendChild(opt);
+    }
+    if (current) sel.title = fullName(current);
   }
 
   function slotCell(r, c) {
@@ -454,6 +473,7 @@
       cb.addEventListener('change', () => {
         update(r.uo.id, { evaluateurs: ['L', ...r.members.filter(m => m !== id)] });
       });
+      lab.title = fullName(id);
       lab.append(cb, document.createTextNode(evalName(id)));
       wrap.appendChild(lab);
     }
@@ -559,7 +579,6 @@
       evaluateurs: members,
       date_debut_incluse: addOffset(ev.Date_Debut_prevue, d.offset),
       Jours: d.jours,
-      Lot: d.lot,
     }]));
   });
 
