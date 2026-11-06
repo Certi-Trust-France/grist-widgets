@@ -219,6 +219,11 @@
       text-overflow: ellipsis;
       color: #1f2937;
     }
+    /* Observateur : texte gris sur hachures jaune pâle / gris clair */
+    .lot-obs {
+      background: repeating-linear-gradient(45deg, #fef9c3 0 4px, #e5e7eb 4px 8px);
+    }
+    .lot-obs .lot-client { color: #6b7280; font-style: italic; }
     .week-num {
       font-size: 9px;
       font-weight: 700;
@@ -354,7 +359,7 @@ let _debugFirstRecord = null;
 grist.onRecords(async records => {
   _debugFirstRecord = records[0] ?? null;
   lots = records.map(parseLot);
-  await loadEvaluateurs();
+  await Promise.all([loadEvaluateurs(), loadRefs()]);
   buildPlanMap();
   render();
 });
@@ -396,7 +401,28 @@ function parseLot(r) {
 
   const planEval = String(getField(r, 'PlanEval') ?? r.Unite_d_oeuvre ?? '');
 
-  return { id: r.id, denomination, programme, evalIds, evalNames, dateDebut, jours, planEval };
+  // Les records reçus par onRecords contiennent toutes les colonnes de la table liée,
+  // pas seulement celles mappées : Evaluation et OBS sont lus directement.
+  const evaluationId = typeof r.Evaluation === 'number' ? r.Evaluation : 0;
+  const obsIds       = parseRawEvalIds(r.OBS);
+
+  return { id: r.id, denomination, programme, evalIds, evalNames, dateDebut, jours, planEval,
+           evaluationId, obsIds, tetra: '' };
+}
+
+// Le tetra est dans Entreprises.code (libellé « tetra » dans Grist)
+async function loadRefs() {
+  try {
+    const [evals, ents] = await Promise.all([
+      grist.docApi.fetchTable('Evaluations'),
+      grist.docApi.fetchTable('Entreprises'),
+    ]);
+    const tetraByEnt = new Map(ents.id.map((id, i) => [id, String(ents.code?.[i] ?? '').trim()]));
+    const tetraByEval = new Map(evals.id.map((id, i) => [id, tetraByEnt.get(evals.Entreprise?.[i]) ?? '']));
+    lots.forEach(lot => { lot.tetra = tetraByEval.get(lot.evaluationId) ?? ''; });
+  } catch (e) {
+    showStatus('Tables Evaluations/Entreprises inaccessibles (' + e.message + ')', 'error');
+  }
 }
 
 // Extrait les IDs numériques d'une valeur RefList Grist
@@ -491,46 +517,55 @@ function resolveEvalIds(lot) {
     .filter(id => id != null);
 }
 
+// Unites_d_oeuvre.OBS est pré-rempli depuis Evaluations.OBS par planification-uo,
+// puis éditable par UO : c'est donc lui qui fait foi.
+function resolveObsIds(lot) {
+  const evalSet = new Set(resolveEvalIds(lot));
+  return lot.obsIds.filter(id => !evalSet.has(id));
+}
+
 function buildPlanMap() {
   buildNameToIdMap();
   planMap.clear();
-  lots.forEach(lot => {
-    if (!lot.dateDebut || lot.jours <= 0) return;
-    const ids = resolveEvalIds(lot);
-    if (!ids.length) return;
+  // Évaluateurs d'abord : une affectation réelle n'est jamais masquée par une observation
+  lots.forEach(lot => placeLot(lot, resolveEvalIds(lot), false));
+  lots.forEach(lot => placeLot(lot, resolveObsIds(lot), true));
+}
 
-    const isHalf = lot.jours < 1; // demi-journée (ex. 0.5 j)
+function placeLot(lot, ids, isObs) {
+  if (!lot.dateDebut || lot.jours <= 0 || !ids.length) return;
+  const isHalf = lot.jours < 1; // demi-journée (ex. 0.5 j)
+  const slot = { lot, isObs };
 
-    ids.forEach(eid => {
-      if (!planMap.has(eid)) planMap.set(eid, new Map());
-      const em = planMap.get(eid);
+  ids.forEach(eid => {
+    if (!planMap.has(eid)) planMap.set(eid, new Map());
+    const em = planMap.get(eid);
 
-      if (isHalf) {
-        // Demi-journée : placée uniquement sur dateDebut
-        const dow = lot.dateDebut.getUTCDay();
-        if (dow === 0 || dow === 6) return; // week-end ignoré
-        const ds = toDateStr(lot.dateDebut);
-        const existing = em.get(ds);
-        if (!existing) {
-          em.set(ds, [lot]);            // première demi-journée (gauche)
-        } else if (existing.length === 1 && existing[0].jours < 1) {
-          em.set(ds, [existing[0], lot]); // deuxième demi-journée (droite)
-        }
-        // Si la case est déjà pleine (journée entière ou 2 demi-j), on ignore
-      } else {
-        // Journée entière / multi-jours : N jours ouvrés consécutifs
-        let cur = new Date(lot.dateDebut), counted = 0, guard = 0;
-        while (counted < lot.jours && guard++ < 500) {
-          const dow = cur.getUTCDay();
-          if (dow !== 0 && dow !== 6) {
-            const ds = toDateStr(cur);
-            if (!em.has(ds)) em.set(ds, [lot]); // premier lot de la case gagne
-            counted++;
-          }
-          cur = addDays(cur, 1);
-        }
+    if (isHalf) {
+      // Demi-journée : placée uniquement sur dateDebut
+      const dow = lot.dateDebut.getUTCDay();
+      if (dow === 0 || dow === 6) return; // week-end ignoré
+      const ds = toDateStr(lot.dateDebut);
+      const existing = em.get(ds);
+      if (!existing) {
+        em.set(ds, [slot]);               // première demi-journée (gauche)
+      } else if (existing.length === 1 && existing[0].lot.jours < 1) {
+        em.set(ds, [existing[0], slot]);  // deuxième demi-journée (droite)
       }
-    });
+      // Si la case est déjà pleine (journée entière ou 2 demi-j), on ignore
+    } else {
+      // Journée entière / multi-jours : N jours ouvrés consécutifs
+      let cur = new Date(lot.dateDebut), counted = 0, guard = 0;
+      while (counted < lot.jours && guard++ < 500) {
+        const dow = cur.getUTCDay();
+        if (dow !== 0 && dow !== 6) {
+          const ds = toDateStr(cur);
+          if (!em.has(ds)) em.set(ds, [slot]); // premier lot de la case gagne
+          counted++;
+        }
+        cur = addDays(cur, 1);
+      }
+    }
   });
 }
 
@@ -793,15 +828,15 @@ function render() {
 
       const slots = !isWE ? planMap.get(ev.id)?.get(ds) : undefined;
       if (slots?.length) {
-        if (slots.length === 1 && slots[0].jours >= 1) {
+        if (slots.length === 1 && slots[0].lot.jours >= 1) {
           // Case pleine
           td.appendChild(makeLotCell(slots[0], false));
         } else {
           // Une ou deux demi-journées : wrapper flex
           const wrap = document.createElement('div');
           wrap.style.cssText = 'display:flex;height:100%;width:100%';
-          slots.forEach((lot, idx) => {
-            const cell = makeLotCell(lot, true);
+          slots.forEach((slot, idx) => {
+            const cell = makeLotCell(slot, true);
             if (idx > 0) cell.style.borderLeft = '1px solid #d1d5db';
             wrap.appendChild(cell);
           });
@@ -843,19 +878,21 @@ function render() {
 
 // ── DOM helpers ────────────────────────────────────────────────────────────
 
-function makeLotCell(lot, isHalf) {
+function makeLotCell({ lot, isObs }, isHalf) {
   const color = progColor(lot.programme);
   const icon  = planEvalIcon(lot.planEval);
   const cell  = document.createElement('div');
-  cell.className = 'lot-cell' + (isHalf ? ' lot-cell-half' : '');
+  cell.className = 'lot-cell' + (isHalf ? ' lot-cell-half' : '') + (isObs ? ' lot-obs' : '');
   const titleParts = [`${lot.denomination} — ${lot.programme || '?'} (${lot.jours} j)`];
   if (lot.planEval) titleParts.push(lot.planEval);
+  if (isObs) titleParts.push('Observateur');
   cell.title = titleParts.join('\n');
-  cell.style.background      = color + '28';
+  if (!isObs) cell.style.background = color + '28';
   cell.style.borderLeftColor = color;
+  const name = lot.tetra || lot.denomination;
   const client = document.createElement('span');
   client.className = 'lot-client';
-  client.textContent = icon ? `${icon} ${lot.denomination}` : lot.denomination;
+  client.textContent = icon ? `${icon} ${name}` : name;
   cell.appendChild(client);
   return cell;
 }
