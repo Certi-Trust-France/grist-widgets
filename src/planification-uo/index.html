@@ -121,6 +121,8 @@
     .others { display: flex; flex-direction: column; gap: 2px; }
     .others label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
     .duree { width: 64px; text-align: right; }
+    .duree-wrap { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+    td.num, th.num { text-align: right; }
     .uo-select { max-width: 220px; }
     .lot-select { width: 52px; }
     .actions { white-space: nowrap; text-align: right; }
@@ -344,7 +346,9 @@
     for (const s of state.slots) thead.appendChild(th(s.label, s.def ? evalName(s.def) : 'non défini'));
     if (showOthers) thead.appendChild(th('Autres'));
     thead.appendChild(th('Date de début'));
-    thead.appendChild(th('Durée (j)'));
+    const thDuree = th('Durée (j)');
+    thDuree.className = 'num';
+    thead.appendChild(thDuree);
     thead.appendChild(th('Lot'));
     thead.appendChild(th(''));
 
@@ -356,7 +360,16 @@
       for (const c of r.cells) tr.insertCell().appendChild(slotCell(r, c));
       if (showOthers) tr.insertCell().appendChild(othersCell(r));
       tr.insertCell().appendChild(dateInput(r.uo));
-      tr.insertCell().appendChild(dureeInput(r.uo));
+      const dureeTd = tr.insertCell();
+      dureeTd.className = 'num';
+      const dureeWrap = document.createElement('div');
+      dureeWrap.className = 'duree-wrap';
+      const nb = document.createElement('span');
+      nb.className = 'muted';
+      nb.textContent = r.members.length + ' ×';
+      nb.title = r.members.length + ' évaluateur(s)';
+      dureeWrap.append(nb, dureeInput(r.uo));
+      dureeTd.appendChild(dureeWrap);
       tr.insertCell().appendChild(lotSelect(r.uo));
       const act = tr.insertCell();
       act.className = 'actions';
@@ -370,7 +383,9 @@
     const label = foot.insertCell();
     label.textContent = 'Total JH (jours × évaluateurs)';
     label.colSpan = 1 + state.slots.length + (showOthers ? 1 : 0) + 1;
-    foot.insertCell().textContent = fmt(totalJH);
+    const totalTd = foot.insertCell();
+    totalTd.className = 'num';
+    totalTd.textContent = fmt(totalJH);
     foot.insertCell().colSpan = 2;
 
     main.replaceChildren(table);
