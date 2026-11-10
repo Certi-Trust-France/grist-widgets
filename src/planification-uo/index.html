@@ -137,7 +137,7 @@
     <button class="btn btn-primary" id="btn-default" hidden>Ajouter des UO par défaut</button>
     <button class="btn btn-primary" id="btn-charge" hidden disabled title="Fonction à venir">Ajouter la charge</button>
   </div>
-  <div class="warning" id="warning" hidden>Aucun RE ni ET n'est renseigné pour cette évaluation.</div>
+  <div class="warning" id="warning" hidden>Aucun RE, ETA ni ETM n'est renseigné pour cette évaluation.</div>
   <div class="error" id="error" hidden></div>
   <div class="main" id="main"><div class="empty">Sélectionnez une évaluation.</div></div>
 
@@ -173,8 +173,13 @@
     busy: false,
   };
   // Sélection d'un évaluateur dans une colonne dont la case est décochée : rien n'est écrit
-  // en base (evaluateurs est une RefList sans rôle), on mémorise donc le choix localement.
+  // en base tant que la case n'est pas cochée, on mémorise donc le choix localement.
   const slotOverrides = new Map();
+
+  // Unites_d_oeuvre.evaluateurs est une formule (RE + ETA + ETM) : ne jamais l'écrire.
+  const FIELDS = ['RE', 'ETA', 'ETM', 'OBS'];
+  // Une même personne ne peut tenir qu'un seul de ces rôles sur une UO
+  const EXCLUSIVE = ['RE', 'ETA', 'ETM'];
 
   const $ = id => document.getElementById(id);
 
@@ -217,13 +222,10 @@
   async function load() {
     showError('');
     try {
-      const [ev, uo, evals, rdc, profils, progs, cols, tabs] = await Promise.all([
+      const [ev, uo, evals, cols, tabs] = await Promise.all([
         grist.docApi.fetchTable('Evaluations'),
         grist.docApi.fetchTable(T_UO),
         grist.docApi.fetchTable('Evaluateurs'),
-        grist.docApi.fetchTable('Reconnaissance_de_competences'),
-        grist.docApi.fetchTable('Profils_evaluateur'),
-        grist.docApi.fetchTable('Programmes'),
         grist.docApi.fetchTable('_grist_Tables_column'),
         grist.docApi.fetchTable('_grist_Tables'),
       ]);
@@ -247,7 +249,7 @@
         if (Array.isArray(choices) && choices.length) state.uoChoices = choices;
       } catch (e) { /* options illisibles : on garde la liste de secours */ }
 
-      state.slots = buildSlots(state.evaluation, rows(rdc), rows(profils), rows(progs));
+      state.slots = buildSlots(state.evaluation);
       render();
     } catch (e) {
       console.error(e);
@@ -255,44 +257,48 @@
     }
   }
 
-  function findEta(evaluation, rdc, profils, progs) {
-    const prog = progs.find(p => p.id === evaluation.Programme);
-    if (!prog || !prog.Nom_du_programme) return null;
-    const nom = String(prog.Nom_du_programme);
-    // PASSI_2.0 n'a pas de profil propre : on retombe sur PASSI_ETA
-    const codes = [nom + '_ETA', nom.split('_')[0] + '_ETA'];
-    const profilIds = new Set(profils
-      .filter(p => codes.includes(String(p.Profil_code || '').trim()))
-      .map(p => p.id));
-    if (!profilIds.size) return null;
-    const qualifies = new Set(rdc
-      .filter(r => profilIds.has(r.Profil) && !r.Inactif)
-      .map(r => r.evaluateur));
-    return refList(evaluation.ET).find(id => qualifies.has(id)) || null;
-  }
-
-  function buildSlots(evaluation, rdc, profils, progs) {
+  // Une colonne par personne et par rôle de l'évaluation. Une même personne peut avoir
+  // deux colonnes (ex. RE et ETA) : c'est sur l'UO qu'on choisit l'un ou l'autre.
+  function buildSlots(evaluation) {
     if (!evaluation) return [];
-    const re = evaluation.RE || null;
-    const eta = findEta(evaluation, rdc, profils, progs);
-    const slots = [
-      { key: 'RE',  label: 'RE',  def: re,  field: 'evaluateurs' },
-      { key: 'ETA', label: 'ETA', def: eta, field: 'evaluateurs' },
-    ];
-    const etms = refList(evaluation.ETM).filter(id => id && id !== re && id !== eta);
-    etms.forEach((id, i) => slots.push({
-      key: 'ETM' + (i + 1), label: etms.length > 1 ? 'ETM ' + (i + 1) : 'ETM', def: id, field: 'evaluateurs',
-    }));
-    // Les observateurs vont dans Unites_d_oeuvre.OBS, pas dans evaluateurs :
-    // ils ne comptent ni dans les JH ni dans les coûts calculés par Grist.
-    const obs = refList(evaluation.OBS).filter(Boolean);
-    obs.forEach((id, i) => slots.push({
-      key: 'OBS' + (i + 1), label: obs.length > 1 ? 'OBS ' + (i + 1) : 'OBS', def: id, field: 'OBS',
-    }));
+    const slots = [{ key: 'RE', label: 'RE', def: evaluation.RE || null, field: 'RE' }];
+    for (const field of ['ETA', 'ETM', 'OBS']) {
+      const ids = refList(evaluation[field]).filter(Boolean);
+      ids.forEach((id, i) => slots.push({
+        key: field + (i + 1), label: ids.length > 1 ? field + ' ' + (i + 1) : field, def: id, field,
+      }));
+      if (field === 'ETA' && !ids.length) slots.push({ key: 'ETA1', label: 'ETA', def: null, field });
+    }
     return slots;
   }
 
-  const FIELDS = ['evaluateurs', 'OBS'];
+  // RE est une Ref simple, les autres rôles des RefList : on les manipule tous comme des listes.
+  function fieldList(uo, field) {
+    if (field === 'RE') return uo.RE ? [uo.RE] : [];
+    return refList(uo[field]);
+  }
+
+  function fieldValue(field, ids) {
+    if (field === 'RE') return ids[0] || null;
+    return ['L', ...ids];
+  }
+
+  // Ajoute ou retire une personne d'un rôle ; en l'ajoutant à un rôle exclusif,
+  // on la retire des autres rôles exclusifs de l'UO.
+  function roleUpdate(lists, field, id, add) {
+    const fields = {};
+    let list = lists[field].filter(x => x !== id);
+    if (add) {
+      list = field === 'RE' ? [id] : [...list, id];
+      if (EXCLUSIVE.includes(field)) {
+        for (const f of EXCLUSIVE) {
+          if (f !== field && lists[f].includes(id)) fields[f] = fieldValue(f, lists[f].filter(x => x !== id));
+        }
+      }
+    }
+    fields[field] = fieldValue(field, list);
+    return fields;
+  }
 
   function evalName(id) {
     const e = state.evaluateurs.get(id);
@@ -309,7 +315,7 @@
   // Associe chaque membre de la RefList à une colonne. Les membres sans colonne vont dans « Autres ».
   function resolveRow(uo) {
     const lists = {}, used = {};
-    for (const f of FIELDS) { lists[f] = refList(uo[f]); used[f] = new Set(); }
+    for (const f of FIELDS) { lists[f] = fieldList(uo, f); used[f] = new Set(); }
     const cells = state.slots.map(s => {
       const ov = slotOverrides.get(uo.id + ':' + s.key);
       const candidate = ov !== undefined ? ov : s.def;
@@ -318,13 +324,26 @@
       return { slot: s, value: candidate, checked };
     });
     const others = FIELDS.flatMap(f => lists[f].filter(id => !used[f].has(id)).map(id => ({ id, field: f })));
-    return { lists, members: lists.evaluateurs, cells, others };
+    const members = [...new Set(EXCLUSIVE.flatMap(f => lists[f]))];
+    return { lists, members, cells, others };
   }
 
+  // Rôles par défaut d'une nouvelle UO : ceux de l'évaluation, une personne n'étant
+  // retenue que pour son premier rôle dans l'ordre RE, ETA, ETM.
   function defaultLists() {
-    const out = { evaluateurs: [], OBS: [] };
-    for (const s of state.slots) if (s.def && !out[s.field].includes(s.def)) out[s.field].push(s.def);
-    return { evaluateurs: ['L', ...out.evaluateurs], OBS: ['L', ...out.OBS] };
+    const out = { RE: [], ETA: [], ETM: [], OBS: [] };
+    const taken = new Set();
+    for (const s of state.slots) {
+      if (!s.def || out[s.field].includes(s.def)) continue;
+      if (EXCLUSIVE.includes(s.field)) {
+        if (taken.has(s.def) || (s.field === 'RE' && out.RE.length)) continue;
+        taken.add(s.def);
+      }
+      out[s.field].push(s.def);
+    }
+    const fields = {};
+    for (const f of FIELDS) fields[f] = fieldValue(f, out[f]);
+    return fields;
   }
 
   function render() {
@@ -341,7 +360,7 @@
 
     $('title').textContent = "Unités d'œuvre — " + (ev.Libelle || 'évaluation #' + ev.id);
     $('btn-add').disabled = false;
-    $('warning').hidden = !!(ev.RE || refList(ev.ET).length);
+    $('warning').hidden = !!(ev.RE || refList(ev.ETA).length || refList(ev.ETM).length);
 
     const noUo = state.uos.length === 0;
     const hasCharge = hasChargeJson(ev.Charge);
@@ -474,23 +493,18 @@
 
     const field = c.slot.field;
     cb.addEventListener('change', () => {
-      const members = [...r.lists[field]];
-      if (cb.checked) {
-        if (!members.includes(c.value)) members.push(c.value);
-      } else {
-        const i = members.indexOf(c.value);
-        if (i >= 0) members.splice(i, 1);
-      }
-      update(r.uo.id, { [field]: ['L', ...members] });
+      update(r.uo.id, roleUpdate(r.lists, field, c.value, cb.checked));
     });
 
     sel.addEventListener('change', () => {
       const newId = sel.value ? Number(sel.value) : null;
       slotOverrides.set(r.uo.id + ':' + c.slot.key, newId);
       if (!c.checked) { render(); return; }
-      const members = r.lists[field].filter(id => id !== c.value);
-      if (newId && !members.includes(newId)) members.push(newId);
-      update(r.uo.id, { [field]: ['L', ...members] });
+      const lists = { ...r.lists, [field]: r.lists[field].filter(id => id !== c.value) };
+      const fields = newId
+        ? roleUpdate(lists, field, newId, true)
+        : { [field]: fieldValue(field, lists[field]) };
+      update(r.uo.id, fields);
     });
 
     wrap.append(cb, sel);
@@ -507,10 +521,10 @@
       cb.checked = true;
       cb.title = field === 'OBS' ? "Décocher pour retirer cet observateur de l'UO" : "Décocher pour retirer cet évaluateur de l'UO";
       cb.addEventListener('change', () => {
-        update(r.uo.id, { [field]: ['L', ...r.lists[field].filter(m => m !== id)] });
+        update(r.uo.id, roleUpdate(r.lists, field, id, false));
       });
-      lab.title = fullName(id) + (field === 'OBS' ? ' (observateur)' : '');
-      lab.append(cb, document.createTextNode(evalName(id) + (field === 'OBS' ? ' (OBS)' : '')));
+      lab.title = fullName(id) + ' (' + field + ')';
+      lab.append(cb, document.createTextNode(evalName(id) + ' (' + field + ')'));
       wrap.appendChild(lab);
     }
     return wrap;
@@ -622,7 +636,9 @@
     apply([['AddRecord', T_UO, null, {
       Evaluation: uo.Evaluation,
       Unite_d_oeuvre: uo.Unite_d_oeuvre || null,
-      evaluateurs: ['L', ...refList(uo.evaluateurs)],
+      RE: uo.RE || null,
+      ETA: ['L', ...refList(uo.ETA)],
+      ETM: ['L', ...refList(uo.ETM)],
       OBS: ['L', ...refList(uo.OBS)],
       date_debut_incluse: uo.date_debut_incluse ?? null,
       Jours: uo.Jours ?? null,
