@@ -161,9 +161,9 @@ const ROLES = [
 ];
 
 const LOTS = [
-  { n: 1, lib: 'Lot 1 – Pilotage', court: 'pilotage' },
-  { n: 2, lib: 'Lot 2 – Évaluation siège', court: 'évaluation siège' },
-  { n: 3, lib: 'Lot 3 – Évaluation métier', court: 'évaluation métier' },
+  { n: 1, lib: 'Lot 1 – Gestion et revue documentaire', court: 'gestion et revue documentaire' },
+  { n: 2, lib: 'Lot 2 – Évaluation site', court: 'évaluation site' },
+  { n: 3, lib: 'Lot 3 – Prestations témoin et rapport', court: 'prestations témoin et rapport' },
 ];
 
 // Ordre = priorité du programme principal (spec § 3.5).
@@ -191,25 +191,27 @@ const MODULATEURS = [
 ];
 
 // Catalogue des UO (1 ligne de la grille TEM-402 = 1 UO). Le rattachement suit la spec § 3.5 :
-// commune → prestation principale ; programme → une UO par programme ; si → JH sur la principale,
+// commune → prestation principale ; programme → une UO par programme ; partagee → JH sur la principale,
 // UO à 0 JH dans les autres ; site → une UO par site évalué ; portee → une UO par portée retenue.
+// Lot 1 = gestion et tout le documentaire, lot 2 = tout ce qui se fait sur site, lot 3 = prestations témoin et rapports.
 const CATALOGUE = [
   { id: 'recevabilite', lot: 1, type: 'commune', lib: 'Étude de recevabilité' },
   { id: 'suivi', lot: 1, type: 'commune', lib: 'Suivi de la prestation' },
   { id: 'anssi', lot: 1, type: 'commune', lib: 'Relation avec l’ANSSI' },
   { id: 'pilotage', lot: 1, type: 'commune', lib: 'Pilotage de la prestation' },
   { id: 'comite', lot: 1, type: 'programme', lib: 'Comité de certification et émission du certificat' },
-  { id: 'plan', lot: 2, type: 'programme', lib: 'Plan d’évaluation' },
-  { id: 'doc_siege', lot: 2, type: 'programme', lib: 'Évaluation documentaire siège' },
-  { id: 'doc_service', lot: 2, type: 'programme', lib: 'Évaluation documentaire service' },
+  { id: 'plan', lot: 1, type: 'programme', lib: 'Plan d’évaluation' },
+  { id: 'doc_prestataire', lot: 1, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire applicable au prestataire' },
+  { id: 'doc_prestation', lot: 1, type: 'programme', lib: 'Évaluation documentaire applicable à la prestation' },
+  { id: 'si_doc', lot: 1, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire technique du système d’information' },
+  { id: 'metier_doc', lot: 1, type: 'portee', niveaux: true, lib: 'Évaluation documentaire métier' },
+  { id: 'site_prestataire', lot: 2, type: 'programme', lib: 'Évaluation sur site applicable au prestataire' },
   { id: 'secu_physique', lot: 2, type: 'site', lib: 'Évaluation sécurité physique' },
-  { id: 'si_doc', lot: 2, type: 'si', cond: 'toujours', lib: 'Évaluation documentaire technique du système d’information' },
-  { id: 'si_ii901', lot: 2, type: 'si', cond: 'eleve', lib: 'Évaluation SI DR II901' },
-  { id: 'si_ghy_renforce', lot: 2, type: 'si', cond: 'eleve', lib: 'Évaluation SI DR GHY renforcé' },
-  { id: 'si_ghy_standard', lot: 2, type: 'si', cond: 'non_eleve', lib: 'Évaluation SI GHY standard' },
-  { id: 'livrables', lot: 2, type: 'programme', lib: 'Rédaction des livrables' },
-  { id: 'metier_doc', lot: 3, type: 'portee', niveaux: true, lib: 'Évaluation documentaire métier' },
+  { id: 'si_ii901', lot: 2, type: 'partagee', cond: 'eleve', lib: 'Évaluation SI DR II901' },
+  { id: 'si_ghy_renforce', lot: 2, type: 'partagee', cond: 'eleve', lib: 'Évaluation SI DR GHY renforcé' },
+  { id: 'si_ghy_standard', lot: 2, type: 'partagee', cond: 'non_eleve', lib: 'Évaluation SI GHY standard' },
   { id: 'metier_temoin', lot: 3, type: 'portee', niveaux: true, lib: 'Évaluation métier applicabilité (prestation témoin)' },
+  { id: 'livrables', lot: 3, type: 'programme', lib: 'Rapport' },
 ];
 
 const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -625,7 +627,7 @@ function calculer() {
         const e = etat.programmes[p.code];
         pousser(p.code, { key: `${L.id}|${p.code}`, ligne: L, lib: `${L.lib} ${p.nom}`, ja: calcJA(L, e.niveau, couv(e.type)) });
       }
-    } else if (L.type === 'si') {
+    } else if (L.type === 'partagee') {
       if ((L.cond === 'eleve' && !anyEleve) || (L.cond === 'non_eleve' && anyEleve)) continue;
       const ja = calcJA(L, niveauMax, couvMin);
       for (const p of progsRet) {
@@ -770,7 +772,7 @@ function genererJustification(res) {
   const oblig = init.filter(x => x.e.niveau === ELEVE).map(x => x.prog.nom);
   const nonOblig = init.filter(x => x.e.niveau !== ELEVE).map(x => x.prog.nom);
   if (oblig.length) t += `\n- examens écrits et oraux de compétence obligatoires pour ${liste(oblig)}, sur l’ensemble des portées candidatées, facturés distinctement ;`;
-  if (nonOblig.length) t += `\n- examens de compétence non obligatoires pour ${liste(nonOblig)} ; le processus interne de gestion des compétences est évalué lors de l’évaluation siège ;`;
+  if (nonOblig.length) t += `\n- examens de compétence non obligatoires pour ${liste(nonOblig)} ; le processus interne de gestion des compétences est évalué lors de l’évaluation sur site ;`;
   if (actifs.some(x => x.e.type === 'Surveillance')) t += '\n- pas de réévaluation obligatoire de la compétence et du savoir-faire des intervenants ; vérification du maintien, au niveau élevé, d’au moins un auditeur et responsable d’équipe disposant d’une attestation de compétence en cours de validité ;';
   if (actifs.some(x => x.e.type === 'Renouvellement')) t += '\n- pas de réévaluation obligatoire de la compétence et du savoir-faire des intervenants ; les attestations de compétence doivent être renouvelées dans un délai maximum de 36 mois ;';
   t += `\n- ${res.nbSitesEvalues} site(s) à évaluer ;`;
@@ -778,11 +780,11 @@ function genererJustification(res) {
     ? '\n- un système d’information de diffusion restreinte homologué, évalué au regard de l’II901 et du guide d’hygiène renforcé ;'
     : '\n- un système d’information évalué au regard du guide d’hygiène de l’ANSSI, niveau standard ;';
   if (amenage) t += '\n- une organisation et un système d’information déclarés non complexes au sens du chapitre 3 de la note n°2905, condition d’éligibilité au processus aménagé.';
-  t += '\n\nLa prestation est décomposée en trois lots : pilotage de la prestation, évaluation siège et évaluation métier.';
+  t += '\n\nLa prestation est décomposée en trois lots : gestion et revue documentaire, évaluation site, prestations témoin et rapport.';
   t += (init.length ? ' Elle couvre la revue de la demande de certification, ' : ' Elle couvre ')
     + 'les travaux d’évaluation, la production et la revue des livrables, la décision de certification et sa transmission à l’ANSSI, ainsi que le suivi du service certifié.\n';
   t += 'Ne sont pas couverts : les examens de compétence, facturés distinctement ; les travaux complémentaires demandés au jalon J2 ; les évaluations liées à une modification substantielle, une réclamation ou une demande de l’ANSSI ; les prestations témoins supplémentaires si celles présentées ne couvrent pas les portées retenues.\n\n';
-  t += `Charge totale : ${JH.format(tot.jh)} j.h, répartie en ${JH.format(tot.parLot[0])} j.h de pilotage, ${JH.format(tot.parLot[1])} j.h d’évaluation siège et ${JH.format(tot.parLot[2])} j.h d’évaluation métier, soit ${EUR.format(r2(tot.jh * (tjm ?? 0)))} HT.`;
+  t += `Charge totale : ${JH.format(tot.jh)} j.h, répartie en ${JH.format(tot.parLot[0])} j.h de gestion et revue documentaire, ${JH.format(tot.parLot[1])} j.h d’évaluation site et ${JH.format(tot.parLot[2])} j.h de prestations témoin et rapport, soit ${EUR.format(r2(tot.jh * (tjm ?? 0)))} HT.`;
   if (tot.jhOffert > 0) t += ` ${JH.format(tot.jhOffert)} j.h sont offerts.`;
   const remises = res.prestations.filter(x => x.reduction > 0).map(x => `${x.reduction} % sur ${x.prog.nom}`);
   if (remises.length) t += ` Remise appliquée : ${remises.join(', ')}.`;
