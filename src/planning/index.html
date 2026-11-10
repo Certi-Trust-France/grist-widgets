@@ -147,12 +147,13 @@
     }
 
     /* ── Day rows ────────────────────────────────────────────────────── */
+    /* Ratio 6:1 pour loger jusqu'à 6 monocles d'oraux sur une ligne */
     .row-day td {
       border: 1px solid #e5e7eb;
       height: 20px;
-      width: 80px;
-      min-width: 80px;
-      max-width: 80px;
+      width: 120px;
+      min-width: 120px;
+      max-width: 120px;
       vertical-align: middle;
       padding: 0;
       overflow: hidden;
@@ -219,6 +220,20 @@
       text-overflow: ellipsis;
       color: #1f2937;
     }
+    .cell-row { display: flex; height: 100%; width: 100%; min-width: 0; }
+    .cell-row > .lot-cell, .lot-wrap { flex: 1 1 auto; min-width: 0; }
+    .lot-wrap { display: flex; height: 100%; }
+    .oral-badge {
+      flex: 0 0 auto;
+      display: flex; align-items: center;
+      padding: 0 2px;
+      font-size: 11px;
+      line-height: 1;
+      letter-spacing: -1px;
+      white-space: nowrap;
+      cursor: default;
+    }
+
     /* Observateur : texte gris sur hachures jaune pâle / gris clair */
     .lot-obs {
       background: repeating-linear-gradient(45deg, #fef9c3 0 4px, #e5e7eb 4px 8px);
@@ -432,8 +447,41 @@ async function loadRefs() {
       }
       lot.tetra = tetraByEval.get(lot.evaluationId) ?? '';
     });
+    await loadOraux(tetraByEnt);
   } catch (e) {
     showStatus('Tables Evaluations/Entreprises inaccessibles (' + e.message + ')', 'error');
+  }
+}
+
+// evalId → Map(dateStr → [{ heure, tetra }]) ; un examinateur 1 et 2 du même oral ne compte qu'une fois
+let oralMap = new Map();
+
+async function loadOraux(tetraByEnt) {
+  oralMap = new Map();
+  try {
+    const t = await grist.docApi.fetchTable('Examens_oraux');
+    const hhmm = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+    t.id.forEach((_, i) => {
+      // date_seule (Date) = minuit UTC ; date_heure (DateTime Europe/Paris) sert à l'heure
+      const ts = t.date_seule?.[i];
+      if (typeof ts !== 'number') return;
+      const ds = toDateStr(new Date(ts * 1000));
+      const dh = t.date_heure?.[i];
+      const oral = {
+        heure: typeof dh === 'number' ? hhmm.format(new Date(dh * 1000)) : '',
+        tetra: tetraByEnt.get(t.Denomination?.[i]) ?? '',
+      };
+      new Set([t.Examinateur_1?.[i], t.Examinateur_2?.[i]]).forEach(eid => {
+        if (!(eid > 0)) return;
+        if (!oralMap.has(eid)) oralMap.set(eid, new Map());
+        const em = oralMap.get(eid);
+        if (!em.has(ds)) em.set(ds, []);
+        em.get(ds).push(oral);
+      });
+    });
+    oralMap.forEach(em => em.forEach(list => list.sort((a, b) => a.heure.localeCompare(b.heure))));
+  } catch (e) {
+    showStatus('Table Examens_oraux inaccessible (' + e.message + ')', 'error');
   }
 }
 
@@ -839,22 +887,27 @@ function render() {
       if (i === ctEvals.length && extEvals.length) td.classList.add('sep-left');
 
       const slots = !isWE ? planMap.get(ev.id)?.get(ds) : undefined;
+      const orals = oralMap.get(ev.id)?.get(ds);
+      const row = document.createElement('div');
+      row.className = 'cell-row';
       if (slots?.length) {
         if (slots.length === 1 && slots[0].lot.jours >= 1) {
           // Case pleine
-          td.appendChild(makeLotCell(slots[0], false));
+          row.appendChild(makeLotCell(slots[0], false));
         } else {
           // Une ou deux demi-journées : wrapper flex
           const wrap = document.createElement('div');
-          wrap.style.cssText = 'display:flex;height:100%;width:100%';
+          wrap.className = 'lot-wrap';
           slots.forEach((slot, idx) => {
             const cell = makeLotCell(slot, true);
             if (idx > 0) cell.style.borderLeft = '1px solid #d1d5db';
             wrap.appendChild(cell);
           });
-          td.appendChild(wrap);
+          row.appendChild(wrap);
         }
       }
+      if (orals?.length) row.appendChild(makeOralBadge(orals));
+      if (row.childNodes.length) td.appendChild(row);
       tr.appendChild(td);
     });
 
@@ -887,7 +940,7 @@ function render() {
   const lotsResolus = lots.filter(l => resolveEvalIds(l).length > 0).length;
   const lotsTetra = lots.filter(l => l.tetra).length;
   const lotsObs   = lots.filter(l => resolveObsIds(l).length > 0).length;
-  showStatus(`${lotCount} lot(s) dont ${lotsResolus} placés, ${lotsTetra} avec tetra, ${lotsObs} avec OBS · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
+  showStatus(`${lotCount} lot(s) dont ${lotsResolus} placés, ${lotsTetra} avec tetra, ${lotsObs} avec OBS · ${countOraux()} affectation(s) d'oral · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────
@@ -909,6 +962,25 @@ function makeLotCell({ lot, isObs }, isHalf) {
   client.textContent = icon ? `${icon} ${name}` : name;
   cell.appendChild(client);
   return cell;
+}
+
+const ORAL_MAX_ICONS = 6;
+
+function countOraux() {
+  let n = 0;
+  oralMap.forEach(em => em.forEach(list => { n += list.length; }));
+  return n;
+}
+
+function makeOralBadge(orals) {
+  const span = document.createElement('span');
+  span.className = 'oral-badge';
+  span.textContent = orals.length <= ORAL_MAX_ICONS
+    ? '🧐'.repeat(orals.length)
+    : '🧐'.repeat(ORAL_MAX_ICONS - 1) + `+${orals.length - ORAL_MAX_ICONS + 1}`;
+  span.title = `${orals.length} examen(s) oral(aux)\n`
+    + orals.map(o => [o.heure, o.tetra].filter(Boolean).join(' — ') || 'Oral').join('\n');
+  return span;
 }
 
 function addTh(tr, text, className) {
