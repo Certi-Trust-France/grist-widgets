@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning consultants</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1e293b; --muted: #64748b; --line: #e2e8f0; --line2: #cbd5e1;
+    --head: #1e3a8a; --head-fg: #ffffff; --we: #f1f5f9; --ferie: #fde2e2; --today: #fef9c3;
+    --sel: #2563eb; --sel-bg: rgba(37, 99, 235, .12); --panel: #f8fafc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); }
+  body { display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+
+  /* Barre d'outils */
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .bar .sep { width: 1px; height: 20px; background: var(--line2); margin: 0 4px; }
+  .bar input[type=search] { width: 150px; }
+  button, select, input { font: inherit; }
+  button { border: 1px solid var(--line2); background: #fff; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+  button:hover { background: #eef2ff; }
+  button.primary { background: var(--sel); color: #fff; border-color: var(--sel); }
+  button.danger { color: #b91c1c; }
+  input, select { border: 1px solid var(--line2); border-radius: 4px; padding: 2px 5px; background: #fff; }
+  .titre { font-weight: 700; color: var(--head); margin-right: 4px; }
+  .status { margin-left: auto; color: var(--muted); }
+  .status.err { color: #b91c1c; font-weight: 600; }
+  .brush { display: none; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 12px; color: #fff; font-weight: 600; }
+  .brush.on { display: inline-flex; }
+  .brush button { padding: 0 6px; border: 0; background: rgba(255,255,255,.25); color: #fff; }
+
+  .main { flex: 1; display: flex; min-height: 0; }
+  .gridwrap { flex: 1; overflow: auto; position: relative; }
+  .side { width: 270px; border-left: 1px solid var(--line); display: flex; flex-direction: column; background: var(--panel); }
+  .side.hidden { display: none; }
+  .side h3 { margin: 0; padding: 6px 8px; font-size: 12px; color: var(--head); border-bottom: 1px solid var(--line); display: flex; gap: 6px; align-items: center; }
+  .side .filters { padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--line); }
+  .side .list { flex: 1; overflow: auto; }
+
+  /* Grille */
+  table.grid { border-collapse: separate; border-spacing: 0; }
+  .grid th, .grid td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 0; height: 22px; }
+  .grid thead th { position: sticky; top: 0; z-index: 3; background: var(--head); color: var(--head-fg); font-weight: 600;
+    min-width: 92px; max-width: 92px; padding: 3px 2px; text-align: center; vertical-align: bottom; height: auto; font-size: 11px; }
+  .grid thead th .tri { font-size: 12px; }
+  .grid thead th .nom { font-weight: 400; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .grid thead th .cnt { font-weight: 400; opacity: .8; font-size: 10px; }
+  .grid .c0, .grid .c1 { position: sticky; z-index: 2; background: #fff; text-align: left; padding: 0 4px; white-space: nowrap; color: var(--muted); }
+  .grid .c0 { left: 0; min-width: 44px; max-width: 44px; }
+  .grid .c1 { left: 44px; min-width: 62px; max-width: 62px; border-right: 2px solid var(--line2); }
+  .grid thead .c0, .grid thead .c1 { z-index: 4; background: var(--head); color: #fff; }
+  .grid tr.mois td { background: #dbeafe; color: var(--head); font-weight: 700; padding: 2px 6px; position: sticky; left: 0; }
+  .grid tr.lundi td { border-top: 2px solid var(--line2); }
+  .grid tr.we td.cell, .grid tr.we .c0, .grid tr.we .c1 { background: var(--we); }
+  .grid tr.ferie td.cell, .grid tr.ferie .c0, .grid tr.ferie .c1 { background: var(--ferie); }
+  .grid tr.today .c0, .grid tr.today .c1 { background: var(--today); color: var(--fg); font-weight: 700; }
+  .grid td.cell { min-width: 92px; max-width: 92px; cursor: cell; position: relative; }
+  .grid td.cell.sel { background: var(--sel-bg) !important; box-shadow: inset 0 0 0 1px var(--sel); }
+  .grid td.cell.anchor { box-shadow: inset 0 0 0 2px var(--sel); }
+  .grid td.cell.drop { box-shadow: inset 0 0 0 2px #16a34a; }
+  .chip { display: block; margin: 1px; padding: 1px 4px; border-radius: 3px; color: #fff; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; font-size: 11px; cursor: grab; }
+  .chip small { opacity: .85; }
+  .chip.conflit { outline: 2px solid #dc2626; outline-offset: -2px; }
+  .grid tfoot td { position: sticky; bottom: 0; background: var(--panel); font-weight: 600; text-align: center; z-index: 2; }
+  .grid tfoot .c0, .grid tfoot .c1 { z-index: 3; background: var(--panel); }
+
+  /* Liste des évaluations */
+  .ev { padding: 5px 8px; border-bottom: 1px solid var(--line); cursor: pointer; border-left: 4px solid transparent; }
+  .ev:hover { background: #eef2ff; }
+  .ev.on { background: #e0e7ff; }
+  .ev .l1 { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ev .l2 { color: var(--muted); font-size: 11px; display: flex; justify-content: space-between; gap: 6px; }
+  .ev .over { color: #b91c1c; font-weight: 600; }
+
+  /* Éditeur */
+  .pop { position: fixed; z-index: 20; background: #fff; border: 1px solid var(--line2); border-radius: 6px; box-shadow: 0 8px 24px rgba(15,23,42,.18);
+    width: 340px; display: none; flex-direction: column; user-select: text; }
+  .pop.on { display: flex; }
+  .pop .hd { padding: 6px 8px; font-weight: 600; color: var(--head); border-bottom: 1px solid var(--line); }
+  .pop .bd { padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
+  .pop .opts { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+  .pop .opt { padding: 4px 6px; cursor: pointer; border-left: 4px solid transparent; }
+  .pop .opt.on, .pop .opt:hover { background: #e0e7ff; }
+  .pop .opt small { color: var(--muted); display: block; }
+  .pop .row { display: flex; gap: 6px; align-items: center; }
+  .pop .row > * { flex: 1; }
+  .pop .ft { padding: 6px 8px; display: flex; gap: 6px; justify-content: flex-end; border-top: 1px solid var(--line); }
+  .aide { color: var(--muted); font-size: 11px; padding: 6px 8px; border-top: 1px solid var(--line); line-height: 1.5; }
+  .placeholder { padding: 24px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="titre">Planning consultants</span>
+  <button id="prev" title="Mois précédent">◀</button>
+  <select id="mois"></select>
+  <button id="next" title="Mois suivant">▶</button>
+  <select id="nbmois" title="Nombre de mois affichés">
+    <option value="1">1 mois</option><option value="2">2 mois</option><option value="3" selected>3 mois</option><option value="6">6 mois</option>
+  </select>
+  <button id="auj">Aujourd’hui</button>
+  <span class="sep"></span>
+  <input id="fcons" type="search" placeholder="Filtrer consultants…">
+  <label title="Afficher aussi les évaluateurs non cochés « planning »"><input type="checkbox" id="tous"> tous</label>
+  <span class="sep"></span>
+  <span id="brush" class="brush"><span id="brushlib"></span><button id="brushoff" title="Arrêter (Échap)">✕</button></span>
+  <button id="toggleside">Évaluations</button>
+  <button id="refresh" title="Relire évaluateurs et évaluations">↻</button>
+  <span id="status" class="status">Chargement…</span>
+</div>
+<div class="main">
+  <div class="gridwrap" id="gridwrap"><div class="placeholder">Chargement…</div></div>
+  <div class="side" id="side">
+    <h3>Évaluations <span style="font-weight:400;color:var(--muted)">(clic = pinceau)</span></h3>
+    <div class="filters">
+      <input id="fev" type="search" placeholder="Rechercher (client, libellé, programme)…">
+      <label><input type="checkbox" id="evtermin"> inclure terminées / annulées</label>
+    </div>
+    <div class="list" id="evlist"></div>
+    <div class="aide">
+      <b>Clic</b> sélectionne, <b>glisser</b> ou <b>Maj+clic</b> étend.<br>
+      <b>Entrée</b> / double-clic : affecter. <b>Suppr</b> : effacer.<br>
+      <b>Glisser une affectation</b> : déplacer (<b>Alt</b> = copier).<br>
+      <b>Ctrl/⌘+C / V</b> : copier-coller. Annuler : bouton ↶ de Grist (en haut).<br>
+      <b>Pinceau</b> : cliquer une évaluation ci-dessus, puis sélectionner des cases.
+    </div>
+  </div>
+</div>
+
+<div class="pop" id="pop">
+  <div class="hd" id="pophd">Affecter</div>
+  <div class="bd">
+    <input id="popq" type="search" placeholder="Rechercher une évaluation…" autocomplete="off">
+    <div class="opts" id="popopts"></div>
+    <div class="row">
+      <select id="popjalon"></select>
+      <input id="popcom" type="text" placeholder="Commentaire (facultatif)">
+    </div>
+  </div>
+  <div class="ft">
+    <button class="danger" id="popclear">Effacer</button>
+    <span style="flex:1"></span>
+    <button id="popcancel">Annuler</button>
+    <button class="primary" id="popok">Affecter</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ───────── Configuration ───────── */
+const T_AFF = 'Affectations';            // table des affectations (Date, Evaluateur, Evaluation, Jalon, Commentaire)
+const JALONS = ['', 'Lancement', 'Siège', 'Témoin', 'Revue SI', 'Restitution', 'Rédaction', 'Comité', 'Autre'];
+const COULEURS = { PASSI: '#2563eb', PASSI_2: '#1d4ed8', PRIS: '#ea580c', PACS: '#16a34a', PDIS: '#7c3aed',
+  PAMS: '#0d9488', SecNumCloud: '#475569' };
+const COULEUR_DEFAUT = '#64748b';
+const STATUTS_CLOS = new Set(['Terminé', 'Annulé']);
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const JOURS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+/* ───────── Utilitaires ───────── */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const rows = t => (t && t.id ? t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]]))) : []);
+const refId = v => typeof v === 'number' ? v : (v && (v.rowId ?? v.id)) || 0;
+// Grist stocke les dates en secondes depuis l'époque (minuit UTC).
+const isoDeSec = s => (typeof s === 'number' && s) ? new Date(s * 1000).toISOString().slice(0, 10) : null;
+const secDeIso = iso => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 1000;
+const isoUTC = d => d.toISOString().slice(0, 10);
+const ajouterJours = (iso, n) => isoUTC(new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10) + n)));
+const aujourdhui = () => { const d = new Date(); return isoUTC(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))); };
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('planning-cons:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('planning-cons:' + k, JSON.stringify(v)); } catch { /* stockage indisponible */ } },
+};
+
+function feries(annee) {
+  // Dimanche de Pâques (algorithme de Meeus/Jones/Butcher)
+  const a = annee % 19, b = Math.floor(annee / 100), c = annee % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mois = Math.floor((h + l - 7 * m + 114) / 31), jour = ((h + l - 7 * m + 114) % 31) + 1;
+  const paques = isoUTC(new Date(Date.UTC(annee, mois - 1, jour)));
+  const y = String(annee);
+  return new Map([
+    [`${y}-01-01`, 'Jour de l’an'], [ajouterJours(paques, 1), 'Lundi de Pâques'], [`${y}-05-01`, 'Fête du travail'],
+    [`${y}-05-08`, 'Victoire 1945'], [ajouterJours(paques, 39), 'Ascension'], [ajouterJours(paques, 50), 'Lundi de Pentecôte'],
+    [`${y}-07-14`, 'Fête nationale'], [`${y}-08-15`, 'Assomption'], [`${y}-11-01`, 'Toussaint'],
+    [`${y}-11-11`, 'Armistice'], [`${y}-12-25`, 'Noël'],
+  ]);
+}
+const cacheFeries = new Map();
+function ferie(iso) {
+  const y = +iso.slice(0, 4);
+  if (!cacheFeries.has(y)) cacheFeries.set(y, feries(y));
+  return cacheFeries.get(y).get(iso) || null;
+}
+function semaineISO(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  const j = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - j + 3);
+  const premier = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((d - premier) / 86400000 - 3 + ((premier.getUTCDay() + 6) % 7)) / 7);
+}
+
+/* ───────── État ───────── */
+const S = {
+  evaluateurs: [], evaluations: new Map(), entreprises: new Map(), programmes: new Map(),
+  aff: [], parCase: new Map(), planifies: new Map(),
+  debut: store.get('debut', null), nbMois: store.get('nbmois', 3),
+  colonnes: [], jours: [],
+  sel: null,           // { r0, c0, r1, c1 } indices jours / colonnes
+  drag: false, brush: null, clip: null, pret: false, ecriture: false,
+};
+
+/* ───────── Lecture Grist ───────── */
+grist.ready({ requiredAccess: 'full', allowSelectBy: false });
+// Le widget est posé sur la table Affectations : chaque modification (ici ou ailleurs) relance la lecture.
+grist.onRecords(() => { if (S.pret) lireAffectations(); });
+
+async function chargerReferentiels() {
+  const [ev, evals, ent, prog] = await Promise.all([
+    grist.docApi.fetchTable('Evaluateurs'), grist.docApi.fetchTable('Evaluations'),
+    grist.docApi.fetchTable('Entreprises'), grist.docApi.fetchTable('Programmes'),
+  ]);
+  S.entreprises = new Map(rows(ent).map(r => [r.id, r]));
+  S.programmes = new Map(rows(prog).map(r => [r.id, r]));
+  S.evaluateurs = rows(ev).map(r => ({
+    id: r.id, tri: r.Evaluateur_Trigramme || '', prenom: r.Evaluateur_Prenom || '', nom: r.Evaluateur_Nom || '',
+    planning: r.planning === true || r.planning === 1, employeur: r.Employeur || '',
+  })).sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, 'fr'));
+  S.evaluations = new Map(rows(evals).map(r => {
+    const ent = S.entreprises.get(refId(r.Entreprise));
+    const prog = S.programmes.get(refId(r.Programme));
+    const type = Array.isArray(r.Type_d_evaluation) ? r.Type_d_evaluation.filter(x => x !== 'L').join(', ') : (r.Type_d_evaluation || '');
+    return [r.id, {
+      id: r.id, libelle: r.Libelle || `Évaluation ${r.id}`, client: ent?.Denomination || '?', code: ent?.code || ent?.Denomination || '?',
+      prog: prog?.Nom_du_programme || '', type, statut: r.Statut || '', terminee: !!r.Terminee,
+      jh: typeof r.JH === 'number' ? r.JH : null,
+    }];
+  }));
+}
+
+async function lireAffectations() {
+  try {
+    S.aff = rows(await grist.docApi.fetchTable(T_AFF)).map(r => ({
+      id: r.id, date: isoDeSec(r.Date), ev: refId(r.Evaluateur), evaluation: refId(r.Evaluation),
+      jalon: r.Jalon || '', com: r.Commentaire || '',
+    })).filter(a => a.date && a.ev);
+    indexer();
+    rendreGrille();
+    rendreListe();
+    setStatus(`${S.aff.length} affectation(s)`);
+  } catch (e) {
+    setStatus(`Lecture de la table ${T_AFF} impossible : ${e.message || e}`, true);
+  }
+}
+
+function indexer() {
+  S.parCase = new Map();
+  S.planifies = new Map();
+  for (const a of S.aff) {
+    const k = `${a.date}|${a.ev}`;
+    if (!S.parCase.has(k)) S.parCase.set(k, []);
+    S.parCase.get(k).push(a);
+    if (a.evaluation) S.planifies.set(a.evaluation, (S.planifies.get(a.evaluation) || 0) + 1);
+  }
+}
+
+/* ───────── Construction de la période et des colonnes ───────── */
+function premierDuMois(iso) { return iso.slice(0, 8) + '01'; }
+function calculerPeriode() {
+  if (!S.debut) S.debut = premierDuMois(aujourdhui());
+  const d0 = new Date(S.debut + 'T00:00:00Z');
+  const fin = isoUTC(new Date(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + S.nbMois, 0)));
+  S.jours = [];
+  for (let d = S.debut; d <= fin; d = ajouterJours(d, 1)) S.jours.push(d);
+}
+function calculerColonnes() {
+  const q = norm($('fcons').value);
+  const tous = $('tous').checked;
+  S.colonnes = S.evaluateurs.filter(e => (tous || e.planning) && (!q || norm(`${e.tri} ${e.prenom} ${e.nom} ${e.employeur}`).includes(q)));
+}
+function remplirMois() {
+  const sel = $('mois');
+  const base = new Date(Date.UTC(new Date().getFullYear() - 1, 0, 1));
+  sel.innerHTML = '';
+  for (let i = 0; i < 48; i++) {
+    const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + i, 1));
+    const iso = isoUTC(d);
+    sel.add(new Option(`${MOIS[d.getUTCMonth()]} ${d.getUTCFullYear()}`, iso));
+  }
+  sel.value = S.debut;
+}
+
+/* ───────── Rendu de la grille ───────── */
+const couleur = evaluation => COULEURS[evaluation?.prog] || COULEUR_DEFAUT;
+function libCourt(a) {
+  const e = S.evaluations.get(a.evaluation);
+  const base = e ? `${e.code}${e.prog ? ' · ' + e.prog : ''}` : (a.com || '—');
+  return { html: `${esc(base)}${a.jalon ? ` <small>${esc(a.jalon)}</small>` : ''}`, e };
+}
+function infobulle(a, e) {
+  return [e ? e.libelle : 'Sans évaluation', e && `${e.client} – ${e.prog} ${e.type}`, a.jalon && `Jalon : ${a.jalon}`, a.com && `Note : ${a.com}`]
+    .filter(Boolean).join('\n');
+}
+
+function rendreGrille() {
+  calculerPeriode();
+  calculerColonnes();
+  const wrap = $('gridwrap');
+  const scroll = { top: wrap.scrollTop, left: wrap.scrollLeft };
+  if (!S.colonnes.length) { wrap.innerHTML = '<div class="placeholder">Aucun consultant à afficher (vérifier le filtre ou la case « planning » dans Evaluateurs).</div>'; return; }
+  const auj = aujourdhui();
+  const totaux = new Array(S.colonnes.length).fill(0);
+  let h = '<table class="grid"><thead><tr><th class="c0">Sem.</th><th class="c1">Jour</th>';
+  S.colonnes.forEach(c => {
+    h += `<th title="${esc(`${c.prenom} ${c.nom}${c.employeur ? ' – ' + c.employeur : ''}`)}"><span class="tri">${esc(c.tri || '—')}</span>` +
+      `<span class="nom">${esc(c.prenom)} ${esc(c.nom)}</span></th>`;
+  });
+  h += '</tr></thead><tbody>';
+  let moisCourant = '';
+  S.jours.forEach((iso, r) => {
+    const d = new Date(iso + 'T00:00:00Z');
+    const m = iso.slice(0, 7);
+    if (m !== moisCourant) {
+      moisCourant = m;
+      h += `<tr class="mois"><td colspan="${S.colonnes.length + 2}">${MOIS[d.getUTCMonth()]} ${d.getUTCFullYear()}</td></tr>`;
+    }
+    const dow = d.getUTCDay();
+    const f = ferie(iso);
+    const cls = [dow === 0 || dow === 6 ? 'we' : '', f ? 'ferie' : '', iso === auj ? 'today' : '', dow === 1 ? 'lundi' : ''].join(' ');
+    h += `<tr class="${cls}"${f ? ` title="${esc(f)}"` : ''}><td class="c0">${dow === 1 || r === 0 ? 'S' + semaineISO(iso) : ''}</td>` +
+      `<td class="c1">${JOURS[dow]} ${String(d.getUTCDate()).padStart(2, '0')}</td>`;
+    S.colonnes.forEach((c, ci) => {
+      const liste = S.parCase.get(`${iso}|${c.id}`) || [];
+      if (liste.length) totaux[ci]++;
+      const conflit = liste.length > 1;
+      h += `<td class="cell" data-r="${r}" data-c="${ci}">` + liste.map(a => {
+        const { html, e } = libCourt(a);
+        return `<span class="chip${conflit ? ' conflit' : ''}" draggable="true" data-aff="${a.id}" style="background:${couleur(e)}" title="${esc(infobulle(a, e))}">${html}</span>`;
+      }).join('') + '</td>';
+    });
+    h += '</tr>';
+  });
+  h += '</tbody><tfoot><tr><td class="c0"></td><td class="c1">Jours</td>' + totaux.map(t => `<td>${t || ''}</td>`).join('') + '</tr></tfoot></table>';
+  wrap.innerHTML = h;
+  wrap.scrollTop = scroll.top; wrap.scrollLeft = scroll.left;
+  peindreSelection();
+}
+
+/* ───────── Liste des évaluations (panneau) ───────── */
+function evaluationsFiltrees(q, inclureClos) {
+  const n = norm(q);
+  return [...S.evaluations.values()]
+    .filter(e => inclureClos || (!STATUTS_CLOS.has(e.statut) && !e.terminee))
+    .filter(e => !n || norm(`${e.libelle} ${e.client} ${e.code} ${e.prog} ${e.type} ${e.statut}`).includes(n))
+    .sort((a, b) => (a.statut === 'En cours' ? 0 : 1) - (b.statut === 'En cours' ? 0 : 1) || a.client.localeCompare(b.client, 'fr'));
+}
+function ligneEval(e, cls) {
+  const p = S.planifies.get(e.id) || 0;
+  const over = e.jh && p > e.jh;
+  return `<div class="${cls}" data-evid="${e.id}" style="border-left-color:${couleur(e)}">` +
+    `<div class="l1">${esc(e.client)} · ${esc(e.prog || '?')} ${esc(e.type)}</div>` +
+    `<div class="l2"><span>${esc(e.libelle)}</span><span class="${over ? 'over' : ''}">${p} j${e.jh ? ' / ' + e.jh + ' JH' : ''}</span></div></div>`;
+}
+function rendreListe() {
+  const liste = evaluationsFiltrees($('fev').value, $('evtermin').checked);
+  $('evlist').innerHTML = liste.map(e => ligneEval(e, 'ev' + (S.brush?.evaluation === e.id ? ' on' : ''))).join('') ||
+    '<div class="placeholder">Aucune évaluation.</div>';
+}
+
+/* ───────── Sélection ───────── */
+const caseDe = el => { const td = el?.closest?.('td.cell'); return td ? { r: +td.dataset.r, c: +td.dataset.c, td } : null; };
+function bornes() {
+  if (!S.sel) return null;
+  return { r0: Math.min(S.sel.r0, S.sel.r1), r1: Math.max(S.sel.r0, S.sel.r1), c0: Math.min(S.sel.c0, S.sel.c1), c1: Math.max(S.sel.c0, S.sel.c1) };
+}
+function casesSelection() {
+  const b = bornes(); if (!b) return [];
+  const out = [];
+  for (let r = b.r0; r <= b.r1; r++) for (let c = b.c0; c <= b.c1; c++) {
+    if (S.jours[r] && S.colonnes[c]) out.push({ date: S.jours[r], ev: S.colonnes[c].id, r, c });
+  }
+  return out;
+}
+function peindreSelection() {
+  document.querySelectorAll('td.cell.sel, td.cell.anchor').forEach(td => td.classList.remove('sel', 'anchor'));
+  const b = bornes(); if (!b) return;
+  document.querySelectorAll('td.cell').forEach(td => {
+    const r = +td.dataset.r, c = +td.dataset.c;
+    if (r >= b.r0 && r <= b.r1 && c >= b.c0 && c <= b.c1) td.classList.add('sel');
+    if (r === S.sel.r0 && c === S.sel.c0) td.classList.add('anchor');
+  });
+}
+
+/* ───────── Écriture Grist ───────── */
+// Écrit une liste de cases : val = { evaluation, jalon, com } pour affecter, null pour effacer.
+// Une case = une affectation (les doublons éventuels de la case sont supprimés).
+async function ecrire(cases, val) {
+  const add = [], upd = [], del = [];
+  for (const k of cases) {
+    const existants = S.parCase.get(`${k.date}|${k.ev}`) || [];
+    const v = k.val !== undefined ? k.val : val;
+    if (!v) { existants.forEach(a => del.push(a.id)); continue; }
+    const champs = { Date: secDeIso(k.date), Evaluateur: k.ev, Evaluation: v.evaluation || 0, Jalon: v.jalon || '', Commentaire: v.com || '' };
+    if (existants.length) {
+      upd.push([existants[0].id, champs]);
+      existants.slice(1).forEach(a => del.push(a.id));
+    } else add.push(champs);
+  }
+  return appliquer(add, upd, del);
+}
+async function appliquer(add, upd, del) {
+  const actions = [];
+  const cols = (liste, f) => Object.fromEntries(['Date', 'Evaluateur', 'Evaluation', 'Jalon', 'Commentaire']
+    .filter(k => liste.some(x => k in f(x))).map(k => [k, liste.map(x => f(x)[k])]));
+  if (del.length) actions.push(['BulkRemoveRecord', T_AFF, [...new Set(del)]]);
+  if (upd.length) actions.push(['BulkUpdateRecord', T_AFF, upd.map(u => u[0]), cols(upd, u => u[1])]);
+  if (add.length) actions.push(['BulkAddRecord', T_AFF, add.map(() => null), cols(add, a => a)]);
+  if (!actions.length) return;
+  S.ecriture = true;
+  setStatus('Enregistrement…');
+  try {
+    await grist.docApi.applyUserActions(actions);   // une seule action Grist : un seul Ctrl+Z pour l'annuler
+    setStatus(`Enregistré (${add.length} ajout(s), ${upd.length} modif(s), ${new Set(del).size} suppression(s))`);
+  } catch (e) {
+    setStatus(`Échec de l’enregistrement : ${e.message || e}`, true);
+  } finally { S.ecriture = false; }
+}
+
+/* ───────── Éditeur ───────── */
+let popChoix = null;
+function ouvrirEditeur() {
+  const cases = casesSelection();
+  if (!cases.length) return;
+  const premier = (S.parCase.get(`${cases[0].date}|${cases[0].ev}`) || [])[0];
+  popChoix = premier?.evaluation || null;
+  $('pophd').textContent = cases.length > 1 ? `Affecter ${cases.length} cases` :
+    `${S.colonnes[cases[0].c].prenom} ${S.colonnes[cases[0].c].nom} – ${JOURS[new Date(cases[0].date + 'T00:00:00Z').getUTCDay()]} ${cases[0].date.split('-').reverse().join('/')}`;
+  $('popq').value = '';
+  $('popjalon').value = premier?.jalon || '';
+  $('popcom').value = premier?.com || '';
+  rendreOptions();
+  const pop = $('pop');
+  const td = document.querySelector('td.cell.anchor') || document.querySelector('td.cell.sel');
+  const r = td ? td.getBoundingClientRect() : { left: 100, bottom: 100 };
+  pop.classList.add('on');
+  const w = pop.offsetWidth, hgt = pop.offsetHeight;
+  pop.style.left = Math.max(4, Math.min(r.left, innerWidth - w - 4)) + 'px';
+  pop.style.top = (r.bottom + hgt + 4 < innerHeight ? r.bottom + 2 : Math.max(4, r.top - hgt - 2)) + 'px';
+  $('popq').focus();
+}
+function rendreOptions() {
+  const liste = evaluationsFiltrees($('popq').value, false).slice(0, 80);
+  if (popChoix && !liste.some(e => e.id === popChoix) && S.evaluations.has(popChoix)) liste.unshift(S.evaluations.get(popChoix));
+  $('popopts').innerHTML = liste.map(e => {
+    const p = S.planifies.get(e.id) || 0;
+    return `<div class="opt${e.id === popChoix ? ' on' : ''}" data-evid="${e.id}" style="border-left-color:${couleur(e)}">${esc(e.client)} · ${esc(e.prog)} ${esc(e.type)}` +
+      `<small>${esc(e.libelle)} — ${esc(e.statut)} — ${p} j planifié(s)${e.jh ? ' / ' + e.jh + ' JH' : ''}</small></div>`;
+  }).join('') || '<div class="opt">Aucune évaluation trouvée.</div>';
+}
+function fermerEditeur() { $('pop').classList.remove('on'); }
+async function validerEditeur() {
+  if (!popChoix) { const premier = $('popopts').querySelector('.opt[data-evid]'); if (premier) popChoix = +premier.dataset.evid; }
+  if (!popChoix) return;
+  const cases = casesSelection();
+  fermerEditeur();
+  await ecrire(cases, { evaluation: popChoix, jalon: $('popjalon').value, com: $('popcom').value.trim() });
+}
+
+/* ───────── Pinceau ───────── */
+function activerPinceau(evaluationId) {
+  const e = S.evaluations.get(evaluationId);
+  if (!e || S.brush?.evaluation === evaluationId) { S.brush = null; }
+  else S.brush = { evaluation: evaluationId, jalon: '' };
+  const b = $('brush');
+  b.classList.toggle('on', !!S.brush);
+  if (S.brush) { b.style.background = couleur(e); $('brushlib').textContent = `Pinceau : ${e.client} · ${e.prog}`; }
+  rendreListe();
+}
+
+/* ───────── Événements grille ───────── */
+const gw = $('gridwrap');
+gw.addEventListener('mousedown', ev => {
+  if (ev.button !== 0) return;
+  const k = caseDe(ev.target); if (!k) return;
+  fermerEditeur();
+  if (ev.shiftKey && S.sel) { S.sel.r1 = k.r; S.sel.c1 = k.c; }
+  else S.sel = { r0: k.r, c0: k.c, r1: k.r, c1: k.c };
+  // Un clic sur une affectation peut démarrer un glisser-déposer natif : pas de sélection par glissement dans ce cas.
+  S.drag = !ev.target.closest('.chip');
+  peindreSelection();
+});
+gw.addEventListener('mouseover', ev => {
+  if (!S.drag) return;
+  const k = caseDe(ev.target); if (!k) return;
+  if (S.sel.r1 !== k.r || S.sel.c1 !== k.c) { S.sel.r1 = k.r; S.sel.c1 = k.c; peindreSelection(); }
+});
+document.addEventListener('mouseup', () => {
+  const etaitDrag = S.drag;
+  S.drag = false;
+  if (etaitDrag && S.brush && S.sel) ecrire(casesSelection(), { evaluation: S.brush.evaluation, jalon: S.brush.jalon, com: '' });
+});
+gw.addEventListener('dblclick', ev => { if (caseDe(ev.target)) ouvrirEditeur(); });
+
+// Glisser-déposer d'une affectation : déplacer, ou copier avec Alt.
+let dragAff = null;
+gw.addEventListener('dragstart', ev => {
+  const chip = ev.target.closest?.('.chip'); if (!chip) return;
+  dragAff = S.aff.find(a => a.id === +chip.dataset.aff) || null;
+  ev.dataTransfer.effectAllowed = 'copyMove';
+  ev.dataTransfer.setData('text/plain', String(chip.dataset.aff));
+});
+gw.addEventListener('dragover', ev => {
+  if (!dragAff) return;
+  const k = caseDe(ev.target); if (!k) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = ev.altKey ? 'copy' : 'move';
+  document.querySelectorAll('td.cell.drop').forEach(td => td !== k.td && td.classList.remove('drop'));
+  k.td.classList.add('drop');
+});
+gw.addEventListener('dragleave', ev => { const k = caseDe(ev.target); if (k) k.td.classList.remove('drop'); });
+gw.addEventListener('drop', async ev => {
+  const k = caseDe(ev.target);
+  document.querySelectorAll('td.cell.drop').forEach(td => td.classList.remove('drop'));
+  if (!dragAff || !k) return;
+  ev.preventDefault();
+  const a = dragAff; dragAff = null;
+  const cible = { date: S.jours[k.r], ev: S.colonnes[k.c].id };
+  if (cible.date === a.date && cible.ev === a.ev) return;
+  const val = { evaluation: a.evaluation, jalon: a.jalon, com: a.com };
+  const existants = S.parCase.get(`${cible.date}|${cible.ev}`) || [];
+  const champs = { Date: secDeIso(cible.date), Evaluateur: cible.ev, Evaluation: val.evaluation || 0, Jalon: val.jalon || '', Commentaire: val.com || '' };
+  const del = existants.map(x => x.id);
+  if (ev.altKey) await appliquer([champs], [], del);
+  else await appliquer([], [[a.id, champs]], del);
+  S.sel = { r0: k.r, c0: k.c, r1: k.r, c1: k.c };
+});
+gw.addEventListener('dragend', () => { dragAff = null; document.querySelectorAll('td.cell.drop').forEach(td => td.classList.remove('drop')); });
+
+/* ───────── Clavier ───────── */
+document.addEventListener('keydown', async ev => {
+  const pop = $('pop').classList.contains('on');
+  if (pop) {
+    if (ev.key === 'Escape') { fermerEditeur(); ev.preventDefault(); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); await validerEditeur(); }
+    else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      const opts = [...$('popopts').querySelectorAll('.opt[data-evid]')];
+      let i = opts.findIndex(o => +o.dataset.evid === popChoix);
+      i = Math.max(0, Math.min(opts.length - 1, i + (ev.key === 'ArrowDown' ? 1 : -1)));
+      if (opts[i]) { popChoix = +opts[i].dataset.evid; rendreOptions(); $('popopts').querySelector('.opt.on')?.scrollIntoView({ block: 'nearest' }); }
+    }
+    return;
+  }
+  if (ev.target.matches('input, select, textarea')) return;
+  if (ev.key === 'Escape') { if (S.brush) activerPinceau(S.brush.evaluation); S.sel = null; peindreSelection(); return; }
+  if (!S.sel) return;
+  const mod = ev.metaKey || ev.ctrlKey;
+  if (ev.key === 'Enter' || ev.key === 'F2') { ev.preventDefault(); ouvrirEditeur(); }
+  else if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); await ecrire(casesSelection(), null); }
+  else if (mod && ev.key.toLowerCase() === 'c') {
+    const b = bornes();
+    S.clip = casesSelection().map(k => {
+      const a = (S.parCase.get(`${k.date}|${k.ev}`) || [])[0];
+      return { dr: k.r - b.r0, dc: k.c - b.c0, val: a ? { evaluation: a.evaluation, jalon: a.jalon, com: a.com } : null };
+    });
+    S.clip.h = b.r1 - b.r0 + 1; S.clip.w = b.c1 - b.c0 + 1;
+    setStatus(`${S.clip.length} case(s) copiée(s)`);
+    ev.preventDefault();
+  } else if (mod && ev.key.toLowerCase() === 'v' && S.clip) {
+    ev.preventDefault();
+    const b = bornes();
+    const cases = [];
+    if (S.clip.length === 1) {
+      // Une seule case copiée : on remplit toute la sélection.
+      for (const k of casesSelection()) cases.push({ ...k, val: S.clip[0].val });
+    } else {
+      for (const x of S.clip) {
+        const r = b.r0 + x.dr, c = b.c0 + x.dc;
+        if (S.jours[r] && S.colonnes[c]) cases.push({ date: S.jours[r], ev: S.colonnes[c].id, r, c, val: x.val });
+      }
+    }
+    await ecrire(cases);
+  } else if (ev.key.startsWith('Arrow')) {
+    ev.preventDefault();
+    const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[ev.key];
+    const r = Math.max(0, Math.min(S.jours.length - 1, (ev.shiftKey ? S.sel.r1 : S.sel.r0) + d[0]));
+    const c = Math.max(0, Math.min(S.colonnes.length - 1, (ev.shiftKey ? S.sel.c1 : S.sel.c0) + d[1]));
+    if (ev.shiftKey) { S.sel.r1 = r; S.sel.c1 = c; } else S.sel = { r0: r, c0: c, r1: r, c1: c };
+    peindreSelection();
+    document.querySelector('td.cell.anchor')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+});
+
+/* ───────── Contrôles ───────── */
+$('popq').addEventListener('input', () => { popChoix = null; rendreOptions(); });
+$('popopts').addEventListener('click', ev => { const o = ev.target.closest('.opt[data-evid]'); if (o) { popChoix = +o.dataset.evid; rendreOptions(); } });
+$('popopts').addEventListener('dblclick', ev => { if (ev.target.closest('.opt[data-evid]')) validerEditeur(); });
+$('popok').addEventListener('click', validerEditeur);
+$('popcancel').addEventListener('click', fermerEditeur);
+$('popclear').addEventListener('click', async () => { const c = casesSelection(); fermerEditeur(); await ecrire(c, null); });
+$('popjalon').innerHTML = JALONS.map(j => `<option value="${esc(j)}">${j ? esc(j) : '— jalon —'}</option>`).join('');
+document.addEventListener('mousedown', ev => { if ($('pop').classList.contains('on') && !ev.target.closest('#pop') && !caseDe(ev.target)) fermerEditeur(); });
+
+$('evlist').addEventListener('click', ev => { const o = ev.target.closest('[data-evid]'); if (o) activerPinceau(+o.dataset.evid); });
+$('brushoff').addEventListener('click', () => S.brush && activerPinceau(S.brush.evaluation));
+$('fev').addEventListener('input', rendreListe);
+$('evtermin').addEventListener('change', rendreListe);
+$('toggleside').addEventListener('click', () => { $('side').classList.toggle('hidden'); store.set('side', !$('side').classList.contains('hidden')); });
+
+const changerPeriode = iso => { S.debut = iso; store.set('debut', iso); $('mois').value = iso; S.sel = null; rendreGrille(); };
+const decalerMois = n => { const d = new Date(S.debut + 'T00:00:00Z'); changerPeriode(isoUTC(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1)))); };
+$('prev').addEventListener('click', () => decalerMois(-1));
+$('next').addEventListener('click', () => decalerMois(1));
+$('mois').addEventListener('change', e => changerPeriode(e.target.value));
+$('auj').addEventListener('click', () => {
+  changerPeriode(premierDuMois(aujourdhui()));
+  setTimeout(() => document.querySelector('tr.today')?.scrollIntoView({ block: 'center' }), 0);
+});
+$('nbmois').addEventListener('change', e => { S.nbMois = +e.target.value; store.set('nbmois', S.nbMois); S.sel = null; rendreGrille(); });
+$('fcons').addEventListener('input', () => { S.sel = null; store.set('fcons', $('fcons').value); rendreGrille(); });
+$('tous').addEventListener('change', () => { S.sel = null; store.set('tous', $('tous').checked); rendreGrille(); });
+$('refresh').addEventListener('click', demarrer);
+
+function setStatus(msg, err = false) { const s = $('status'); s.textContent = msg; s.className = 'status' + (err ? ' err' : ''); }
+
+/* ───────── Démarrage ───────── */
+async function demarrer() {
+  setStatus('Lecture de Grist…');
+  try {
+    await chargerReferentiels();
+    S.pret = true;
+    await lireAffectations();
+  } catch (e) {
+    setStatus(`Erreur de lecture : ${e.message || e}. Le widget doit avoir l’accès complet.`, true);
+  }
+}
+S.debut = S.debut || premierDuMois(aujourdhui());
+$('nbmois').value = String(S.nbMois);
+$('fcons').value = store.get('fcons', '');
+$('tous').checked = store.get('tous', false);
+if (store.get('side', true) === false) $('side').classList.add('hidden');
+remplirMois();
+demarrer();
+</script>
+</body>
+</html>
