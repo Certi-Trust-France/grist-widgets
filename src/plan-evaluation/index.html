@@ -887,13 +887,22 @@ const LAYOUT = {
 const barre = (texte, colSpan) => ({ text: texte, bold: true, color: '#FFFFFF', fillColor: MARINE, colSpan });
 const sous = t => ({ text: t, bold: true, fillColor: PALE });
 const vides = n => Array.from({ length: n }, () => ({}));
+// Tableaux à garder entiers sur une page (voir pageBreakBefore) : id « garder-n » sur le tableau, et
+// « fin-garder-n » sur la première cellule de sa dernière ligne, pour savoir sur quelle page le tableau se termine
+// (pdfmake ne signale pas toujours qu'un tableau déborde quand seule sa dernière ligne passe à la page suivante).
+let nGarder = 0;
+function marquerFin(table, id) {
+  const l = table.body[table.body.length - 1];
+  l[0] = typeof l[0] === 'object' && l[0] !== null ? Object.assign(l[0], { id }) : { text: l[0] ?? '', id };
+}
+const garder = o => { o.id = `garder-${++nGarder}`; marquerFin(o.table, 'fin-' + o.id); return o; };
 function pdfTableChamps(titre, champs, total) {
   const body = [[barre(titre, 2), {}]];
   for (const f of champs) {
     const gras = total && f.k === 'CHARGE_TOTAL';
     body.push([{ text: f.lib, bold: gras }, Object.assign(pdfValeur(f), gras ? { bold: true } : {})]);
   }
-  return { table: { headerRows: 1, dontBreakRows: true, widths: ['38%', '*'], body }, layout: LAYOUT, margin: [0, 0, 0, 14] };
+  return garder({ table: { headerRows: 1, dontBreakRows: true, widths: ['38%', '*'], body }, layout: LAYOUT, margin: [0, 0, 0, 14] });
 }
 const titreSection = t => ({ text: t, fontSize: 13, bold: true, color: MARINE, margin: [0, 6, 0, 8], headlineLevel: 1 });
 const PDF = {
@@ -901,19 +910,20 @@ const PDF = {
   roles: () => [pdfTableChamps('Rôles', roles())],
   textes: b => [...(b.titre ? [titreSection(b.titre)] : []),
     ...b.liste.flatMap(([k, t]) => [{ text: t, style: 'h3', headlineLevel: 1 }, Object.assign(pdfValeur(F(k, t, 'x')), { margin: [0, 0, 0, 6] })])],
-  matrice: b => [{ table: { headerRows: 2, dontBreakRows: true, widths: ['30%', ...b.cols.map(() => '*')], body: [
+  matrice: b => [garder({ table: { headerRows: 2, dontBreakRows: true, widths: ['30%', ...b.cols.map(() => '*')], body: [
     [barre(b.titre, b.cols.length + 1), ...vides(b.cols.length)], [sous(''), ...b.cols.map(sous)],
     ...b.lignes.map(([lib, ...ks]) => [{ text: lib, bold: true }, ...ks.map(k => pdfValeur(F(k, lib, 'd')))])] },
-    layout: LAYOUT, margin: [0, 10, 0, 14] }],
+    layout: LAYOUT, margin: [0, 10, 0, 14] })],
   tableau: b => {
     const l = tableau(b), n = b.cols.length;
-    return [{ table: { headerRows: 2, dontBreakRows: true, widths: b.cols.map(([, , w]) => w || '*'), body: [
+    return [garder({ table: { headerRows: 2, dontBreakRows: true, widths: b.cols.map(([, , w]) => w || '*'), body: [
       [barre(b.titre, n), ...vides(n - 1)], b.cols.map(([, lib]) => sous(lib)),
       ...(l.length ? l.map(m => b.cols.map(([f]) => ({ text: m[f] || '' }))) : [[{ text: '', colSpan: n }, ...vides(n - 1)]])] },
-      layout: LAYOUT, margin: [0, 0, 0, 14] }];
+      layout: LAYOUT, margin: [0, 0, 0, 14] })];
   },
   agendas: () => agendas().flatMap(a => {
-    const out = [{ stack: [{ text: resoudre(a.titre), style: 'agenda' },
+    const ag = ++nGarder;
+    const out = [{ id: a.type === 'texte' ? undefined : `titre-agtab-${ag}`, stack: [{ text: resoudre(a.titre), style: 'agenda' },
       { canvas: [{ type: 'line', x1: 0, y1: 1, x2: 481, y2: 1, lineWidth: 1, lineColor: MARINE }], margin: [0, 0, 0, 6] }], headlineLevel: 1, margin: [0, 12, 0, 0] }];
     if (a.type === 'texte') return [...out, Object.assign(pdfRiche(resoudre(a.texte)), { margin: [0, 0, 0, 8] })];
     const n = a.cols.length;
@@ -923,10 +933,13 @@ const PDF = {
       if (estPause(l)) body.push([{ text: l[0] || '', fillColor: PALE }, { text: l[1], colSpan: n - 1, italics: true, fillColor: PALE }, ...vides(n - 2)]);
       else body.push(a.cols.map((_, j) => ({ text: l[j] || '' })));
     }
-    return [...out, { table: { headerRows: 1, dontBreakRows: true, widths, body }, layout: LAYOUT, fontSize: 8.5, margin: [0, 0, 0, 10] }];
+    const tab = { id: `agtab-${ag}`, table: { headerRows: 1, dontBreakRows: true, widths, body }, layout: LAYOUT, fontSize: 8.5, margin: [0, 0, 0, 10] };
+    marquerFin(tab.table, `fin-agtab-${ag}`);
+    return [...out, tab];
   }),
 };
 function construirePdf(res) {
+  nGarder = 0;
   const titre = DOC.titre(), version = DOC.version(), date = DOC.date();
   const content = [
     { text: titre, fontSize: 18, bold: true, color: MARINE, alignment: 'center', margin: [0, 0, 0, 2] },
@@ -945,7 +958,16 @@ function construirePdf(res) {
     defaultStyle: { font: res.police, fontSize: 9.5, color: TEXTE, lineHeight: 1.15 },
     styles: { h3: { fontSize: 10.5, bold: true, color: MARINE, margin: [0, 8, 0, 3] }, agenda: { fontSize: 11.5, bold: true, color: MARINE } },
     // Évite un titre seul en bas de page
-    pageBreakBefore: node => node.headlineLevel === 1 && node.startPosition.top > 690,
+    // Tableaux gardés entiers : un tableau à cheval sur deux pages est commencé sur la page suivante, sauf s'il est
+    // déjà en haut de page (plus long qu'une page : découpage inévitable, en-tête répété). Pour un agenda, c'est son
+    // titre qui passe à la page suivante, pour ne pas le séparer de son tableau.
+    pageBreakBefore: (node, suivants) => {
+      if (node.headlineLevel === 1 && node.startPosition.top > 690) return true;
+      const id = node.id || '';
+      const fin = /^garder-/.test(id) ? 'fin-' + id : /^titre-agtab-/.test(id) ? 'fin-' + id.slice(6) : null;
+      // Se termine sur une autre page (fin absente de la suite de la page) et pas déjà en haut de page
+      return !!fin && node.startPosition.top > 92 + 30 && !suivants.some(n => n.id === fin);
+    },
   };
 }
 function nomFichier() {
