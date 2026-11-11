@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ordres de mission</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  /* Charte Certi-Trust (reprise du modèle Word) */
+  :root { --marine:#32406C; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A;
+          --saisi:#9a5b00; --saisi-bg:#fff4e0; --manque:#b91c1c; --manque-bg:#fdecec; --modele:#3b5bab; --modele-bg:#eef3ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color:var(--txt); background:#eef0f4; }
+  .barre { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--bord); padding:8px 14px;
+           display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; }
+  .barre .titre { font-weight:700; color:var(--marine); margin-right:auto; font-size:13px; }
+  .pastille { font-size:11px; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+  .p-grist { background:#e7ecf7; color:var(--marine); } .p-modele { background:var(--modele-bg); color:var(--modele); }
+  .p-saisi { background:var(--saisi-bg); color:var(--saisi); } .p-manque { background:var(--manque-bg); color:var(--manque); }
+  button { font:inherit; font-size:12px; padding:5px 10px; border:1px solid var(--bord); border-radius:6px; background:#fff; cursor:pointer; color:var(--txt); }
+  button:hover { background:var(--pale); }
+  button.prim { background:var(--marine); color:#fff; border-color:var(--marine); } button.prim:hover { background:#26325a; }
+  button:disabled { opacity:.5; cursor:default; }
+  .alerte { max-width:860px; margin:10px auto 0; background:#fff4e0; border:1px solid #f1cf94; color:#6b4300; padding:8px 12px; border-radius:6px; font-size:12px; }
+  #msg { padding:40px 14px; color:var(--gris); text-align:center; }
+  .page { max-width:860px; margin:12px auto 40px; background:#fff; padding:26px 40px 40px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .entete { display:grid; grid-template-columns:150px 1fr 150px; align-items:center; gap:18px; margin-bottom:4px; }
+  .entete img { width:150px; }
+  h1 { font-size:20px; color:var(--marine); margin:0; text-align:center; }
+  .bascule { display:inline-flex; }
+  .bascule button { border-radius:0; }
+  .bascule button:first-child { border-radius:6px 0 0 6px; }
+  .bascule button:last-child { border-radius:0 6px 6px 0; margin-left:-1px; }
+  .bascule button.actif { background:var(--pale); color:var(--marine); font-weight:700; }
+  .ref { font-size:11px; color:var(--gris); margin:2px 0 18px; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center; justify-content:center; }
+  .ref .v { display:inline-block; min-width:40px; padding:0 4px; }
+  table { width:100%; border-collapse:collapse; margin:0 0 16px; table-layout:fixed; }
+  td, th { border:1px solid var(--bord); padding:4px 7px; vertical-align:top; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; }
+  th.bar { background:var(--marine); color:#fff; font-weight:700; }
+  tr.sous th { background:var(--pale); font-weight:600; }
+  td.lib { width:38%; }
+  tr.total td { font-weight:700; }
+  .v { cursor:text; position:relative; min-height:21px; }
+  .v:hover { outline:1px dashed #9aa6c6; outline-offset:-2px; }
+  .v.c { cursor:pointer; white-space:normal; }
+  .cc-fin { margin-top:4px; }
+  .cc-fin button { font-size:11px; padding:1px 8px; }
+  .v.modele { box-shadow:inset 3px 0 0 var(--modele); }
+  .v.saisi { background:var(--saisi-bg); box-shadow:inset 3px 0 0 var(--saisi); }
+  .v.manque { background:var(--manque-bg); box-shadow:inset 3px 0 0 var(--manque); }
+  .v .vide-txt { color:var(--manque); font-style:italic; font-size:11px; }
+  .v .na { color:var(--gris); }
+  .v ul { margin:0; padding-left:16px; white-space:normal; }
+  .v p { margin:0 0 4px; white-space:normal; }
+  .cc { display:flex; gap:6px; align-items:flex-start; cursor:pointer; padding:1px 0; }
+  .cc input { margin:2px 0 0; accent-color:var(--marine); cursor:pointer; }
+  .cc.na-opt { color:var(--gris); font-size:11px; }
+  .cc.hors { font-style:italic; }
+  .raz { position:absolute; top:2px; right:3px; font-size:10px; padding:0 5px; display:none; }
+  .v:hover > .raz { display:block; }
+  textarea.ed, input.ed { width:100%; font:inherit; border:1px solid var(--marine); border-radius:3px; padding:3px 5px; resize:vertical; background:#fff; color:var(--txt); }
+  h2.ag { font-size:14px; color:var(--marine); margin:24px 0 8px; padding-bottom:3px; border-bottom:1.5px solid var(--marine); }
+  h2.ag.v { min-height:0; }
+  h2.sec { font-size:15px; color:var(--marine); margin:26px 0 10px; }
+  h3 { font-size:12.5px; color:var(--marine); margin:14px 0 4px; }
+  .txt.v { padding:3px 6px; white-space:normal; }
+  tr.pause td { background:var(--pale); }
+  .outils { display:flex; gap:6px; margin:-8px 0 16px; flex-wrap:wrap; }
+  .outils button, td.act button { font-size:11px; padding:1px 7px; }
+  .act { width:58px; }
+  td.act, th.act { border:none; background:none; padding:2px 0 2px 4px; white-space:nowrap; vertical-align:middle; }
+  td.act button { opacity:0; }
+  tr:hover td.act button { opacity:1; }
+  .aide { font-size:11px; color:var(--gris); margin:-4px 0 10px; }
+  .flash { animation:flash 1.4s; }
+  @keyframes flash { 0% { box-shadow:0 0 0 3px var(--manque); } 100% { box-shadow:0 0 0 0 transparent; } }
+  #toast { position:fixed; bottom:12px; right:12px; background:var(--txt); color:#fff; padding:6px 12px; border-radius:6px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:9; }
+  #toast.show { opacity:1; }
+  /* Ordres de mission */
+  .equipe-odm td { vertical-align:middle; }
+  .equipe-odm tr.sel td { background:#f3f6fc; }
+  .equipe-odm tr.sel td:first-child { box-shadow:inset 3px 0 0 var(--marine); }
+  .equipe-odm .btns { white-space:nowrap; text-align:right; }
+  .equipe-odm .btns button { font-size:11px; padding:2px 8px; }
+  .st-envoye { color:#047857; font-size:11px; } .st-modif { color:#b45309; font-size:11px; } .st-non { color:var(--gris); font-size:11px; }
+  .msgs { max-width:860px; margin:10px auto 0; }
+  .msgs div { padding:5px 10px; border-radius:5px; font-size:12px; margin-bottom:4px; }
+  .msgs .err { background:#fee2e2; color:#991b1b; } .msgs .warn { background:#fef3c7; color:#78350f; } .msgs .info { background:#e7ecf7; color:var(--marine); }
+  .config { max-width:860px; margin:10px auto 0; background:#fff; border:1px solid var(--bord); border-radius:6px; padding:10px 12px; font-size:12px; display:none; }
+  .config label { display:block; margin:6px 0 2px; color:var(--gris); }
+  .config input { width:100%; font:inherit; padding:4px 6px; border:1px solid var(--bord); border-radius:4px; }
+  .config .act-cfg { margin-top:8px; display:flex; gap:6px; }
+  table.charge th, table.charge td { text-align:center; } table.charge td:first-child, table.charge th:first-child { text-align:left; }
+  table.charge .dest { font-weight:700; background:#f3f6fc; }
+  table.charge .plan { color:var(--gris); font-size:11px; }
+  table.charge .ecart { color:var(--manque); font-weight:600; }
+  .bonne { text-align:center; font-weight:700; color:var(--marine); margin:18px 0 10px; }
+</style>
+</head>
+<body>
+<div class="barre">
+  <span class="titre" id="titre">Ordres de mission</span>
+  <span id="cpt"></span>
+  <button id="btn-suivant" title="Aller à la prochaine case à compléter">À compléter →</button>
+  <button id="btn-maj" title="Relire les données Grist (planning, plan d’évaluation…)">↻ Recharger</button>
+  <button id="btn-config" title="Flux Power Automate et expéditeur">⚙ Configuration</button>
+</div>
+<div id="config" class="config">
+  <b>Configuration de l’envoi</b> — stockée dans le document Grist (options du widget), jamais dans le dépôt Git.
+  <label for="cfg-url">URL du flux Power Automate (même flux que les comptes rendus d’examen)</label>
+  <input id="cfg-url" type="text" placeholder="https://…invoke?api-version=1&sp=…&sv=1.0&sig=…">
+  <label for="cfg-from">Adresse d’expédition (from)</label>
+  <input id="cfg-from" type="text" placeholder="ex. evaluation@certi-trust.com">
+  <label for="cfg-cc">Copie systématique (cc, séparées par des virgules) — le RE est toujours mis en copie</label>
+  <input id="cfg-cc" type="text" placeholder="ex. planification@certi-trust.com">
+  <div class="act-cfg"><button id="cfg-ok" class="prim">Enregistrer</button><button id="cfg-annuler">Annuler</button></div>
+</div>
+<div id="alerte"></div>
+<div id="msgs" class="msgs"></div>
+<main id="doc"><div id="msg">Sélectionnez une évaluation dans la liste.</div></main>
+<datalist id="dl-eval"></datalist>
+<div id="toast"></div>
+<script>
+'use strict';
+/* Ordres de mission (TEM-405) — un ODM par évaluateur et par évaluation.
+   Code commun repris du widget plan-evaluation (commit d7dbf63) : utilitaires, calcul des valeurs Grist,
+   saisies partagées (Evaluations.Plan_evaluation), édition, préparation PDF. À resynchroniser si le plan évolue.
+   Propre à l'ODM : P.odm = { charge: {tri: {activité: jours}}, qualite: {tri}, societe: {tri}, envois: {tri: {date, sig, jours}} }. */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const rows = t => (t && t.id ? t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]]))) : []);
+const liste = v => Array.isArray(v) ? (v[0] === 'L' ? v.slice(1) : v) : (v ? [v] : []);
+const refId = v => typeof v === 'number' ? v : (v && (v.rowId ?? v.id)) || 0;
+const vide = v => v === null || v === undefined || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && !v.length);
+const fr = sec => { if (typeof sec !== 'number' || !sec) return ''; return new Date(sec * 1000).toISOString().slice(0, 10).split('-').reverse().join('/'); };
+const nombre = x => (Math.round(x * 100) / 100).toString().replace('.', ',');
+const num = s => { const m = String(s ?? '').replace(',', '.').match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; };
+const clone = o => JSON.parse(JSON.stringify(o));
+const lignesDe = v => String(v ?? '').split('\n').map(s => s.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean);
+const aujourdhui = () => { const d = new Date(); return [d.getDate(), d.getMonth() + 1].map(n => String(n).padStart(2, '0')).join('/') + '/' + d.getFullYear(); };
+const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, ' ').trim();
+const codeDe = s => { const m = String(s ?? '').match(/\(([^()]+)\)\s*[,;.]?$/); return m ? m[1].trim().toUpperCase() : null; };
+const a_ = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+function toast(m, ms = 2200) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), ms); }
+
+const COL = 'Plan_evaluation';     // colonne Texte de Evaluations qui garde les saisies (JSON), partagée par les deux documents
+let T = null;                       // tables Grist
+let evalId = null;
+let base = {};                      // valeurs calculées depuis Grist : k → {v, src, st}
+let ctx = {};                       // contexte de l'évaluation (programme, équipe Grist…)
+let P = vierge();                   // saisies manuelles de l'évaluation
+let colOk = false, enEdition = false, dernierEnr = null;
+let ouvert = null;                  // case à cocher en cours de choix (clé du champ), sinon seules les valeurs cochées s'affichent
+function vierge() { return { v: 1, champs: {}, equipe: null, agendas: null }; }
+let DOC = { cases: false };          // PDF : seules les valeurs cochées sont listées
+/* ═════════ Champs ═════════
+   type : t texte · m multiligne · l liste à puces · d date · n nombre de jours · x texte mis en forme · c cases à cocher
+   opt  : champ facultatif (vide → « N/A », non compté comme manquant) */
+const F = (k, lib, type = 't', opt = false) => ({ k, lib, type, opt });
+
+const TYPES_GRIST = ['Initiale', 'Surveillance', 'Renouvellement', 'Complémentaire', 'Extension d’activité', 'Autre'];
+const PHRASES_TYPE = {
+  'Initiale': 'Évaluation en vue d’une qualification initiale',
+  'Renouvellement': 'Évaluation en vue d’un renouvellement de qualification',
+};
+const OBJECTIFS_TYPE = {
+  'Renouvellement': ['Évaluation par échantillonnage de la conformité par rapport aux critères d’évaluation,',
+    'Évaluation par échantillonnage des prestations qualifiées,', 'Évaluation de l’impact des changements depuis la précédente évaluation,',
+    'Évaluation des plans d’action relatifs aux non-conformités précédentes,',
+    'Évaluation des conditions d’utilisation du service indiquées dans la décision de qualification du service.'],
+};
+// Valeurs des modèles Word, utilisées seulement si Grist n'a rien (marquées « modèle »).
+const MODELE_PROGRAMME = {
+  PASSI: { CRIT_TRAME: 'PASSI – trame d’évaluation – v1.3', CRIT_REGLEMENT: 'MAN-402_Reglement_Certification_PASSI2.2_V1.5' },
+};
+// Portées qui ne donnent pas lieu à une case ni à un évaluateur dédié (qualifications d'évaluateur, tronc commun…)
+const PORTEES_EXCLUES = /_(RA|AUDIT|RP|TC)$/;
+// Cases du TEM-404 (Json_Complet) → code court de Qualifications_List, par programme.
+const PORTEES_TEM404 = {
+  passi: ['c1', { archi: 'ARCHI', conf: 'CONF', code: 'CODE', intrusion: 'INTRUSION', orgaphy: 'ORGAPHY' }],
+  pacs: ['c2', { archi: 'ARCHI', homol: 'HOM', risque: 'GDR', crise: 'CRISE' }],
+  pris: ['c3', { rec: 'REC', inv: 'INV', code: 'CODE', pci: 'PCI', crise: 'CRISE' }],
+  secnumcloud: ['c4', { iaas: 'IaaS', paas: 'PaaS', saas: 'SaaS', caas: 'CaaS' }],
+};
+
+const TEXTES_DEFAUT = {
+  TXT_ECHANTILLONNAGE: 'Lors d’une évaluation initiale ou de renouvellement, l’ensemble des points de contrôle de la trame doit être documenté. Si des points de contrôle ne sont pas évalués, une justification doit être apportée.\nL’échantillonnage doit couvrir l’ensemble des chapitres de la trame. Ainsi, pour chaque chapitre, un tiers des exigences doit être sélectionné à des fins de vérification. Cette règle s’applique également aux documents de référence spécifiques tels que le GHY et le II 901, lorsque ces derniers sont concernés.',
+  TXT_LIVRABLES: 'Le responsable d’évaluation produira les livrables suivants :\n- Un rapport d’évaluation présentant les tâches d’évaluation menées, les résultats de ces tâches, les vulnérabilités et non-conformités au référentiel d’exigences identifiées.\n- La trame d’évaluation complétée par les évaluateurs.\n- Un tableau listant l’ensemble des non-conformités et leur niveau de gravité. Ce tableau sera complété par le prestataire avec les plans d’action de mise en conformité et leurs délais de mise en œuvre associés. Certi-Trust formulera un avis sur les plans d’action et leurs délais de mise en œuvre.',
+  TXT_NC: 'Les modalités ci-dessous sont prises en compte pour la qualification du niveau de criticité d’une non-conformité.\nLe niveau de criticité de la non-conformité doit prendre en compte : le niveau de gravité du risque couvert par l’exigence, la vraisemblance de l’exploitation du risque et l’impact que pourraient avoir les conséquences si le risque se produit.\nLes non-conformités peuvent être qualifiées de majeures :\n- Si la non-conformité engendre des risques avérés sur la sécurité des systèmes d’information ou des informations relatives à la prestation ;\n- Si la non-conformité engendre des risques avérés sur l’efficacité de délivrance de la prestation ;\n- Si la non-conformité implique une correction à court terme ou immédiate.\nLes non-conformités peuvent être qualifiées de mineures dans les autres cas.\nLes non-conformités mineures peuvent être regroupées dans une ou plusieurs non-conformités majeures lorsqu’elles engendrent par cumulation des risques avérés.\nUne non-conformité mineure peut être reconsidérée comme majeure du fait de la récurrence de son identification : indiquant un défaut d’amélioration en continu du service et de la non-correction de la non-conformité.\nUne non-conformité doit faire l’objet d’une qualification de sa criticité : majeure ou mineure.\nLes non-conformités devront rapporter fidèlement un fait, basé sur l’observation objective et étayé d’une preuve tangible, en incluant un contexte et en exposant une différence par rapport aux critères d’évaluation.',
+  TXT_ECHANGE: 'Toutes les informations communiquées entre le prestataire et Certi-Trust devront se faire par le biais d’un conteneur ZED.',
+  TXT_MARQUAGE: 'Le rapport d’évaluation portera la mention Diffusion Restreinte, conformément à l’instruction interministérielle n° 901.\nCerti-Trust apposera sur le rapport d’évaluation une signature électronique avancée conforme au règlement européen n° 910/2014 afin de garantir son authenticité et permettre de détecter toute altération de son contenu.',
+  TXT_LANGUE: 'Le rapport d’évaluation sera rédigé en langue française.',
+  // Stratégie d'évaluation (TEM-401)
+  SG_LIVRABLES: 'À chaque évaluation, le responsable d’évaluation produira les livrables suivants :\n- Un rapport d’évaluation présentant les tâches d’évaluation menées, les résultats de ces tâches, les vulnérabilités et non-conformités au référentiel d’exigences identifiées.\n- La trame d’évaluation complétée par les évaluateurs.\n- Un tableau listant l’ensemble des non-conformités et leur niveau de gravité. Ce tableau sera complété par le prestataire avec les plans d’action de mise en conformité et leurs délais de mise en œuvre associés. Certi-Trust formulera un avis sur les plans d’action et leurs délais de mise en œuvre.',
+  SG_MARQUAGE: 'Le rapport d’évaluation portera la mention Diffusion Restreinte, conformément à l’instruction interministérielle n° 901.',
+  SG_PROTECTION: 'L’évaluateur apposera sur le rapport d’évaluation une signature électronique avancée conforme au règlement européen n° 910/2014 afin de garantir son authenticité et permettre de détecter toute altération de son contenu.',
+  SG_LANGUE: 'Le rapport d’évaluation sera rédigé en langue française.',
+  SG_DELAI: 'L’évaluateur transmettra le rapport d’évaluation dans un délai d’un mois maximum à partir de la date de fin de l’évaluation.',
+};
+/* ═════════ Lecture Grist ═════════ */
+async function chargerTables() {
+  const noms = ['Evaluations', 'Entreprises', 'Sites', 'Contacts', 'Programmes', 'Documents_Referentiel',
+    'Qualifications_List', 'Unites_d_oeuvre', 'Evaluateurs', 'TEM_404', 'Systemes_Information', 'Propositions_prestation'];
+  const res = await Promise.all(noms.map(n => grist.docApi.fetchTable(n).then(rows).catch(() => [])));
+  T = {};
+  noms.forEach((n, i) => { T[n] = res[i]; T[n].par = new Map(res[i].map(r => [r.id, r])); });
+}
+
+// Ajoute n jours ouvrés (lun.–ven.) à une date Grist (secondes UTC) ; n = 1 → même jour.
+function finOuvree(sec, jours) {
+  let d = new Date(sec * 1000), reste = Math.max(Math.ceil(jours || 1), 1) - 1;
+  while (reste > 0) { d.setUTCDate(d.getUTCDate() + 1); const j = d.getUTCDay(); if (j !== 0 && j !== 6) reste--; }
+  return d.getTime() / 1000;
+}
+
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+// « juin 2026 », « 06/2026 » ou « 08/06/2026 » → {m: 0..11, a}
+function lirePeriode(s) {
+  s = String(s || '');
+  let m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return { m: +m[2] - 1, a: +m[3] };
+  m = s.match(/\b(\d{1,2})\/(\d{4})\b/); if (m) return { m: +m[1] - 1, a: +m[2] };
+  const n = norm(s); const i = MOIS.findIndex(x => n.includes(norm(x))); m = s.match(/\b(20\d\d)\b/);
+  return i >= 0 && m ? { m: i, a: +m[1] } : null;
+}
+const periode = p => p ? `${MOIS[p.m]} ${p.a}` : '';
+
+/* Valeurs proposées par Grist pour une évaluation. st : 'grist' ou 'modele'. */
+function calculer(id) {
+  const ev = T.Evaluations.par.get(id);
+  if (!ev) return null;
+  const ent = T.Entreprises.par.get(refId(ev.Entreprise)) || {};
+  const prog = T.Programmes.par.get(refId(ev.Programme)) || {};
+  const progNom = prog.Nom_du_programme || '';
+  const progCourt = progNom.replace(/_.*$/, '');
+  const progCle = progCourt.toLowerCase();
+  const po = T.Propositions_prestation.par.get(refId(ev.PO));
+  let tem = po && T.TEM_404.par.get(refId(po.TEM_404));
+  if (!tem) tem = T.TEM_404.filter(t => refId(t.Entreprise) === ent.id && liste(t.PROGRAMME).includes(prog.id)).sort((a, b) => b.id - a.id)[0];
+  let J = {}; try { J = tem ? JSON.parse(tem.Json_Complet || '{}') : {}; } catch { J = {}; }
+  const temNom = tem ? `TEM-404 ${tem.NumTEM404 || ''}`.trim() : '';
+
+  const B = {};
+  const set = (k, v, src, st = 'grist') => {
+    const s = Array.isArray(v) ? v.filter(x => !vide(x)).join('\n') : (v == null ? '' : String(v));
+    if (!vide(s)) B[k] = { v: s, src, st };
+  };
+
+  /* Société */
+  const sitesEnt = T.Sites.filter(s => refId(s.Entreprise) === ent.id);
+  const adr = s => [s.Street, s.Street2, [s.Zip, s.City].filter(Boolean).join(' '), s.Pays].filter(x => !vide(x)).join('\n');
+  const siege = sitesEnt.find(s => s.Siege);
+  set('SOC_NOM', ent.Denomination, 'Entreprises.Denomination');
+  set('SOC_SIREN', ent.SIREN ? String(ent.SIREN) : '', 'Entreprises.SIREN');
+  if (siege) set('SOC_SIEGE_ADRESSE', adr(siege), 'Sites (Siege = vrai)');
+  else set('SOC_SIEGE_ADRESSE', [J['demandeur.adresse1'], J['demandeur.adresse2'], [J['demandeur.code_postal'], J['demandeur.ville']].filter(Boolean).join(' '), J['demandeur.pays']].filter(x => !vide(x)).join('\n'), temNom + ' demandeur.adresse');
+  const actifs = sitesEnt.filter(s => s.Actif !== false);
+  set('SITE_ADRESSE', actifs.length === 1 ? adr(actifs[0]) : actifs.map(s => (s.Nom_site ? s.Nom_site + ' — ' : '') + adr(s).replace(/\n/g, ', ')), `Sites actifs de l’entreprise (${actifs.length})`);
+  set('SOC_WEB', J['demandeur.site_internet'], temNom + ' demandeur.site_internet');
+  set('SOC_EFFECTIF_TOTAL', J['e.effectif_total'], temNom + ' e.effectif_total');
+  set('SOC_EFFECTIF_PERIMETRE', J[`e.${progCle}.total`] || J['e.effectif_perimetre'], temNom + ` e.${progCle}.total`);
+  const contacts = T.Contacts.filter(c => refId(c.Entreprise) === ent.id);
+  const resp = contacts.find(c => c.Responsable_de_programme && liste(c.Programmes_Responsable).includes(prog.id)) || contacts.find(c => c.Responsable_de_programme);
+  if (resp) {
+    set('CONTACT_NOM', [resp.Prenom, resp.Nom].filter(Boolean).join(' '), 'Contacts (Responsable_de_programme)');
+    set('CONTACT_EMAIL', resp.Courriel, 'Contacts.Courriel');
+    set('CONTACT_TEL', resp.telephone, 'Contacts.telephone');
+  } else {
+    const cp = k => J[`b.${progCle}.chef_projet.${k}`];
+    set('CONTACT_NOM', [cp('prenom'), cp('nom')].filter(Boolean).join(' '), temNom + ' chef de projet');
+    set('CONTACT_EMAIL', cp('courriel'), temNom + ' chef de projet');
+    set('CONTACT_TEL', cp('telephone'), temNom + ' chef de projet');
+  }
+
+  /* Évaluation */
+  const doc = r => r ? [r.Document_Name, r.Version && 'v' + r.Version].filter(Boolean).join(' – ') : '';
+  const refEv = T.Documents_Referentiel.par.get(refId(ev.Referentiel));
+  const refPo = po && T.Documents_Referentiel.par.get(refId(po.Referentiel));
+  const refProg = liste(prog.Referentiel).map(i => T.Documents_Referentiel.par.get(i)).filter(Boolean);
+  let refDoc = refEv || refPo;
+  if (refDoc) set('CRIT_REFERENTIEL', doc(refDoc), refEv ? 'Evaluations.Referentiel' : 'Propale (Referentiel)');
+  else {
+    const vTem = J[`b.${progCle}.version`];
+    const choisi = refProg.filter(r => vTem && String(r.Version) === String(vTem));
+    const l = choisi.length ? choisi : refProg;
+    if (l.length === 1) refDoc = l[0];
+    set('CRIT_REFERENTIEL', l.map(doc), 'Programmes.Referentiel' + (choisi.length ? ` (version ${vTem} du TEM-404)` : ''));
+  }
+  set('CRIT_TRAME', doc(T.Documents_Referentiel.par.get(refId(prog.Trame))), 'Programmes.Trame');
+  const modele = MODELE_PROGRAMME[progNom] || {};
+  for (const [k, v] of Object.entries(modele)) if (!B[k]) set(k, v, 'Modèle de plan ' + progNom, 'modele');
+  const types = liste(ev.Type_d_evaluation);
+  set('EVAL_TYPE', types.map(t => PHRASES_TYPE[t] || t), 'Evaluations.Type_d_evaluation');
+  if (types.includes('Autre')) set('EVAL_TYPE_AUTRE', ev.Commentaires, 'Evaluations.Commentaires');
+  const code = q => String(q.Qualification_code || '').replace(/^[^_]+_/, '');
+  const quals = liste(ev.Activites_).map(i => T.Qualifications_List.par.get(i)).filter(Boolean);
+  // Portées demandées : cases cochées du TEM-404 ; à défaut (pas de TEM-404, PDIS/PAMS en texte libre), Evaluations.Activites_
+  const blocTem = PORTEES_TEM404[progCle];
+  const porteesTem = blocTem ? Object.entries(blocTem[1]).filter(([cle]) => J[`${blocTem[0]}.${cle}`] === true).map(([, c]) => {
+    const q = T.Qualifications_List.find(x => refId(x.Programme) === prog.id && code(x) === c);
+    return q ? `${q.Qualifications} (${c})` : c;
+  }) : [];
+  if (porteesTem.length) set('EVAL_PORTEES', porteesTem, `${temNom} (bloc ${blocTem[0]})`);
+  else set('EVAL_PORTEES', quals.map(q => `${q.Qualifications} (${code(q)})`), 'Evaluations.Activites_' + (tem ? ` (aucune portée cochée dans ${temNom})` : ''));
+  const niv = J[`b.${progCle}.niveau`];
+  set('EVAL_NIVEAU', niv && niv !== '-' ? niv : '', temNom + ` b.${progCle}.niveau`);
+  const objectifs = types.map(t => OBJECTIFS_TYPE[t]).find(Boolean);
+  if (objectifs) set('EVAL_OBJECTIFS', objectifs, 'Texte type « ' + types.join(', ') + ' »', 'modele');
+  if (!vide(ev.SI_DR)) set('SIDR_CLASSE', ev.SI_DR, 'Evaluations.SI_DR');
+  else set('SIDR_CLASSE', T.Systemes_Information.filter(s => refId(s.Entreprise) === ent.id && liste(s.Programmes).includes(prog.id) && /DR|Classe/i.test(s.Classification || '')).map(s => s.Classification), 'Systemes_Information.Classification');
+
+  /* Jalons et charges : unités d'œuvre */
+  const uos = T.Unites_d_oeuvre.filter(u => refId(u.Evaluation) === ev.id);
+  const deType = (...t) => uos.filter(u => t.includes(u.Unite_d_oeuvre));
+  const debut = us => { const d = us.map(u => u.date_debut_incluse).filter(Boolean); return d.length ? Math.min(...d) : null; };
+  const fin = us => { const d = us.filter(u => u.date_debut_incluse).map(u => finOuvree(u.date_debut_incluse, u.Jours)); return d.length ? Math.max(...d) : null; };
+  const uo = t => `Unités d’œuvre « ${t} »`;
+  set('DATE_LANCEMENT', fr(debut(deType('Journée de lancement'))), uo('Journée de lancement'));
+  set('DATE_DOC_DEBUT', fr(debut(deType('Revue documentaire'))), uo('Revue documentaire') + ' : début');
+  set('DATE_DOC_FIN', fr(fin(deType('Revue documentaire'))), uo('Revue documentaire') + ' : fin (jours ouvrés)');
+  set('DATE_SIEGE_DEBUT', fr(debut(deType('évaluation siège'))), uo('évaluation siège') + ' : début');
+  set('DATE_SIEGE_FIN', fr(fin(deType('évaluation siège'))), uo('évaluation siège') + ' : fin (jours ouvrés)');
+  set('DATE_TEMOIN', [...new Set(deType('évaluation prestation témoin').map(u => fr(u.date_debut_incluse)).filter(Boolean))], uo('évaluation prestation témoin'));
+  set('DATE_CLOTURE', fr(debut(deType('Réunion de clôture'))), uo('Réunion de clôture'));
+  const remise = fin(deType('Rédaction du rapport'));
+  if (remise) set('DATE_REMISE_RAPPORT', fr(remise), uo('Rédaction du rapport') + ' : fin');
+  else set('DATE_REMISE_RAPPORT', fr(ev.Date_fin_prevue), 'Evaluations.Date_fin_prevue');
+  const affectee = u => liste(u.evaluateurs).length > 0;     // UO sans évaluateur = créneau non affecté, non compté
+  const jours = (...t) => { const us = deType(...t).filter(affectee); return us.length ? nombre(us.reduce((a, u) => a + (u.Jours || 0), 0)) : ''; };
+  set('CHARGE_PILOTAGE', jours('Plan d\'évaluation', 'Planification'), uo('Plan d’évaluation') + ' + « Planification »');
+  set('CHARGE_LANCEMENT', jours('Journée de lancement'), uo('Journée de lancement'));
+  set('CHARGE_DOC', jours('Revue documentaire'), uo('Revue documentaire'));
+  set('CHARGE_SIEGE', jours('évaluation siège'), uo('évaluation siège'));
+  set('CHARGE_TEMOIN', jours('évaluation prestation témoin'), uo('évaluation prestation témoin'));
+  set('CHARGE_LIVRABLES', jours('Rédaction du rapport'), uo('Rédaction du rapport'));
+  set('CHARGE_SOUTENANCE', jours('Soutenance des travaux à l\'ANSSI et suivi'), uo('Soutenance ANSSI et suivi'));
+
+  /* Période d'évaluation (stratégie) : 1re date connue de l'évaluation */
+  const debutEval = debut(uos) || ev.Date_Debut_prevue;
+  if (debutEval) { const d = new Date(debutEval * 1000); set('PERIODE_INIT', periode({ m: d.getUTCMonth(), a: d.getUTCFullYear() }), debut(uos) ? 'Planning (1re unité d’œuvre)' : 'Evaluations.Date_Debut_prevue'); }
+
+  /* Équipe */
+  const evr = i => T.Evaluateurs.par.get(i);
+  const nom = e => e ? [e.Evaluateur_Prenom, String(e.Evaluateur_Nom || '').toUpperCase()].filter(Boolean).join(' ') : '';
+  // Rôles de l'évaluation complétés par les personnes positionnées au planning (unités d'œuvre)
+  const unique = l => [...new Map(l.filter(Boolean).map(e => [e.id, e])).values()];
+  const dePlanning = champ => uos.flatMap(u => (champ === 'RE' ? [refId(u.RE)] : liste(u[champ]))).map(evr);
+  const reEv = evr(refId(ev.RE));
+  const reUo = unique(dePlanning('RE'));
+  const re = reEv || reUo[0];
+  const eta = unique([...liste(ev.ETA).map(evr), ...dePlanning('ETA')]);
+  const etm = unique([...liste(ev.ETM).map(evr), ...dePlanning('ETM'), ...reUo.filter(e => e !== re)]);
+  const obs = unique([...liste(ev.OBS).map(evr), ...dePlanning('OBS')]);
+  const src = (c, l) => `Evaluations.${c}` + (dePlanning(c).some(e => e && l.includes(e)) ? ' + planning' : '');
+  set('MEMBRE_RE', nom(re), reEv ? 'Evaluations.RE' : 'Planning (unités d’œuvre, RE)');
+  set('MEMBRE_ETA', eta.map(nom).join(', '), src('ETA', eta));
+  set('MEMBRE_OBS', obs.map(nom).join(', '), src('OBS', obs));
+  const equipe = unique([re, ...eta, ...etm, ...obs])
+    .map(e => ({ nom: nom(e), tri: e.Evaluateur_Trigramme || '', tel: e.Evaluateur_Telephone || '', mail: e.Evaluateur_Courriel || '' }));
+
+  /* En-tête du document */
+  set('DOC_REF', ev.Libelle, 'Evaluations.Libelle');
+  set('DOC_VERSION', '1.0', 'Version par défaut', 'modele');
+  set('DOC_DATE', aujourdhui(), 'Date du jour', 'modele');
+  for (const k of Object.keys(TEXTES_DEFAUT)) set(k, TEXTES_DEFAUT[k], 'Texte du modèle', 'modele');
+
+  // Libellés des portées : ceux du programme de l'évaluation d'abord (CODE = PASSI_CODE et non PRIS_CODE)
+  const qs = T.Qualifications_List.filter(q => q.Qualification_code).sort((a, b) => (refId(a.Programme) === prog.id) - (refId(b.Programme) === prog.id));
+  const libQual = new Map(qs.map(q => [code(q), q.Qualifications]));
+  const qualsProg = T.Qualifications_List.filter(q => refId(q.Programme) === prog.id && q.Qualification_code && !PORTEES_EXCLUES.test(q.Qualification_code));
+  return {
+    B, ctx: { ev, ent, progNom, progCourt, refVersion: refDoc && refDoc.Version ? String(refDoc.Version) : '', equipe, libQual,
+      portéesProg: qualsProg.map(code), optionsPortees: qualsProg.map(q => `${q.Qualifications} (${code(q)})`),
+      nbUO: uos.length, nonAffectees: uos.filter(u => !affectee(u)).length,
+      tousEvaluateurs: T.Evaluateurs.map(nom).filter(Boolean).sort() },
+  };
+}
+
+/* ═════════ Valeurs affichées = saisie manuelle, sinon calcul, sinon Grist ═════════ */
+function totalCalcule() {
+  const ns = CHARGES.map(k => num(val(k))).filter(n => n !== null);
+  return ns.length ? nombre(ns.reduce((a, b) => a + b, 0)) : '';
+}
+function surveillance18() {
+  const p = lirePeriode(val('PERIODE_INIT')); if (!p) return '';
+  const t = p.a * 12 + p.m + 18; return periode({ m: t % 12, a: Math.floor(t / 12) });
+}
+// Valeurs déduites d'autres cases (suivent leurs modifications tant qu'elles ne sont pas saisies)
+const CALCULS = {
+  CHARGE_TOTAL: { f: totalCalcule, st: 'grist', src: 'Somme des lignes' },
+  PERIODE_SURV: { f: surveillance18, st: 'modele', src: 'Période initiale + 18 mois' },
+};
+function val(k) {
+  if (a_(P.champs, k)) return P.champs[k];
+  if (CALCULS[k]) return CALCULS[k].f();
+  return base[k] ? base[k].v : '';
+}
+function etat(k, opt) {
+  const v = val(k);
+  if (a_(P.champs, k)) return vide(v) ? (opt ? 'na' : 'manque') : 'saisi';
+  if (vide(v)) return opt ? 'na' : 'manque';
+  return CALCULS[k] ? CALCULS[k].st : (base[k] ? base[k].st : 'grist');
+}
+function source(k) {
+  if (a_(P.champs, k)) return 'Saisi à la main' + (base[k] ? ` — valeur Grist : ${base[k].v.split('\n')[0]}` : '');
+  if (CALCULS[k]) return CALCULS[k].src;
+  return base[k] ? base[k].src : 'Absent de Grist : à saisir';
+}
+const tableau = b => P[b.cle] || b.defaut();
+const blocDe = cle => Object.values(DOCS).flatMap(d => d.blocs).find(b => b.t === 'tableau' && b.cle === cle);
+const agendas = () => P.agendas || (ctx.progCourt === 'PASSI' ? AGENDAS_PASSI : []);
+function resoudre(s) {
+  return String(s || '').replace(/\{([A-Z_]+)\}/g, (_, k) => { const v = lignesDe(val(k)).join(', '); return v || 'à définir'; });
+}
+
+/* Cases à cocher : options, et options cochées d'après la valeur (lignes de texte) */
+function options(k) {
+  if (k === 'EVAL_TYPE') return TYPES_GRIST.map(t => PHRASES_TYPE[t] || t);
+  if (/^TEMOIN_PORTEES/.test(k)) {
+    // Portées observées en prestation témoin : choisies parmi les portées demandées
+    const demandees = lignesDe(val('EVAL_PORTEES')).filter(l => !/^n\/?a\.?$/i.test(l));
+    return demandees.length ? demandees : (ctx.optionsPortees || []);
+  }
+  if (/PORTEES/.test(k)) {
+    // Portées demandées : toutes celles du programme, plus celles du TEM-404 absentes de la liste (ex. SecNumCloud)
+    const base_ = lignesDe(base.EVAL_PORTEES ? base.EVAL_PORTEES.v : '');
+    const opts = ctx.optionsPortees || [];
+    return [...opts, ...base_.filter(l => !opts.some(o => norm(o) === norm(l) || (codeDe(o) && codeDe(o) === codeDe(l))))];
+  }
+  if (k === 'EVAL_NIVEAU') return ['Substantiel', 'Élevé'];
+  if (k === 'SIDR_CLASSE') return ['Classe 2', 'Classe 1'];
+  return [];
+}
+function coches(k) {
+  const opts = options(k), sel = new Set(), hors = [];
+  let na = false;
+  for (const l of lignesDe(val(k))) {
+    if (/^n\/?a\.?$/i.test(l)) { na = true; continue; }
+    const o = opts.find(o => norm(o) === norm(l) || (codeDe(o) && codeDe(o) === codeDe(l)));
+    if (o) sel.add(o); else hors.push(l);
+  }
+  return { opts, sel, hors, na };
+}
+// Une seule case possible (niveau, classe du SI DR) ; les autres listes sont à choix multiple.
+const CHOIX_UNIQUE = new Set(['EVAL_NIVEAU', 'SIDR_CLASSE']);
+function basculer(k, quoi) {
+  const c = coches(k);
+  let lignes;
+  if (quoi === 'na') lignes = c.na ? [] : ['N/A'];
+  else if (quoi.startsWith('h')) { c.hors.splice(Number(quoi.slice(1)), 1); lignes = [...c.opts.filter(o => c.sel.has(o)), ...c.hors]; }
+  else {
+    const o = c.opts[Number(quoi)];
+    if (c.sel.has(o)) c.sel.delete(o);
+    else { if (CHOIX_UNIQUE.has(k)) { c.sel.clear(); c.hors.length = 0; } c.sel.add(o); }
+    lignes = [...c.opts.filter(o => c.sel.has(o)), ...c.hors];
+  }
+  P.champs[k] = lignes.join('\n');
+}
+
+// Une ligne d'évaluateur par portée : celles demandées, sinon celles du programme.
+function portees() {
+  let codes = lignesDe(val('EVAL_PORTEES')).map(l => codeDe(l) || l.trim()).filter(l => !/^n\/?a\.?$/i.test(l));
+  if (!codes.length) codes = ctx.portéesProg || [];
+  return [...new Set(codes)];
+}
+function roles() {
+  const r = [F('MEMBRE_RE', 'Responsable d’évaluation'), F('MEMBRE_ETA', 'Évaluateur technique (ETA)')];
+  for (const c of portees()) r.push(F(`MEMBRE_ET_${c.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}`, `Évaluateur ${(ctx.libQual.get(c) || c).replace(/^./, x => x.toLowerCase())}`));
+  r.push(F('MEMBRE_OBS', 'Observateur d’évaluation', 't', true), F('MEMBRE_SUP', 'Superviseur d’évaluation', 't', true));
+  return r;
+}
+/* ═════════ Rendu écran ═════════ */
+const jours = v => { const n = num(v); return n === null ? String(v) : nombre(n) + (n > 1 ? ' jours' : ' jour'); };
+function htmlValeur(f) {
+  if (f.type === 'c') return ouvert === f.k
+    ? htmlCases(f.k) + '<div class="cc-fin"><button data-act="cc-fermer">Terminé</button></div>'
+    : htmlChoisis(f);
+  const v = val(f.k);
+  if (vide(v)) return f.opt ? '<span class="na">N/A</span>' : '<span class="vide-txt">à compléter</span>';
+  if (f.type === 'l') return '<ul>' + lignesDe(v).map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
+  if (f.type === 'n') return esc(jours(v));
+  if (f.type === 'x') return htmlRiche(v);
+  return esc(v);
+}
+// Hors édition : uniquement les valeurs cochées, sans les cases (comme dans le PDF)
+function htmlChoisis(f) {
+  const c = coches(f.k);
+  const l = [...c.opts.filter(o => c.sel.has(o)), ...c.hors];
+  if (!l.length) return c.na || f.opt ? '<span class="na">N/A</span>' : '<span class="vide-txt">à compléter (cliquer pour choisir)</span>';
+  return l.length === 1 ? esc(l[0]) : '<ul>' + l.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
+}
+function htmlCases(k) {
+  const c = coches(k);
+  let h = c.opts.map((o, i) => `<label class="cc"><input type="checkbox" data-cc="${k}|${i}" ${c.sel.has(o) ? 'checked' : ''}><span>${esc(o)}</span></label>`).join('');
+  h += c.hors.map((o, i) => `<label class="cc hors" title="Valeur hors liste (décocher pour la retirer)"><input type="checkbox" data-cc="${k}|h${i}" checked><span>${esc(o)}</span></label>`).join('');
+  h += `<label class="cc na-opt"><input type="checkbox" data-cc="${k}|na" ${c.na ? 'checked' : ''}><span>N/A</span></label>`;
+  return h;
+}
+function htmlRiche(v) {
+  let h = '', ul = false;
+  for (const l of String(v).split('\n')) {
+    const t = l.trim(); if (!t) continue;
+    if (/^[-•]\s+/.test(t)) { if (!ul) { h += '<ul>'; ul = true; } h += `<li>${esc(t.replace(/^[-•]\s+/, ''))}</li>`; }
+    else { if (ul) { h += '</ul>'; ul = false; } h += `<p>${esc(t)}</p>`; }
+  }
+  return h + (ul ? '</ul>' : '');
+}
+function cellule(f, balise = 'td', classe = '') {
+  const st = etat(f.k, f.opt);
+  const raz = st === 'saisi' || (f.type === 'c' && a_(P.champs, f.k)) ? `<button class="raz" data-act="raz" data-k="${f.k}" title="Revenir à la valeur Grist">↺</button>` : '';
+  return `<${balise} class="v ${f.type === 'c' ? 'c' : ''} ${classe} ${st}" data-k="${f.k}" data-type="${f.type}" title="${esc(source(f.k))}">${htmlValeur(f)}${raz}</${balise}>`;
+}
+function editer(cell) {
+  const c = cible(cell);
+  enEdition = true;
+  const ed = document.createElement(c.multi ? 'textarea' : 'input');
+  ed.className = 'ed'; ed.value = c.texte;
+  if (c.multi) ed.rows = Math.min(Math.max(2, String(c.texte).split('\n').length + 1), 18);
+  if (c.liste) ed.setAttribute('list', 'dl-eval');
+  if (cell.dataset.type === 'd') ed.placeholder = 'JJ/MM/AAAA ou N/A';
+  cell.innerHTML = ''; cell.appendChild(ed); ed.focus();
+  let fini = false;
+  const finir = async ok => {
+    if (fini) return; fini = true; enEdition = false;
+    if (ok && ed.value !== c.texte) await muter(() => c.appliquer(ed.value));
+    else rendre();
+  };
+  ed.addEventListener('blur', () => finir(true));
+  ed.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { ev.preventDefault(); finir(false); }
+    else if (ev.key === 'Enter' && (!c.multi || ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); ed.blur(); }
+  });
+}
+
+// Une saisie identique à la valeur Grist (ou au calcul) n'est pas conservée : la valeur Grist reste suivie.
+function nettoyer() {
+  for (const k of Object.keys(P.champs)) {
+    const v = P.champs[k]; delete P.champs[k];
+    if (v !== val(k)) P.champs[k] = v;
+  }
+}
+/* Enregistrement. Le plan et la stratégie partagent la colonne : avant d'appliquer une modification,
+   on relit la valeur actuelle pour ne pas écraser ce que l'autre page vient d'enregistrer. */
+function lireP(brut) {
+  if (!brut) return vierge();
+  try { const p = Object.assign(vierge(), JSON.parse(brut)); p.champs = p.champs || {}; return p; }
+  catch { toast('Saisies illisibles dans ' + COL + ' : ignorées', 5000); return vierge(); }
+}
+async function lireCourant() {
+  try { const r = await grist.fetchSelectedRecord(evalId, { includeColumns: 'normal' }); if (r && a_(r, COL)) return r[COL] || ''; } catch { /* repli */ }
+  try { const t = rows(await grist.docApi.fetchTable('Evaluations')); const r = t.find(x => x.id === evalId); return r ? (r[COL] || '') : null; } catch { return null; }
+}
+async function muter(fn) {
+  if (colOk) {
+    const brut = await lireCourant();
+    if (brut !== null && brut !== (dernierEnr || '')) { P = lireP(brut); dernierEnr = brut; }
+  }
+  fn(); nettoyer(); rendre(); await enregistrer();
+}
+async function enregistrer() {
+  if (!colOk) { toast('Non enregistré : la colonne ' + COL + ' n’existe pas'); return; }
+  const vid = !Object.keys(P.champs).length && Object.entries(P).every(([k, v]) => k === 'v' || k === 'champs' || v == null);
+  const s = vid ? '' : JSON.stringify(P);
+  dernierEnr = s;
+  try { await grist.docApi.applyUserActions([['UpdateRecord', 'Evaluations', evalId, { [COL]: s }]]); toast('Enregistré'); }
+  catch (e) { toast('Erreur d’enregistrement : ' + (e.message || e), 5000); }
+}
+/* ═════════ Export PDF (pdfmake, police Montserrat) ═════════ */
+const MARINE = '#32406C', PALE = '#EDF0F6', TEXTE = '#262B38', BORD = '#D5DCEA', GRIS = '#7A7C7A';
+const POLICES = 'https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@v7.222/fonts/ttf/';
+const FICHIERS_POLICE = { normal: 'Montserrat-Regular.ttf', bold: 'Montserrat-Bold.ttf', italics: 'Montserrat-Italic.ttf', bolditalics: 'Montserrat-BoldItalic.ttf' };
+let pdfPret = null;
+
+const script = src => new Promise((ok, ko) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => ko(new Error('chargement ' + src)); document.head.appendChild(s); });
+const base64 = buf => { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+async function preparerPdf() {
+  if (pdfPret) return pdfPret;
+  pdfPret = (async () => {
+    if (!window.pdfMake) await script('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js');
+    const vfs = {}; let fonts, police = 'Montserrat';
+    try {
+      const bufs = await Promise.all(Object.values(FICHIERS_POLICE).map(f => fetch(POLICES + f).then(r => { if (!r.ok) throw new Error(f); return r.arrayBuffer(); })));
+      Object.values(FICHIERS_POLICE).forEach((f, i) => { vfs[f] = base64(bufs[i]); });
+      fonts = { Montserrat: FICHIERS_POLICE };
+    } catch (e) {
+      await script('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.js');
+      Object.assign(vfs, window.pdfMake.vfs || {});
+      fonts = { Roboto: { normal: 'Roboto-Regular.ttf', bold: 'Roboto-Medium.ttf', italics: 'Roboto-Italic.ttf', bolditalics: 'Roboto-MediumItalic.ttf' } };
+      police = 'Roboto';
+    }
+    let logo = null;
+    try { const r = await fetch('logo.png'); if (r.ok) logo = 'data:image/png;base64,' + base64(await r.arrayBuffer()); } catch { /* sans logo */ }
+    return { vfs, fonts, police, logo };
+  })();
+  try { return await pdfPret; } catch (e) { pdfPret = null; throw e; }
+}
+
+// Case à cocher dessinée (les polices n'ont pas toutes le glyphe ☒)
+const caseCochee = (texte, coche) => ({ columns: [
+  { width: 11, canvas: [{ type: 'rect', x: 0, y: 2.5, w: 7.5, h: 7.5, lineWidth: 0.7, lineColor: MARINE },
+    ...(coche ? [{ type: 'line', x1: 1.5, y1: 6.3, x2: 3.3, y2: 8.3, lineWidth: 1.3, lineColor: MARINE, lineCap: 'round' },
+      { type: 'line', x1: 3.3, y1: 8.3, x2: 6.6, y2: 3.6, lineWidth: 1.3, lineColor: MARINE, lineCap: 'round' }] : [])] },
+  { width: '*', text: texte }], columnGap: 3, margin: [0, 0, 0, 1.5] });
+function pdfValeur(f) {
+  if (f.type === 'c') {
+    const c = coches(f.k);
+    if (DOC.cases) {
+      const l = [...c.opts.map(o => caseCochee(o, c.sel.has(o))), ...c.hors.map(o => caseCochee(o, true))];
+      if (c.na) l.push({ text: 'N/A', color: GRIS });
+      return { stack: l };
+    }
+    const l = [...c.opts.filter(o => c.sel.has(o)), ...c.hors];
+    if (!l.length) return { text: c.na ? 'N/A' : '' };
+    return l.length === 1 ? { text: l[0] } : { ul: l };
+  }
+  const v = val(f.k);
+  if (vide(v)) return { text: f.opt ? 'N/A' : '' };
+  if (f.type === 'l') return { ul: lignesDe(v) };
+  if (f.type === 'n') return { text: jours(v) };
+  if (f.type === 'x') return pdfRiche(v);
+  return { text: String(v) };
+}
+function pdfRiche(v) {
+  const out = []; let ul = null;
+  for (const l of String(v).split('\n')) {
+    const t = l.trim(); if (!t) { ul = null; continue; }
+    if (/^[-•]\s+/.test(t)) { if (!ul) { ul = { ul: [], margin: [4, 0, 0, 4] }; out.push(ul); } ul.ul.push(t.replace(/^[-•]\s+/, '')); }
+    else { ul = null; out.push({ text: t, margin: [0, 0, 0, 4] }); }
+  }
+  return { stack: out };
+}
+const LAYOUT = {
+  hLineWidth: () => 0.6, vLineWidth: () => 0.6, hLineColor: () => BORD, vLineColor: () => BORD,
+  paddingLeft: () => 5, paddingRight: () => 5, paddingTop: () => 3, paddingBottom: () => 3,
+};
+const barre = (texte, colSpan) => ({ text: texte, bold: true, color: '#FFFFFF', fillColor: MARINE, colSpan });
+const sous = t => ({ text: t, bold: true, fillColor: PALE });
+const vides = n => Array.from({ length: n }, () => ({}));
+function pdfTableChamps(titre, champs, total) {
+  const body = [[barre(titre, 2), {}]];
+  for (const f of champs) {
+    const gras = total && f.k === 'CHARGE_TOTAL';
+    body.push([{ text: f.lib, bold: gras }, Object.assign(pdfValeur(f), gras ? { bold: true } : {})]);
+  }
+  return { table: { headerRows: 1, dontBreakRows: true, widths: ['38%', '*'], body }, layout: LAYOUT, margin: [0, 0, 0, 14] };
+}
+const CHARGES = ['CHARGE_PILOTAGE', 'CHARGE_LANCEMENT', 'CHARGE_DOC', 'CHARGE_SIEGE', 'CHARGE_SI', 'CHARGE_TEMOIN', 'CHARGE_LIVRABLES', 'CHARGE_SOUTENANCE'];
+const COL_ENVOI = 'Envoi_ODM';      // case à cocher de la page 48, cochée quand toute l'équipe a reçu son ODM
+let config = { webhookUrl: '', from: '', cc: '' };
+let dest = null;                    // trigramme de l'évaluateur affiché
+let colEnvoi = false;
+let confirmer = null;               // envoi malgré des cases vides : second clic
+
+/* ═════════ Activités du plan d'évaluation ← types d'unités d'œuvre du planning ═════════ */
+const ACTIVITES = [
+  ['CHARGE_PILOTAGE', 'Plan d’évaluation et pilotage', ['Plan d\'évaluation', 'Planification']],
+  ['CHARGE_LANCEMENT', 'Présentation de l’entreprise', ['Journée de lancement']],
+  ['CHARGE_DOC', 'Évaluation documentaire', ['Revue documentaire']],
+  ['CHARGE_SIEGE', 'Évaluation siège (sur site)', ['évaluation siège']],
+  ['CHARGE_SI', 'Évaluation SI', []],
+  ['CHARGE_TEMOIN', 'Évaluation prestation témoin', ['évaluation prestation témoin']],
+  ['CHARGE_CLOTURE', 'Réunion de clôture', ['Réunion de clôture']],
+  ['CHARGE_LIVRABLES', 'Élaboration des livrables', ['Rédaction du rapport']],
+  ['CHARGE_SOUTENANCE', 'Soutenance ANSSI et suivi', ['Soutenance des travaux à l\'ANSSI et suivi']],
+  ['CHARGE_AUTRE', 'Autre activité', null],          // UO sans type ou de type inconnu
+];
+
+/* ═════════ Textes du modèle TEM-405 ═════════ */
+const ODM_TEXTES = {
+  ODM_INSTRUCTIONS: 'Merci de prendre contact avec le prestataire pour convenir d’une date le plus rapidement possible.\nLe plan d’évaluation et la stratégie d’évaluation doivent être envoyés à l’ANSSI 2 semaines avant le démarrage des travaux d’évaluation, afin de permettre l’observation de l’évaluation le cas échéant, à l’adresse suivante : qualification@ssi.gouv.fr\nDate de remise du rapport d’évaluation finalisé : au plus tard 3 semaines après le dernier jour d’audit sur site, soit le {ODM_REMISE}. Le rapport devra être complet (rapport, trame et fichier de NC).',
+  ODM_OBJECTIFS: '- Évaluation par échantillonnage de la conformité par rapport aux critères d’évaluation (trame et référentiel),\n- Évaluation par échantillonnage des prestations qualifiées,\n- Évaluation de l’impact des changements depuis la précédente évaluation,\n- Évaluation des plans d’action relatifs aux non-conformités précédentes,\n- Évaluation des conditions d’utilisation du service indiquées dans la décision de qualification du service.',
+  ODM_LIVRABLES: '- Plan d’évaluation détaillé\n- Le rapport d’évaluation conforme au modèle en vigueur\n- La trame d’évaluation complétée par chacun des évaluateurs\n- Le fichier des NC, complété par le prestataire et validé par chacun des évaluateurs\n- L’attestation de réunion de clôture signée par l’entreprise',
+  ECH_INIT: 'Lors d’une évaluation initiale ou de renouvellement, l’ensemble des points de contrôle de la trame doit être documenté. Si des points de contrôle ne sont pas évalués, une justification doit être apportée.\nL’échantillonnage doit couvrir l’ensemble des chapitres de la trame. Ainsi, pour chaque chapitre, un tiers des exigences doit être sélectionné à des fins de vérification. Cette règle s’applique également aux documents de référence spécifiques tels que le GHY et le II 901, lorsque ces derniers sont concernés.',
+  ECH_SUIVI: 'Dans le cadre d’une évaluation de suivi, un échantillonnage des points de contrôle issus de la trame d’évaluation est réalisé. Cette sélection tient compte des éléments suivants :\n- les évolutions intervenues depuis la dernière évaluation,\n- les plans d’action associés aux non-conformités précédemment identifiées,\n- les conditions d’utilisation du service, telles que précisées dans la décision de qualification (le cas échéant),\n- toute demande écrite formulée par l’ANSSI,\n- ainsi que tout autre élément contextuel jugé pertinent par le responsable de l’évaluation.\nLa durée de l’évaluation de suivi étant équivalente à un tiers de celle d’une évaluation initiale, l’ordre de grandeur du volume des vérifications s’établit à environ un tiers des exigences applicables.\nL’échantillonnage doit couvrir l’ensemble des chapitres de la trame. Ainsi, pour chaque chapitre, un tiers des exigences doit être sélectionné à des fins de vérification. Cette règle s’applique également aux documents de référence spécifiques tels que le GHY et le II 901, lorsque ces derniers sont concernés.\nLa liste des points de contrôle sélectionnés, ainsi que les prestations évaluées, sont communiquées au prestataire lors de la phase de préparation du plan d’évaluation de suivi.',
+};
+// Modèles de documents transmis : liste du TEM-405 V1.2 (PASSI 2.0) ; à compléter pour les autres programmes et versions.
+const MODELES_DOCS = {
+  PASSI_2: 'MAN-401_Règlement_Certification_PASSI2.0_V12.2.pdf\nTEM-402_Plan_Evaluation_PASSI_V3.2.docx\nTEM-407_Matrice_Evaluation_PASSI2.0_V0.11c.xls\nTEM-408_Lettre_Opinion_PASSI2.0_V2.docx\nTEM-410_PV_Gestion_Document_FinMission_V1.docx\nTEM-411_Fiche_NC_V1.xlsx\nTEM-429_PV_Reunion_Ouverture_Cloture_V1.1.docx',
+};
+
+/* ═════════ Structure de l'ODM ═════════ */
+const SEC_ENTREPRISE = [F('SOC_NOM', 'Nom de la société'), F('SOC_SIREN', 'SIREN'), F('SOC_SIEGE_ADRESSE', 'Adresse principale', 'm'),
+  F('SITE_ADRESSE', 'Adresse des sites évalués', 'm'), F('CONTACT_NOM', 'Nom du contact'), F('CONTACT_EMAIL', 'Email du contact'), F('CONTACT_TEL', 'Téléphone du contact')];
+const SEC_EVAL = [F('EVAL_TYPE', 'Type d’évaluation', 'c'), F('EVAL_TYPE_AUTRE', 'Précision si type « Autre »', 'm', true),
+  F('CRIT_REFERENTIEL', 'Référentiel', 'm'), F('EVAL_NIVEAU', 'Niveau', 'c'), F('EVAL_PORTEES', 'Champs d’évaluation', 'c'), F('ODM_LANGUE', 'Langue')];
+const SEC_DATES = [F('ODM_PERIODE', 'Période de l’évaluation'), F('ODM_REMISE', 'Remise du rapport finalisé (au plus tard)', 'd')];
+const SEC_TEXTES = [['ODM_INSTRUCTIONS', 'Instructions particulières'], ['ODM_OBJECTIFS', 'Objectifs de l’évaluation'],
+  ['ODM_LIVRABLES', 'Livrables à fournir à l’issue de l’évaluation'], ['ODM_ECHANTILLONNAGE', 'Échantillonnage'], ['TXT_NC', 'Classement des non-conformités']];
+const secDocs = () => [F('ODM_RAPPORT_PRECEDENT', 'Rapport précédent (conteneur ZED)', 't', initiale()), F('ODM_MODELES', 'Modèles de documents', 'l')];
+const initiale = () => liste(ctx.ev && ctx.ev.Type_d_evaluation).every(t => t === 'Initiale') && liste(ctx.ev && ctx.ev.Type_d_evaluation).length > 0;
+
+/* Valeurs propres à l'ODM ajoutées aux valeurs Grist du plan */
+function completerBase() {
+  const uos = T.Unites_d_oeuvre.filter(u => refId(u.Evaluation) === evalId && u.date_debut_incluse);
+  const set = (k, v, src, st = 'grist') => { if (!vide(v)) base[k] = { v: String(v), src, st }; };
+  const debut = uos.length ? Math.min(...uos.map(u => u.date_debut_incluse)) : ctx.ev.Date_Debut_prevue;
+  const fin = uos.length ? Math.max(...uos.map(u => finOuvree(u.date_debut_incluse, u.Jours))) : ctx.ev.Date_fin_prevue;
+  if (debut && fin) set('ODM_PERIODE', `Entre le ${fr(debut)} et le ${fr(fin)}`, uos.length ? 'Planning : 1re et dernière unité d’œuvre' : 'Evaluations.Date_Debut_prevue / Date_fin_prevue');
+  // Dernier jour sur site : siège, lancement, témoin ou clôture
+  const surSite = uos.filter(u => ['évaluation siège', 'Journée de lancement', 'évaluation prestation témoin', 'Réunion de clôture'].includes(u.Unite_d_oeuvre));
+  if (surSite.length) {
+    const d = new Date(Math.max(...surSite.map(u => finOuvree(u.date_debut_incluse, u.Jours))) * 1000);
+    d.setUTCDate(d.getUTCDate() + 21);
+    set('ODM_REMISE', fr(d.getTime() / 1000), 'Dernier jour sur site au planning + 3 semaines', 'modele');
+  }
+  set('ODM_LANGUE', 'Français', 'Modèle TEM-405', 'modele');
+  for (const k of ['ODM_INSTRUCTIONS', 'ODM_OBJECTIFS', 'ODM_LIVRABLES']) set(k, ODM_TEXTES[k], 'Modèle TEM-405', 'modele');
+  const suivi = liste(ctx.ev.Type_d_evaluation).some(t => t === 'Surveillance');
+  set('ODM_ECHANTILLONNAGE', suivi ? ODM_TEXTES.ECH_SUIVI : ODM_TEXTES.ECH_INIT, `Modèle TEM-405 (évaluation ${suivi ? 'de suivi' : 'initiale ou de renouvellement'})`, 'modele');
+  if (/^PASSI/.test(ctx.progNom) && (ctx.progNom === 'PASSI_2.0' || ctx.refVersion === '2.0')) set('ODM_MODELES', MODELES_DOCS.PASSI_2, 'Modèle TEM-405 V1.2 (PASSI 2.0)', 'modele');
+}
+
+/* ═════════ Équipe, qualité et charge par évaluateur ═════════ */
+const evParTri = tri => T.Evaluateurs.find(e => norm(e.Evaluateur_Trigramme) === norm(tri));
+const nomEval = e => e ? [e.Evaluateur_Prenom, String(e.Evaluateur_Nom || '').toUpperCase()].filter(Boolean).join(' ') : '';
+const cle = m => m.tri || m.nom;
+// Charge calculée depuis le planning : chaque personne positionnée sur une UO (RE, ETA, ETM, OBS) compte ses jours.
+function chargePlanning() {
+  const res = {};
+  for (const u of T.Unites_d_oeuvre.filter(u => refId(u.Evaluation) === evalId)) {
+    const ids = [...new Set([refId(u.RE), ...liste(u.ETA), ...liste(u.ETM), ...liste(u.OBS)].filter(Boolean))];
+    const act = (ACTIVITES.find(a => a[2] && a[2].includes(u.Unite_d_oeuvre)) || ACTIVITES[ACTIVITES.length - 1])[0];
+    for (const id of ids) {
+      const e = T.Evaluateurs.par.get(id); if (!e) continue;
+      const t = e.Evaluateur_Trigramme || nomEval(e);
+      res[t] = res[t] || {}; res[t][act] = (res[t][act] || 0) + (u.Jours || 0);
+    }
+  }
+  return res;
+}
+// Équipe = équipe du plan d'évaluation (modifiable dans le plan), plus toute personne positionnée au planning.
+function equipeOdm() {
+  const l = clone(P.equipe || ctx.equipe || []).filter(m => !vide(m.nom) || !vide(m.tri));
+  for (const t of Object.keys(ctx.chargeUo || {})) if (!l.some(m => norm(m.tri) === norm(t))) {
+    const e = evParTri(t); l.push({ nom: nomEval(e) || t, tri: t, tel: (e && e.Evaluateur_Telephone) || '', mail: (e && e.Evaluateur_Courriel) || '' });
+  }
+  return l;
+}
+const odm = () => (P.odm = P.odm || {});
+const sous_ = (k, t) => { const o = odm(); o[k] = o[k] || {}; return t === undefined ? o[k] : (o[k][t] = o[k][t] || {}); };
+function chargeDe(t, act) {
+  const s = P.odm && P.odm.charge && P.odm.charge[t];
+  if (s && a_(s, act)) return s[act];
+  const c = ctx.chargeUo && ctx.chargeUo[t] && ctx.chargeUo[t][act];
+  return c ? nombre(c) : '';
+}
+const chargeSaisie = (t, act) => !!(P.odm && P.odm.charge && P.odm.charge[t] && a_(P.odm.charge[t], act));
+const totalDe = t => ACTIVITES.reduce((a, [act]) => a + (num(chargeDe(t, act)) || 0), 0);
+// Activités affichées : celles qui ont une charge (planning, saisie) ou une valeur dans le plan.
+const activitesVisibles = eq => ACTIVITES.filter(([act]) => eq.some(m => !vide(chargeDe(cle(m), act))) || (CHARGES.includes(act) && !vide(val(act))));
+
+// Qualité : rôles du plan d'évaluation où figure la personne (nom ou trigramme).
+const LIB_ROLE = k => k === 'MEMBRE_RE' ? 'Responsable d’évaluation' : k === 'MEMBRE_ETA' ? 'Évaluateur technique (ETA)'
+  : k === 'MEMBRE_OBS' ? 'Observateur' : k === 'MEMBRE_SUP' ? 'Superviseur' : 'Évaluateur ET-' + k.replace(/^MEMBRE_ET_/, '');
+function qualiteCalculee(m) {
+  const qui = [norm(m.nom), norm(m.tri)].filter(Boolean);
+  const l = roles().filter(r => String(val(r.k) || '').split(/[,\n;]+/).map(norm).some(x => x && qui.includes(x))).map(r => LIB_ROLE(r.k));
+  if (!l.length && ctx.chargeUo && ctx.chargeUo[m.tri]) l.push('Évaluateur');
+  return l.join('\n');
+}
+const qualite = m => P.odm && P.odm.qualite && a_(P.odm.qualite, cle(m)) ? P.odm.qualite[cle(m)] : qualiteCalculee(m);
+const societe = m => P.odm && P.odm.societe && a_(P.odm.societe, cle(m)) ? P.odm.societe[cle(m)] : ((evParTri(m.tri) || {}).Employeur || '');
+
+/* ═════════ Rendu écran ═════════ */
+function tableChamps(titre, champs) {
+  let h = `<table><thead><tr><th class="bar" colspan="2">${esc(titre)}</th></tr></thead><tbody>`;
+  for (const f of champs) h += `<tr><td class="lib">${esc(f.lib)}</td>${cellule(f)}</tr>`;
+  return h + '</tbody></table>';
+}
+const celluleOdm = (attr, t, texte, saisi, requis = true, multi = false) =>
+  `<td class="v ${saisi ? 'saisi' : (vide(texte) ? (requis ? 'manque' : '') : 'grist')}" ${attr}="${esc(t)}">`
+  + (vide(texte) ? (requis ? '<span class="vide-txt">à compléter</span>' : '') : esc(texte))
+  + (saisi ? `<button class="raz" data-act="raz-odm" data-quoi="${attr.slice(5)}" data-t="${esc(t)}" title="Revenir à la valeur calculée">↺</button>` : '') + '</td>';
+function statut(m) {
+  const e = P.odm && P.odm.envois && P.odm.envois[cle(m)];
+  if (!e) return '<span class="st-non">non envoyé</span>';
+  const date = fmtDateHeure(e.date);
+  return e.sig === signature(m) ? `<span class="st-envoye">✅ envoyé le ${date}</span>` : `<span class="st-modif">⚠ envoyé le ${date}, modifié depuis</span>`;
+}
+function messages(eq) {
+  const err = [], warn = [];
+  if (!config.webhookUrl) warn.push('URL du flux Power Automate non configurée : cliquez sur ⚙ Configuration.');
+  if (!config.from) warn.push('Adresse d’expédition non configurée : cliquez sur ⚙ Configuration.');
+  if (!eq.length) err.push('Aucun évaluateur : positionnez l’équipe au planning (page 63) ou dans le plan d’évaluation.');
+  const sansMail = eq.filter(m => vide(m.mail)).map(cle); if (sansMail.length) warn.push(`Sans email (à corriger dans le plan d’évaluation ou dans Evaluateurs) : ${sansMail.join(', ')}.`);
+  const sansJours = eq.filter(m => !totalDe(cle(m))).map(cle); if (sansJours.length) warn.push(`Aucun jour affecté : ${sansJours.join(', ')}.`);
+  const ecarts = activitesVisibles(eq).filter(([act]) => CHARGES.includes(act) && !vide(val(act)) && Math.abs((num(val(act)) || 0) - eq.reduce((a, m) => a + (num(chargeDe(cle(m), act)) || 0), 0)) > 0.001);
+  if (ecarts.length) warn.push(`Charge répartie différente du plan d’évaluation pour : ${ecarts.map(a => a[1]).join(', ')} (colonne « Plan »).`);
+  if (!colEnvoi) warn.push(`La colonne Evaluations.${COL_ENVOI} n’existe pas : les envois seront tracés dans le plan, sans case cochée en page 48.`);
+  return { err, warn };
+}
+function rendre() {
+  if (!T || !evalId || !ctx.ev) return;
+  const eq = equipeOdm();
+  if (!dest || !eq.some(m => cle(m) === dest)) dest = eq.length ? cle(eq[0]) : null;
+  const m = eq.find(x => cle(x) === dest);
+  $('titre').textContent = `Ordres de mission — ${ctx.ent.Denomination || '?'} — ${ctx.progNom || '?'} ${liste(ctx.ev.Type_d_evaluation).join(', ')}`;
+  const champs = champsOdm();
+  const n = s => champs.filter(c => etat(c.k, c.opt) === s).length;
+  $('cpt').innerHTML = `<span class="pastille p-saisi">${n('saisi')} saisis</span> <span class="pastille p-manque">${n('manque')} à compléter</span>`;
+  $('alerte').innerHTML = colOk ? '' : `<div class="alerte">La colonne <b>Evaluations.${COL}</b> n’existe pas : les saisies ne sont pas enregistrées.</div>`;
+  const ms = messages(eq);
+  $('msgs').innerHTML = ms.err.map(x => `<div class="err">⛔ ${esc(x)}</div>`).join('') + ms.warn.map(x => `<div class="warn">⚠️ ${esc(x)}</div>`).join('');
+
+  let h = '<div class="page">';
+  h += '<table class="equipe-odm"><thead><tr><th class="bar" colspan="6">Équipe de la mission — un ordre de mission par évaluateur</th></tr>'
+    + '<tr class="sous"><th style="width:26%">Évaluateur</th><th style="width:22%">Qualité</th><th style="width:8%">Jours</th><th style="width:20%">Email</th><th style="width:14%">Statut</th><th></th></tr></thead><tbody>';
+  for (const x of eq) {
+    const t = cle(x), ok = !vide(x.mail) && config.webhookUrl && config.from && totalDe(t) > 0 && !ms.err.length;
+    h += `<tr class="${t === dest ? 'sel' : ''}"><td><a href="#" data-act="dest" data-t="${esc(t)}">${esc(x.nom)}${x.tri ? ` (${esc(x.tri)})` : ''}</a></td>`
+      + `<td>${esc(qualite(x)).replace(/\n/g, '<br>') || '<span class="vide-txt">à compléter</span>'}</td><td>${esc(nombre(totalDe(t)))}</td>`
+      + `<td>${x.mail ? esc(x.mail) : '<span class="vide-txt">manquant</span>'}</td><td>${statut(x)}</td>`
+      + `<td class="btns"><button data-act="dest" data-t="${esc(t)}">Voir</button> <button data-act="pdf" data-t="${esc(t)}">PDF</button> `
+      + `<button class="prim" data-act="envoyer" data-t="${esc(t)}" ${ok ? '' : 'disabled'} title="Envoyer l’ODM par email via Power Automate">✉ Envoyer</button></td></tr>`;
+  }
+  h += '</tbody></table>';
+  if (m) h += rendreOdm(m, eq);
+  $('doc').innerHTML = h + '</div>';
+  $('dl-eval').innerHTML = (ctx.tousEvaluateurs || []).map(x => `<option value="${esc(x)}">`).join('');
+}
+function rendreOdm(m, eq) {
+  const t = cle(m);
+  let h = `<div class="entete" style="margin-top:22px"><img src="logo.png" alt="Certi-Trust"><h1>Ordre de mission — Évaluation ${esc(ctx.progCourt)}</h1><span></span></div>`;
+  h += `<div class="ref">Réf. ${esc(val('DOC_REF'))} · Destinataire : ${esc(m.nom)}${m.tri ? ' (' + esc(m.tri) + ')' : ''}</div>`;
+  h += '<table><thead><tr><th class="bar" colspan="2">Évaluateur</th></tr></thead><tbody>'
+    + `<tr><td class="lib">Nom</td><td>${esc(m.nom)}${m.tri ? ' (' + esc(m.tri) + ')' : ''}</td></tr>`
+    + `<tr><td class="lib">Société</td>${celluleOdm('data-soc', t, societe(m), !!(P.odm && P.odm.societe && a_(P.odm.societe, t)))}</tr>`
+    + `<tr><td class="lib">Qualité</td>${celluleOdm('data-qua', t, qualite(m), !!(P.odm && P.odm.qualite && a_(P.odm.qualite, t)))}</tr>`
+    + `<tr><td class="lib">Email</td>${celluleOdm('data-mel', t, m.mail, !!P.equipe)}</tr></tbody></table>`;
+  h += tableChamps('Entreprise à évaluer', SEC_ENTREPRISE);
+  h += tableChamps('Évaluation', SEC_EVAL);
+  h += tableChamps('Équipe d’évaluation', roles());
+  // Charge : activités du plan × évaluateurs, la colonne du destinataire en gras ; « Plan » = charge du plan d'évaluation
+  const acts = activitesVisibles(eq);
+  h += `<table class="charge"><thead><tr><th class="bar" colspan="${eq.length + 2}">Charge (jours)</th></tr><tr class="sous"><th style="width:34%">Activité</th>`
+    + eq.map(x => `<th class="${cle(x) === t ? 'dest' : ''}">${esc(cle(x))}</th>`).join('') + '<th class="plan" title="Charge du plan d’évaluation">Plan</th></tr></thead><tbody>';
+  for (const [act, lib] of acts) {
+    const somme = eq.reduce((a, x) => a + (num(chargeDe(cle(x), act)) || 0), 0);
+    const plan = CHARGES.includes(act) ? val(act) : '';
+    const ecart = !vide(plan) && Math.abs((num(plan) || 0) - somme) > 0.001;
+    h += `<tr><td>${esc(lib)}</td>` + eq.map(x => {
+      const tt = cle(x), v = chargeDe(tt, act), s = chargeSaisie(tt, act);
+      return `<td class="v ${s ? 'saisi' : ''} ${tt === t ? 'dest' : ''}" data-cha="${esc(tt + '|' + act)}">${esc(v)}${s ? `<button class="raz" data-act="raz-odm" data-quoi="cha" data-t="${esc(tt + '|' + act)}" title="Revenir au planning">↺</button>` : ''}</td>`;
+    }).join('') + `<td class="plan ${ecart ? 'ecart' : ''}" title="${ecart ? 'Différent de la somme répartie (' + nombre(somme) + ')' : ''}">${esc(plan)}</td></tr>`;
+  }
+  h += '<tr class="total"><td>Total</td>' + eq.map(x => `<td class="${cle(x) === t ? 'dest' : ''}">${esc(nombre(totalDe(cle(x))))}</td>`).join('') + `<td class="plan">${esc(val('CHARGE_TOTAL'))}</td></tr></tbody></table>`;
+  h += '<div class="aide">Charge reprise du planning (unités d’œuvre où l’évaluateur est positionné) ; cliquer sur une case pour la corriger. La colonne « Plan » n’apparaît pas dans l’ordre de mission.</div>';
+  h += tableChamps('Dates', SEC_DATES);
+  for (const [k, titre] of SEC_TEXTES) h += `<h3>${esc(titre)}</h3>${cellule(F(k, titre, 'x'), 'div', 'txt')}`;
+  h += '<div class="bonne">Bonne évaluation</div>';
+  h += tableChamps('Documents transmis', secDocs());
+  return h;
+}
+function champsOdm() {
+  return [...SEC_ENTREPRISE, ...SEC_EVAL, ...roles(), ...SEC_DATES, ...SEC_TEXTES.map(([k]) => F(k, '', 'x')), ...secDocs()];
+}
+function fmtDateHeure(ts) {
+  if (!ts) return '';
+  const p = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(ts * 1000));
+  const g = x => (p.find(q => q.type === x) || {}).value || '';
+  return `${g('day')}/${g('month')}/${g('year')} ${g('hour')}:${g('minute')}`;
+}
+
+/* ═════════ Édition ═════════ */
+$('doc').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (b) { e.preventDefault(); e.stopPropagation(); action(b.dataset); return; }
+  const cc = e.target.closest('input[data-cc]');
+  if (cc) { const [k, quoi] = cc.dataset.cc.split('|'); muter(() => basculer(k, quoi)); return; }
+  const vc = e.target.closest('.v.c');
+  if (vc) { if (ouvert !== vc.dataset.k) { ouvert = vc.dataset.k; rendre(); } return; }
+  const c = e.target.closest('[data-k],[data-soc],[data-qua],[data-mel],[data-cha]');
+  if (c && !c.querySelector('.ed')) editer(c);
+});
+function cible(cell) {
+  if (cell.dataset.k) {
+    const k = cell.dataset.k, type = cell.dataset.type;
+    return { texte: val(k), multi: ['l', 'm', 'x'].includes(type), liste: /^MEMBRE_/.test(k),
+      appliquer: v => { v = v.trim(); P.champs[k] = v; } };
+  }
+  const eq = equipeOdm();
+  if (cell.dataset.soc) { const t = cell.dataset.soc, m = eq.find(x => cle(x) === t);
+    return { texte: societe(m), multi: false, appliquer: v => { sous_('societe')[t] = v.trim(); if (P.odm.societe[t] === ((evParTri(m.tri) || {}).Employeur || '')) delete P.odm.societe[t]; } }; }
+  if (cell.dataset.qua) { const t = cell.dataset.qua, m = eq.find(x => cle(x) === t);
+    return { texte: qualite(m), multi: true, appliquer: v => { sous_('qualite')[t] = v.trim(); if (P.odm.qualite[t] === qualiteCalculee(m)) delete P.odm.qualite[t]; } }; }
+  if (cell.dataset.mel) { const t = cell.dataset.mel;
+    return { texte: (eq.find(x => cle(x) === t) || {}).mail || '', multi: false,
+      appliquer: v => { const l = equipeOdm(); const x = l.find(y => cle(y) === t); if (x) { x.mail = v.trim(); P.equipe = l; } } }; }
+  const [t, act] = cell.dataset.cha.split('|');
+  return { texte: chargeDe(t, act), multi: false, appliquer: v => {
+    const n = num(v), c = sous_('charge', t);
+    if (vide(v)) c[act] = ''; else if (n !== null) c[act] = nombre(n);
+    const calc = ctx.chargeUo && ctx.chargeUo[t] && ctx.chargeUo[t][act] ? nombre(ctx.chargeUo[t][act]) : '';
+    if (c[act] === calc) delete c[act];
+  } };
+}
+async function action(d) {
+  if (d.act === 'cc-fermer') { ouvert = null; rendre(); return; }
+  if (d.act === 'dest') { dest = d.t; rendre(); return; }
+  if (d.act === 'pdf') { exporterPdf(d.t); return; }
+  if (d.act === 'envoyer') { envoyer(d.t); return; }
+  await muter(() => {
+    if (d.act === 'raz') delete P.champs[d.k];
+    else if (d.act === 'raz-odm') {
+      if (d.quoi === 'cha') { const [t, act] = d.t.split('|'); delete sous_('charge', t)[act]; }
+      else if (d.quoi === 'soc') delete sous_('societe')[d.t];
+      else if (d.quoi === 'qua') delete sous_('qualite')[d.t];
+      else if (d.quoi === 'mel') P.equipe = null;
+    }
+  });
+}
+$('btn-suivant').onclick = () => {
+  const l = [...document.querySelectorAll('.v.manque')];
+  if (!l.length) { toast('Rien à compléter'); return; }
+  const y = window.scrollY + 60;
+  const c = l.find(x => x.getBoundingClientRect().top + window.scrollY > y + 5) || l[0];
+  c.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash');
+};
+$('btn-maj').onclick = async () => { await chargerTables(); preparer(); rendre(); toast('Données Grist rechargées'); };
+
+/* ═════════ Contenu de l'ODM pour l'email et le PDF (valeurs, sans édition) ═════════ */
+function valeurs(f) {
+  if (f.type === 'c') { const c = coches(f.k); const l = [...c.opts.filter(o => c.sel.has(o)), ...c.hors]; return l.length ? l : [c.na || f.opt ? 'N/A' : '']; }
+  const v = val(f.k);
+  if (vide(v)) return [f.opt ? 'N/A' : ''];
+  return f.type === 'l' ? lignesDe(v) : [String(v)];
+}
+function sections(m, eq) {
+  const t = cle(m);
+  return [
+    { titre: 'Évaluateur', lignes: [['Nom', [m.nom + (m.tri ? ` (${m.tri})` : '')]], ['Société', [societe(m)]], ['Qualité', lignesDe(qualite(m))]] },
+    { titre: 'Entreprise à évaluer', lignes: SEC_ENTREPRISE.map(f => [f.lib, valeurs(f)]) },
+    { titre: 'Évaluation', lignes: SEC_EVAL.filter(f => f.k !== 'EVAL_TYPE_AUTRE' || !vide(val(f.k))).map(f => [f.lib, valeurs(f)]) },
+    { titre: 'Équipe d’évaluation', lignes: roles().map(f => [f.lib, valeurs(f)]) },
+    { charge: true, titre: 'Charge (jours)', cols: eq.map(cle), dest: eq.findIndex(x => cle(x) === t),
+      lignes: activitesVisibles(eq).map(([act, lib]) => [lib, ...eq.map(x => chargeDe(cle(x), act))]),
+      total: eq.map(x => nombre(totalDe(cle(x)))) },
+    { titre: 'Dates', lignes: SEC_DATES.map(f => [f.lib, valeurs(f)]) },
+    ...SEC_TEXTES.map(([k, titre]) => ({ texte: true, titre, v: resoudre(val(k)) })),
+    { bonne: true },
+    { titre: 'Documents transmis', lignes: secDocs().map(f => [f.lib, valeurs(f)]) },
+  ];
+}
+const objet = m => `Ordre de mission – ${val('DOC_REF') || ctx.ev.Libelle || ''} – ${val('SOC_NOM')} – ${m.tri || m.nom}`;
+
+/* Email HTML (styles en ligne : Outlook ignore les feuilles de style) */
+function htmlEmail(m, eq) {
+  const S = { t: 'border-collapse:collapse;width:100%;max-width:680px;margin:0 0 14px;font-family:Montserrat,Arial,sans-serif;font-size:13px;color:#262B38',
+    bar: 'background:#32406C;color:#fff;font-weight:bold;padding:5px 8px;text-align:left', lib: 'border:1px solid #D5DCEA;padding:4px 8px;width:36%;vertical-align:top',
+    val: 'border:1px solid #D5DCEA;padding:4px 8px;vertical-align:top', sous: 'border:1px solid #D5DCEA;padding:4px 8px;background:#EDF0F6;font-weight:bold;text-align:center' };
+  const cell = l => l.filter(x => !vide(x)).map(esc).join('<br>');
+  const rich = v => htmlRiche(v).replace(/<p>/g, '<p style="margin:0 0 6px">').replace(/<ul>/g, '<ul style="margin:0 0 6px;padding-left:20px">');
+  let h = `<div style="font-family:Montserrat,Arial,sans-serif;color:#262B38;font-size:13px">`
+    + `<p>Bonjour ${esc(String(m.nom).split(' ')[0])},</p><p>Veuillez trouver ci-dessous votre ordre de mission pour l’évaluation ${esc(ctx.progCourt)} de ${esc(val('SOC_NOM'))} (${esc(val('DOC_REF'))}).</p>`
+    + `<img src="${esc(new URL('logo.png', location.href).href)}" alt="Certi-Trust" width="150" style="display:block;margin:14px 0 6px">`
+    + `<h2 style="color:#32406C;font-size:18px;margin:0 0 2px">Ordre de mission — Évaluation ${esc(ctx.progCourt)}</h2>`
+    + `<div style="color:#7A7C7A;font-size:11px;margin-bottom:14px">TEM-405 · Réf. ${esc(val('DOC_REF'))}</div>`;
+  for (const s of sections(m, eq)) {
+    if (s.bonne) { h += '<p style="text-align:center;font-weight:bold;color:#32406C;margin:16px 0">Bonne évaluation</p>'; continue; }
+    if (s.texte) { h += `<h3 style="color:#32406C;font-size:14px;margin:14px 0 4px">${esc(s.titre)}</h3>${rich(s.v)}`; continue; }
+    if (s.charge) {
+      h += `<table style="${S.t}"><tr><th colspan="${s.cols.length + 1}" style="${S.bar}">${esc(s.titre)}</th></tr><tr><th style="${S.sous};text-align:left">Activité</th>`
+        + s.cols.map((c, i) => `<th style="${S.sous}${i === s.dest ? ';background:#d9e0ef' : ''}">${esc(c)}</th>`).join('') + '</tr>'
+        + s.lignes.map(([lib, ...v]) => `<tr><td style="${S.lib}">${esc(lib)}</td>` + v.map((x, i) => `<td style="${S.val};text-align:center${i === s.dest ? ';font-weight:bold;background:#f3f6fc' : ''}">${esc(x)}</td>`).join('') + '</tr>').join('')
+        + `<tr><td style="${S.lib};font-weight:bold">Total</td>` + s.total.map((x, i) => `<td style="${S.val};text-align:center;font-weight:bold${i === s.dest ? ';background:#f3f6fc' : ''}">${esc(x)}</td>`).join('') + '</tr></table>';
+      continue;
+    }
+    h += `<table style="${S.t}"><tr><th colspan="2" style="${S.bar}">${esc(s.titre)}</th></tr>`
+      + s.lignes.map(([lib, v]) => `<tr><td style="${S.lib}">${esc(lib)}</td><td style="${S.val}">${cell(v)}</td></tr>`).join('') + '</table>';
+  }
+  return h + '<p style="color:#7A7C7A;font-size:11px;margin-top:18px">C1 – Diffusion limitée · Certi-Trust</p></div>';
+}
+// Empreinte du contenu envoyé : signale un ODM modifié après envoi.
+function signature(m) {
+  const s = htmlEmail(m, equipeOdm()); let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(16);
+}
+
+/* ═════════ Envoi via Power Automate (même charge utile que cr-oral / cr-ecrit) ═════════ */
+async function envoyer(t) {
+  const eq = equipeOdm(), m = eq.find(x => cle(x) === t);
+  if (!m || vide(m.mail) || !config.webhookUrl || !config.from) return;
+  const re = eq.find(x => /Responsable/.test(qualite(x)));
+  const cc = [...new Set([...(re && cle(re) !== t && re.mail ? [re.mail] : []), ...config.cc.split(/[,;\s]+/).filter(Boolean)])];
+  const manque = champsOdm().filter(c => etat(c.k, c.opt) === 'manque').length;
+  if (manque && confirmer !== t) { confirmer = t; toast(`${manque} case(s) encore à compléter : cliquez de nouveau sur ✉ Envoyer pour envoyer quand même.`, 5000); setTimeout(() => { if (confirmer === t) confirmer = null; }, 8000); return; }
+  confirmer = null;
+  const corps = htmlEmail(m, eq), sig = signature(m);
+  toast('Envoi en cours…', 8000);
+  try {
+    const r = await fetch(config.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: config.from, to: m.mail, cc, objet: objet(m), corps_html: corps }) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (e) { toast('❌ Échec de l’envoi : ' + (e.message || e), 6000); return; }
+  await muter(() => { sous_('envois')[t] = { date: Math.floor(Date.now() / 1000), sig, jours: nombre(totalDe(t)), mail: m.mail }; });
+  // Case de la page 48 : cochée quand chaque évaluateur ayant des jours a reçu son ODM
+  const tous = equipeOdm().filter(x => totalDe(cle(x)) > 0).every(x => P.odm.envois && P.odm.envois[cle(x)]);
+  if (colEnvoi && tous && !ctx.ev[COL_ENVOI]) {
+    try { await grist.docApi.applyUserActions([['UpdateRecord', 'Evaluations', evalId, { [COL_ENVOI]: true }]]); ctx.ev[COL_ENVOI] = true; } catch { /* trace déjà dans le plan */ }
+  }
+  toast(`✅ Ordre de mission envoyé à ${m.nom}${tous ? ' — toute l’équipe a reçu son ODM' : ''}`, 4000);
+}
+
+/* ═════════ PDF ═════════ */
+function exporterPdf(t) {
+  const eq = equipeOdm(), m = eq.find(x => cle(x) === t); if (!m) return;
+  preparerPdf().then(res => {
+    const content = [{ text: `Ordre de mission — Évaluation ${ctx.progCourt}`, fontSize: 18, bold: true, color: MARINE, alignment: 'center', margin: [0, 0, 0, 2] },
+      { text: `TEM-405 · Réf. ${val('DOC_REF')} · ${m.nom}${m.tri ? ' (' + m.tri + ')' : ''}`, fontSize: 8.5, color: GRIS, alignment: 'center', margin: [0, 0, 0, 14] }];
+    for (const s of sections(m, eq)) {
+      if (s.bonne) { content.push({ text: 'Bonne évaluation', bold: true, color: MARINE, alignment: 'center', margin: [0, 8, 0, 12] }); continue; }
+      if (s.texte) { content.push({ text: s.titre, style: 'h3', headlineLevel: 1 }, Object.assign(pdfRiche(s.v), { margin: [0, 0, 0, 6] })); continue; }
+      if (s.charge) {
+        const n = s.cols.length, g = i => i === s.dest ? { bold: true, fillColor: '#f3f6fc' } : {};
+        content.push({ table: { headerRows: 2, dontBreakRows: true, widths: ['*', ...s.cols.map(() => 52)], body: [
+          [barre(s.titre, n + 1), ...vides(n)], [sous('Activité'), ...s.cols.map((c, i) => Object.assign(sous(c), { alignment: 'center' }, i === s.dest ? { fillColor: '#d9e0ef' } : {}))],
+          ...s.lignes.map(([lib, ...v]) => [{ text: lib }, ...v.map((x, i) => Object.assign({ text: x, alignment: 'center' }, g(i)))]),
+          [{ text: 'Total', bold: true }, ...s.total.map((x, i) => Object.assign({ text: x, alignment: 'center', bold: true }, g(i)))]] },
+          layout: LAYOUT, margin: [0, 0, 0, 14] });
+        continue;
+      }
+      content.push({ table: { headerRows: 1, dontBreakRows: true, widths: ['38%', '*'], body: [[barre(s.titre, 2), {}],
+        ...s.lignes.map(([lib, v]) => [{ text: lib }, v.length > 1 ? { ul: v.filter(x => !vide(x)) } : { text: v[0] || '' }])] }, layout: LAYOUT, margin: [0, 0, 0, 14] });
+    }
+    const def = { pageSize: 'A4', pageMargins: [57, 92, 57, 62],
+      info: { title: `Ordre de mission – ${val('SOC_NOM')} – ${m.tri || m.nom}`, author: 'Certi-Trust', subject: val('DOC_REF') },
+      header: () => res.logo ? { image: res.logo, width: 120, margin: [50, 26, 0, 0] } : { text: 'Certi-Trust', bold: true, color: MARINE, margin: [57, 36, 0, 0] },
+      footer: (page, pages) => ({ margin: [57, 14, 57, 0], fontSize: 7.5, color: GRIS, columns: [
+        { width: '*', stack: [`Ordre de mission ${ctx.progCourt} – ${val('SOC_NOM')}`, 'TEM-405'] },
+        { width: 70, text: `Page ${page} / ${pages}`, alignment: 'center' },
+        { width: '*', stack: ['C1 – Diffusion limitée', 'Certi-Trust'], alignment: 'right' }] }),
+      content, defaultStyle: { font: res.police, fontSize: 9.5, color: TEXTE, lineHeight: 1.15 },
+      styles: { h3: { fontSize: 10.5, bold: true, color: MARINE, margin: [0, 8, 0, 3] } },
+      pageBreakBefore: node => node.headlineLevel === 1 && node.startPosition.top > 690 };
+    const nomF = `${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-ODM-${String(val('DOC_REF') || evalId).replace(/[\\/:*?"<>|\s]+/g, '_')}-${m.tri || 'evaluateur'}.pdf`;
+    const pdf = window.pdfMake.createPdf(def, null, res.fonts, res.vfs);
+    try { pdf.download(nomF); } catch { pdf.open(); }
+  }).catch(e => toast('Erreur PDF : ' + (e.message || e), 6000));
+}
+
+/* ═════════ Configuration (options du widget, côté document Grist) ═════════ */
+function ouvrirConfig() { $('cfg-url').value = config.webhookUrl; $('cfg-from').value = config.from; $('cfg-cc').value = config.cc; $('config').style.display = 'block'; }
+$('btn-config').onclick = ouvrirConfig;
+$('cfg-annuler').onclick = () => { $('config').style.display = 'none'; };
+$('cfg-ok').onclick = async () => {
+  config = { webhookUrl: $('cfg-url').value.trim(), from: $('cfg-from').value.trim(), cc: $('cfg-cc').value.trim() };
+  try { await grist.setOptions(config); } catch { for (const [k, v] of Object.entries(config)) await grist.setOption(k, v); }
+  $('config').style.display = 'none'; rendre();
+};
+
+/* ═════════ Grist ═════════ */
+function preparer() {
+  ouvert = null;
+  const r = calculer(evalId);
+  if (!r) { ctx = {}; base = {}; return; }
+  base = r.B; ctx = r.ctx;
+  colOk = T.Evaluations.length > 0 && a_(T.Evaluations[0], COL);
+  colEnvoi = T.Evaluations.length > 0 && a_(T.Evaluations[0], COL_ENVOI);
+  completerBase();
+  ctx.chargeUo = chargePlanning();
+  const brut = colOk ? ctx.ev[COL] : null;
+  P = lireP(brut);
+  dernierEnr = brut || '';
+}
+grist.ready({ requiredAccess: 'full', onEditOptions: ouvrirConfig });
+grist.onOptions(o => { config = { webhookUrl: (o && o.webhookUrl) || '', from: (o && o.from) || '', cc: (o && o.cc) || '' }; if (ctx.ev) rendre(); });
+grist.onRecord(async rec => {
+  if (!rec || !rec.id) return;
+  if (T && rec.id === evalId && (enEdition || !(COL in rec) || (rec[COL] || '') === (dernierEnr || ''))) return;
+  if (rec.id !== evalId) dest = null;
+  evalId = rec.id;
+  if (!T) $('doc').innerHTML = '<div id="msg">Chargement…</div>';
+  try { await chargerTables(); preparer(); if (!ctx.ev) { $('doc').innerHTML = '<div id="msg">Évaluation introuvable.</div>'; return; } rendre(); }
+  catch (e) { $('doc').innerHTML = `<div id="msg">Erreur de lecture : ${esc(e.message || e)}</div>`; }
+});
+</script>
+</body>
+</html>
