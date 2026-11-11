@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <style>
   /* Charte Certi-Trust (reprise du modèle Word) */
-  :root { --marine:#32406C; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A; --rouge:#C00000;
+  :root { --marine:#32406C; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A;
           --saisi:#9a5b00; --saisi-bg:#fff4e0; --manque:#b91c1c; --manque-bg:#fdecec; --modele:#3b5bab; --modele-bg:#eef3ff; }
   * { box-sizing:border-box; }
   body { margin:0; font:12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color:var(--txt); background:#eef0f4; }
@@ -27,10 +27,15 @@
   .alerte { max-width:860px; margin:10px auto 0; background:#fff4e0; border:1px solid #f1cf94; color:#6b4300; padding:8px 12px; border-radius:6px; font-size:12px; }
   #msg { padding:40px 14px; color:var(--gris); text-align:center; }
   .page { max-width:860px; margin:12px auto 40px; background:#fff; padding:26px 40px 40px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
-  .entete { display:flex; align-items:center; gap:18px; margin-bottom:4px; }
+  .entete { display:grid; grid-template-columns:150px 1fr 150px; align-items:center; gap:18px; margin-bottom:4px; }
   .entete img { width:150px; }
-  h1 { font-size:20px; color:var(--marine); margin:0; }
-  .ref { font-size:11px; color:var(--gris); margin:2px 0 18px; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center; }
+  h1 { font-size:20px; color:var(--marine); margin:0; text-align:center; }
+  .bascule { display:inline-flex; }
+  .bascule button { border-radius:0; }
+  .bascule button:first-child { border-radius:6px 0 0 6px; }
+  .bascule button:last-child { border-radius:0 6px 6px 0; margin-left:-1px; }
+  .bascule button.actif { background:var(--pale); color:var(--marine); font-weight:700; }
+  .ref { font-size:11px; color:var(--gris); margin:2px 0 18px; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center; justify-content:center; }
   .ref .v { display:inline-block; min-width:40px; padding:0 4px; }
   table { width:100%; border-collapse:collapse; margin:0 0 16px; table-layout:fixed; }
   td, th { border:1px solid var(--bord); padding:4px 7px; vertical-align:top; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -40,6 +45,7 @@
   tr.total td { font-weight:700; }
   .v { cursor:text; position:relative; min-height:21px; }
   .v:hover { outline:1px dashed #9aa6c6; outline-offset:-2px; }
+  .v.c { cursor:default; white-space:normal; }
   .v.modele { box-shadow:inset 3px 0 0 var(--modele); }
   .v.saisi { background:var(--saisi-bg); box-shadow:inset 3px 0 0 var(--saisi); }
   .v.manque { background:var(--manque-bg); box-shadow:inset 3px 0 0 var(--manque); }
@@ -47,10 +53,14 @@
   .v .na { color:var(--gris); }
   .v ul { margin:0; padding-left:16px; white-space:normal; }
   .v p { margin:0 0 4px; white-space:normal; }
+  .cc { display:flex; gap:6px; align-items:flex-start; cursor:pointer; padding:1px 0; }
+  .cc input { margin:2px 0 0; accent-color:var(--marine); cursor:pointer; }
+  .cc.na-opt { color:var(--gris); font-size:11px; }
+  .cc.hors { font-style:italic; }
   .raz { position:absolute; top:2px; right:3px; font-size:10px; padding:0 5px; display:none; }
   .v:hover > .raz { display:block; }
   textarea.ed, input.ed { width:100%; font:inherit; border:1px solid var(--marine); border-radius:3px; padding:3px 5px; resize:vertical; background:#fff; color:var(--txt); }
-  h2.ag { font-size:14px; color:var(--marine); margin:24px 0 8px; padding-bottom:3px; border-bottom:1.5px solid var(--rouge); }
+  h2.ag { font-size:14px; color:var(--marine); margin:24px 0 8px; padding-bottom:3px; border-bottom:1.5px solid var(--marine); }
   h2.ag.v { min-height:0; }
   h2.sec { font-size:15px; color:var(--marine); margin:26px 0 10px; }
   h3 { font-size:12.5px; color:var(--marine); margin:14px 0 4px; }
@@ -59,15 +69,14 @@
   .outils { display:flex; gap:6px; margin:-8px 0 16px; flex-wrap:wrap; }
   .outils button, td.act button { font-size:11px; padding:1px 7px; }
   .act { width:58px; }
-  td.act { border:none; padding:2px 0 2px 4px; white-space:nowrap; vertical-align:middle; }
+  td.act, th.act { border:none; background:none; padding:2px 0 2px 4px; white-space:nowrap; vertical-align:middle; }
   td.act button { opacity:0; }
   tr:hover td.act button { opacity:1; }
   .aide { font-size:11px; color:var(--gris); margin:-4px 0 10px; }
   .flash { animation:flash 1.4s; }
   @keyframes flash { 0% { box-shadow:0 0 0 3px var(--manque); } 100% { box-shadow:0 0 0 0 transparent; } }
   #toast { position:fixed; bottom:12px; right:12px; background:var(--txt); color:#fff; padding:6px 12px; border-radius:6px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:9; }
-  #toast.show { opacity:1; }
-</style>
+  #toast.show { opacity:1; }</style>
 </head>
 <body>
 <div class="barre">
@@ -75,7 +84,9 @@
   <span id="cpt"></span>
   <button id="btn-suivant" title="Aller à la prochaine case à compléter">À compléter →</button>
   <button id="btn-maj" title="Relire les données Grist (UO, équipe, entreprise…)">↻ Recharger</button>
-  <button id="btn-pdf" class="prim">Exporter en PDF</button>
+  <span class="bascule" role="group" aria-label="Document affiché"><button id="doc-plan" title="Afficher le plan d’évaluation">Plan</button><button id="doc-strategie" title="Afficher la stratégie d’évaluation (plan sans l’agenda)">Stratégie</button></span>
+  <button id="btn-pdf-plan" class="prim" data-doc="plan">PDF plan</button>
+  <button id="btn-pdf-strategie" class="prim" data-doc="strategie">PDF stratégie</button>
 </div>
 <div id="alerte"></div>
 <main id="doc"><div id="msg">Sélectionnez une évaluation dans la liste.</div></main>
@@ -96,9 +107,12 @@ const num = s => { const m = String(s ?? '').replace(',', '.').match(/-?\d+(\.\d
 const clone = o => JSON.parse(JSON.stringify(o));
 const lignesDe = v => String(v ?? '').split('\n').map(s => s.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean);
 const aujourdhui = () => { const d = new Date(); return [d.getDate(), d.getMonth() + 1].map(n => String(n).padStart(2, '0')).join('/') + '/' + d.getFullYear(); };
+const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, ' ').trim();
+const codeDe = s => { const m = String(s ?? '').match(/\(([^()]+)\)\s*[,;.]?$/); return m ? m[1].trim().toUpperCase() : null; };
+const a_ = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 function toast(m, ms = 2200) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), ms); }
 
-const COL = 'Plan_evaluation';     // colonne Texte de Evaluations qui garde les saisies (JSON)
+const COL = 'Plan_evaluation';     // colonne Texte de Evaluations qui garde les saisies (JSON), partagée par les deux documents
 let T = null;                       // tables Grist
 let evalId = null;
 let base = {};                      // valeurs calculées depuis Grist : k → {v, src, st}
@@ -107,42 +121,36 @@ let P = vierge();                   // saisies manuelles de l'évaluation
 let colOk = false, enEdition = false, dernierEnr = null;
 function vierge() { return { v: 1, champs: {}, equipe: null, agendas: null }; }
 
-/* ═════════ Structure du plan (libellés du modèle Word) ═════════
-   type : t texte · m multiligne · l liste à puces · d date · n nombre de jours · x texte mis en forme
+/* ═════════ Champs ═════════
+   type : t texte · m multiligne · l liste à puces · d date · n nombre de jours · x texte mis en forme · c cases à cocher
    opt  : champ facultatif (vide → « N/A », non compté comme manquant) */
-const SECTIONS = [
-  { titre: 'Société', champs: [
-    ['SOC_NOM', 'Nom de la société'], ['SOC_SIREN', 'SIREN'], ['SOC_SIEGE_ADRESSE', 'Adresse du siège social', 'm'],
-    ['SITE_ADRESSE', 'Adresse du site audité', 'm'], ['SITE_ACTIVITE', 'Activité du site'], ['SOC_WEB', 'Site internet'],
-    ['SOC_EFFECTIF_TOTAL', 'Effectif total'], ['SOC_EFFECTIF_PERIMETRE', 'Effectif dans le périmètre'],
-    ['CONTACT_NOM', 'Nom du contact'], ['CONTACT_EMAIL', 'Email du contact'], ['CONTACT_TEL', 'Téléphone du contact']] },
-  { titre: 'Information sur l’évaluation', champs: [
-    ['CRIT_REFERENTIEL', 'Référentiel d’exigences', 'm'], ['CRIT_TRAME', 'Trame d’évaluation'], ['CRIT_REGLEMENT', 'Règlement Certi-Trust'],
-    ['EVAL_TYPE', 'Type d’évaluation'], ['EVAL_TYPE_AUTRE', 'Précision si type « Autre »', 'm', true],
-    ['EVAL_PORTEES', 'Portée(s) demandée(s)', 'l'], ['EVAL_NIVEAU', 'Niveau de qualification'], ['SIDR_CLASSE', 'Classe du SI DR'],
-    ['EVAL_OBJECTIFS', 'Objectifs de l’évaluation', 'l'], ['TEMOIN_NB', 'Nombre de prestations témoin'],
-    ['TEMOIN_PORTEES_INIT', 'Portées observées en prestation témoin (initiale ou renouvellement)', 'l'],
-    ['TEMOIN_PORTEES_SURV', 'Portées observées en prestation témoin (surveillance 18 mois)', 'l'],
-    ['INCIDENT_ANSSI', 'Incidents déclarés à l’ANSSI', 'm'], ['NC_FICHIER', 'Fichier des NC précédentes à revoir'],
-    ['CHANGEMENTS', 'Changements depuis la dernière évaluation', 'm']] },
-  { titre: 'Jalons', champs: [
-    ['DATE_ENVOI_PLAN', 'Envoi du plan d’évaluation à l’ANSSI', 'd'], ['DATE_LANCEMENT', 'Journée de lancement', 'd'],
-    ['DATE_DOC_DEBUT', 'Évaluation documentaire – début', 'd'], ['DATE_DOC_FIN', 'Évaluation documentaire – fin', 'd'],
-    ['DATE_SIEGE_DEBUT', 'Évaluation siège – début', 'd'], ['DATE_SIEGE_FIN', 'Évaluation siège – fin', 'd'],
-    ['DATE_TEMOIN', 'Prestation(s) témoin', 'm'], ['DATE_CLOTURE', 'Réunion de clôture', 'd'],
-    ['DATE_REMISE_RAPPORT', 'Remise du rapport (échéance)', 'd'], ['STRAT_COMM_PRESTA', 'Stratégie : envoi prestataire', 'd'],
-    ['STRAT_COMM_ANSSI', 'Stratégie : date d’envoi à l’ANSSI', 'd'], ['STRAT_VALIDATION', 'Stratégie : date de validation', 'd']] },
-  { titre: 'Charge en jours-homme', charge: true, champs: [
-    ['CHARGE_PILOTAGE', 'Plan d’évaluation et pilotage', 'n'], ['CHARGE_LANCEMENT', 'Présentation de l’entreprise', 'n'],
-    ['CHARGE_DOC', 'Évaluation documentaire', 'n'], ['CHARGE_SIEGE', 'Évaluation siège (sur site)', 'n'], ['CHARGE_SI', 'Évaluation SI', 'n'],
-    ['CHARGE_TEMOIN', 'Évaluation prestation témoin', 'n'], ['CHARGE_LIVRABLES', 'Élaboration des livrables', 'n'],
-    ['CHARGE_SOUTENANCE', 'Soutenance ANSSI et suivi', 'n'], ['CHARGE_TOTAL', 'Total', 'n']] },
-];
-const CHARGES = SECTIONS[3].champs.map(c => c[0]).filter(k => k !== 'CHARGE_TOTAL');
+const F = (k, lib, type = 't', opt = false) => ({ k, lib, type, opt });
 
-const TEXTES = [
-  ['TXT_ECHANTILLONNAGE', 'Échantillonnage'], ['TXT_LIVRABLES', 'Livrables'], ['TXT_NC', 'Classement des non-conformités'],
-  ['TXT_ECHANGE', 'Modalité d’échange documentaire'], ['TXT_MARQUAGE', 'Marquage et protection'], ['TXT_LANGUE', 'Langue']];
+const TYPES_GRIST = ['Initiale', 'Surveillance', 'Renouvellement', 'Complémentaire', 'Extension d’activité', 'Autre'];
+const PHRASES_TYPE = {
+  'Initiale': 'Évaluation en vue d’une qualification initiale',
+  'Renouvellement': 'Évaluation en vue d’un renouvellement de qualification',
+};
+const OBJECTIFS_TYPE = {
+  'Renouvellement': ['Évaluation par échantillonnage de la conformité par rapport aux critères d’évaluation,',
+    'Évaluation par échantillonnage des prestations qualifiées,', 'Évaluation de l’impact des changements depuis la précédente évaluation,',
+    'Évaluation des plans d’action relatifs aux non-conformités précédentes,',
+    'Évaluation des conditions d’utilisation du service indiquées dans la décision de qualification du service.'],
+};
+// Valeurs des modèles Word, utilisées seulement si Grist n'a rien (marquées « modèle »).
+const MODELE_PROGRAMME = {
+  PASSI: { CRIT_TRAME: 'PASSI – trame d’évaluation – v1.3', CRIT_REGLEMENT: 'MAN-402_Reglement_Certification_PASSI2.2_V1.5' },
+};
+// Portées qui ne donnent pas lieu à une case ni à un évaluateur dédié (qualifications d'évaluateur, tronc commun…)
+const PORTEES_EXCLUES = /_(RA|AUDIT|RP|TC)$/;
+// Cases du TEM-404 (Json_Complet) → code court de Qualifications_List, par programme.
+const PORTEES_TEM404 = {
+  passi: ['c1', { archi: 'ARCHI', conf: 'CONF', code: 'CODE', intrusion: 'INTRUSION', orgaphy: 'ORGAPHY' }],
+  pacs: ['c2', { archi: 'ARCHI', homol: 'HOM', risque: 'GDR', crise: 'CRISE' }],
+  pris: ['c3', { rec: 'REC', inv: 'INV', code: 'CODE', pci: 'PCI', crise: 'CRISE' }],
+  secnumcloud: ['c4', { iaas: 'IaaS', paas: 'PaaS', saas: 'SaaS', caas: 'CaaS' }],
+};
+
 const TEXTES_DEFAUT = {
   TXT_ECHANTILLONNAGE: 'Lors d’une évaluation initiale ou de renouvellement, l’ensemble des points de contrôle de la trame doit être documenté. Si des points de contrôle ne sont pas évalués, une justification doit être apportée.\nL’échantillonnage doit couvrir l’ensemble des chapitres de la trame. Ainsi, pour chaque chapitre, un tiers des exigences doit être sélectionné à des fins de vérification. Cette règle s’applique également aux documents de référence spécifiques tels que le GHY et le II 901, lorsque ces derniers sont concernés.',
   TXT_LIVRABLES: 'Le responsable d’évaluation produira les livrables suivants :\n- Un rapport d’évaluation présentant les tâches d’évaluation menées, les résultats de ces tâches, les vulnérabilités et non-conformités au référentiel d’exigences identifiées.\n- La trame d’évaluation complétée par les évaluateurs.\n- Un tableau listant l’ensemble des non-conformités et leur niveau de gravité. Ce tableau sera complété par le prestataire avec les plans d’action de mise en conformité et leurs délais de mise en œuvre associés. Certi-Trust formulera un avis sur les plans d’action et leurs délais de mise en œuvre.',
@@ -150,23 +158,15 @@ const TEXTES_DEFAUT = {
   TXT_ECHANGE: 'Toutes les informations communiquées entre le prestataire et Certi-Trust devront se faire par le biais d’un conteneur ZED.',
   TXT_MARQUAGE: 'Le rapport d’évaluation portera la mention Diffusion Restreinte, conformément à l’instruction interministérielle n° 901.\nCerti-Trust apposera sur le rapport d’évaluation une signature électronique avancée conforme au règlement européen n° 910/2014 afin de garantir son authenticité et permettre de détecter toute altération de son contenu.',
   TXT_LANGUE: 'Le rapport d’évaluation sera rédigé en langue française.',
+  // Stratégie d'évaluation (TEM-401)
+  SG_LIVRABLES: 'À chaque évaluation, le responsable d’évaluation produira les livrables suivants :\n- Un rapport d’évaluation présentant les tâches d’évaluation menées, les résultats de ces tâches, les vulnérabilités et non-conformités au référentiel d’exigences identifiées.\n- La trame d’évaluation complétée par les évaluateurs.\n- Un tableau listant l’ensemble des non-conformités et leur niveau de gravité. Ce tableau sera complété par le prestataire avec les plans d’action de mise en conformité et leurs délais de mise en œuvre associés. Certi-Trust formulera un avis sur les plans d’action et leurs délais de mise en œuvre.',
+  SG_MARQUAGE: 'Le rapport d’évaluation portera la mention Diffusion Restreinte, conformément à l’instruction interministérielle n° 901.',
+  SG_PROTECTION: 'L’évaluateur apposera sur le rapport d’évaluation une signature électronique avancée conforme au règlement européen n° 910/2014 afin de garantir son authenticité et permettre de détecter toute altération de son contenu.',
+  SG_LANGUE: 'Le rapport d’évaluation sera rédigé en langue française.',
+  SG_DELAI: 'L’évaluateur transmettra le rapport d’évaluation dans un délai d’un mois maximum à partir de la date de fin de l’évaluation.',
 };
 
-// Valeurs du modèle Word, utilisées seulement si Grist n'a rien (marquées « modèle »).
-const MODELE_PROGRAMME = {
-  PASSI: { CRIT_TRAME: 'PASSI – trame d’évaluation – v1.3', CRIT_REGLEMENT: 'MAN-402_Reglement_Certification_PASSI2.2_V1.5' },
-};
-const PHRASES_TYPE = { 'Renouvellement': 'Évaluation en vue d’un renouvellement de qualification' };
-const OBJECTIFS_TYPE = {
-  'Renouvellement': ['Évaluation par échantillonnage de la conformité par rapport aux critères d’évaluation,',
-    'Évaluation par échantillonnage des prestations qualifiées,', 'Évaluation de l’impact des changements depuis la précédente évaluation,',
-    'Évaluation des plans d’action relatifs aux non-conformités précédentes,',
-    'Évaluation des conditions d’utilisation du service indiquées dans la décision de qualification du service.'],
-};
-// Portées qui ne donnent pas lieu à un évaluateur dédié (qualifications d'évaluateur, tronc commun…)
-const PORTEES_EXCLUES = /_(RA|AUDIT|RP|TC)$/;
-
-/* ═════════ Agendas par défaut (modèle PASSI) ═════════
+/* ═════════ Agendas par défaut du plan (modèle PASSI) ═════════
    Les jetons {DATE_…} sont remplacés par les jalons du plan. */
 const C4 = ['Créneau', 'Sujets', 'Clauses PASSI', 'Évaluateur(s)'];
 const AGENDAS_PASSI = [
@@ -230,6 +230,73 @@ const AGENDAS_PASSI = [
     ['16:30 – 17:30', 'Réunion de clôture de l’évaluation', 'N.A.', 'RE et ETA']] },
 ];
 
+/* ═════════ Les deux documents ═════════
+   Un même widget, bascule Plan / Stratégie dans la barre (ou ?doc=strategie dans l'URL pour ouvrir sur la stratégie).
+   La stratégie d'évaluation est le plan d'évaluation sans les agendas détaillés : mêmes blocs, mêmes saisies. */
+const BLOC_EQUIPE = { t: 'tableau', cle: 'equipe', titre: 'Équipe d’évaluation', ajout: '+ Membre', raz: '↺ Équipe depuis Grist', liste: 'nom',
+  cols: [['nom', 'Nom', '30%', true], ['tri', 'Trigramme', '14%', true], ['tel', 'Téléphone', '22%', true], ['mail', 'Email', '', true]],
+  defaut: () => ctx.equipe || [], vide: 'Aucun évaluateur : renseigner RE / ETA / ETM (évaluation ou planning) ou ajouter une ligne' };
+
+const DOCS = {
+  plan: {
+    nom: 'Plan d’évaluation', fichier: 'Plan_d_evaluation', cases: false,
+    titre: () => `Plan d’évaluation ${ctx.progCourt}`,
+    pied: () => `Plan d’évaluation ${ctx.progCourt}${ctx.refVersion ? ' ' + ctx.refVersion : ''} – ${val('SOC_NOM')}`,
+    entete: ['DOC_REF', 'DOC_VERSION', 'DOC_DATE'],
+    version: () => val('DOC_VERSION'), date: () => val('DOC_DATE'),
+    blocs: [
+      { t: 'champs', titre: 'Société', champs: [
+        F('SOC_NOM', 'Nom de la société'), F('SOC_SIREN', 'SIREN'), F('SOC_SIEGE_ADRESSE', 'Adresse du siège social', 'm'),
+        F('SITE_ADRESSE', 'Adresse du site audité', 'm'), F('SITE_ACTIVITE', 'Activité du site'), F('SOC_WEB', 'Site internet'),
+        F('SOC_EFFECTIF_TOTAL', 'Effectif total'), F('SOC_EFFECTIF_PERIMETRE', 'Effectif dans le périmètre'),
+        F('CONTACT_NOM', 'Nom du contact'), F('CONTACT_EMAIL', 'Email du contact'), F('CONTACT_TEL', 'Téléphone du contact')] },
+      { t: 'champs', titre: 'Information sur l’évaluation', champs: [
+        F('CRIT_REFERENTIEL', 'Référentiel d’exigences', 'm'), F('CRIT_TRAME', 'Trame d’évaluation'), F('CRIT_REGLEMENT', 'Règlement Certi-Trust'),
+        F('EVAL_TYPE', 'Type d’évaluation', 'c'), F('EVAL_TYPE_AUTRE', 'Précision si type « Autre »', 'm', true),
+        F('EVAL_PORTEES', 'Portée(s) demandée(s)', 'c'), F('EVAL_NIVEAU', 'Niveau de qualification', 'c'), F('SIDR_CLASSE', 'Classe du SI DR', 'c'),
+        F('EVAL_OBJECTIFS', 'Objectifs de l’évaluation', 'l'), F('TEMOIN_NB', 'Nombre de prestations témoin'),
+        F('TEMOIN_PORTEES_INIT', 'Portées observées en prestation témoin (initiale ou renouvellement)', 'c'),
+        F('TEMOIN_PORTEES_SURV', 'Portées observées en prestation témoin (surveillance 18 mois)', 'c'),
+        F('INCIDENT_ANSSI', 'Incidents déclarés à l’ANSSI', 'm'), F('NC_FICHIER', 'Fichier des NC précédentes à revoir'),
+        F('CHANGEMENTS', 'Changements depuis la dernière évaluation', 'm')] },
+      { t: 'champs', titre: 'Jalons', champs: [
+        F('DATE_ENVOI_PLAN', 'Envoi du plan d’évaluation à l’ANSSI', 'd'), F('DATE_LANCEMENT', 'Journée de lancement', 'd'),
+        F('DATE_DOC_DEBUT', 'Évaluation documentaire – début', 'd'), F('DATE_DOC_FIN', 'Évaluation documentaire – fin', 'd'),
+        F('DATE_SIEGE_DEBUT', 'Évaluation siège – début', 'd'), F('DATE_SIEGE_FIN', 'Évaluation siège – fin', 'd'),
+        F('DATE_TEMOIN', 'Prestation(s) témoin', 'm'), F('DATE_CLOTURE', 'Réunion de clôture', 'd'),
+        F('DATE_REMISE_RAPPORT', 'Remise du rapport (échéance)', 'd'), F('STRAT_COMM_PRESTA', 'Stratégie : envoi prestataire', 'd'),
+        F('STRAT_COMM_ANSSI', 'Stratégie : date d’envoi à l’ANSSI', 'd'), F('STRAT_VALIDATION', 'Stratégie : date de validation ANSSI', 'd')] },
+      { t: 'champs', titre: 'Charge en jours-homme', charge: true, champs: [
+        F('CHARGE_PILOTAGE', 'Plan d’évaluation et pilotage', 'n'), F('CHARGE_LANCEMENT', 'Présentation de l’entreprise', 'n'),
+        F('CHARGE_DOC', 'Évaluation documentaire', 'n'), F('CHARGE_SIEGE', 'Évaluation siège (sur site)', 'n'), F('CHARGE_SI', 'Évaluation SI', 'n'),
+        F('CHARGE_TEMOIN', 'Évaluation prestation témoin', 'n'), F('CHARGE_LIVRABLES', 'Élaboration des livrables', 'n'),
+        F('CHARGE_SOUTENANCE', 'Soutenance ANSSI et suivi', 'n'), F('CHARGE_TOTAL', 'Total', 'n')] },
+      BLOC_EQUIPE,
+      { t: 'roles' },
+      { t: 'textes', liste: [['TXT_ECHANTILLONNAGE', 'Échantillonnage'], ['TXT_LIVRABLES', 'Livrables'], ['TXT_NC', 'Classement des non-conformités'],
+        ['TXT_ECHANGE', 'Modalité d’échange documentaire'], ['TXT_MARQUAGE', 'Marquage et protection'], ['TXT_LANGUE', 'Langue']] },
+      { t: 'agendas' },
+    ],
+  },
+  strategie: {
+    nom: 'Stratégie d’évaluation', fichier: 'Strategie_d_evaluation', cases: false,
+    titre: () => `Stratégie d’évaluation ${ctx.progCourt}`,
+    pied: () => `Stratégie d’évaluation ${ctx.progCourt}${ctx.refVersion ? ' ' + ctx.refVersion : ''} – ${val('SOC_NOM')}`,
+    entete: ['DOC_REF', 'DOC_VERSION', 'DOC_DATE'],
+    version: () => val('DOC_VERSION'), date: () => val('DOC_DATE'),
+    blocs: [],
+  },
+};
+DOCS.strategie.blocs = DOCS.plan.blocs.filter(b => b.t !== 'agendas');
+let MODE = new URLSearchParams(location.search).get('doc') === 'strategie' ? 'strategie' : 'plan';
+let DOC = DOCS[MODE];
+document.title = DOC.nom;
+function choisirDoc(cle) {
+  MODE = cle; DOC = DOCS[cle]; document.title = DOC.nom;
+  for (const c of Object.keys(DOCS)) $('doc-' + c).classList.toggle('actif', c === cle);
+}
+const CHARGES = DOCS.plan.blocs[3].champs.map(c => c.k).filter(k => k !== 'CHARGE_TOTAL');
+
 /* ═════════ Lecture Grist ═════════ */
 async function chargerTables() {
   const noms = ['Evaluations', 'Entreprises', 'Sites', 'Contacts', 'Programmes', 'Documents_Referentiel',
@@ -245,6 +312,17 @@ function finOuvree(sec, jours) {
   while (reste > 0) { d.setUTCDate(d.getUTCDate() + 1); const j = d.getUTCDay(); if (j !== 0 && j !== 6) reste--; }
   return d.getTime() / 1000;
 }
+
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+// « juin 2026 », « 06/2026 » ou « 08/06/2026 » → {m: 0..11, a}
+function lirePeriode(s) {
+  s = String(s || '');
+  let m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return { m: +m[2] - 1, a: +m[3] };
+  m = s.match(/\b(\d{1,2})\/(\d{4})\b/); if (m) return { m: +m[1] - 1, a: +m[2] };
+  const n = norm(s); const i = MOIS.findIndex(x => n.includes(norm(x))); m = s.match(/\b(20\d\d)\b/);
+  return i >= 0 && m ? { m: i, a: +m[1] } : null;
+}
+const periode = p => p ? `${MOIS[p.m]} ${p.a}` : '';
 
 /* Valeurs proposées par Grist pour une évaluation. st : 'grist' ou 'modele'. */
 function calculer(id) {
@@ -313,9 +391,16 @@ function calculer(id) {
   const types = liste(ev.Type_d_evaluation);
   set('EVAL_TYPE', types.map(t => PHRASES_TYPE[t] || t), 'Evaluations.Type_d_evaluation');
   if (types.includes('Autre')) set('EVAL_TYPE_AUTRE', ev.Commentaires, 'Evaluations.Commentaires');
-  const quals = liste(ev.Activites_).map(i => T.Qualifications_List.par.get(i)).filter(Boolean);
   const code = q => String(q.Qualification_code || '').replace(/^[^_]+_/, '');
-  set('EVAL_PORTEES', quals.map(q => `${q.Qualifications} (${code(q)})`), 'Evaluations.Activites_');
+  const quals = liste(ev.Activites_).map(i => T.Qualifications_List.par.get(i)).filter(Boolean);
+  // Portées demandées : cases cochées du TEM-404 ; à défaut (pas de TEM-404, PDIS/PAMS en texte libre), Evaluations.Activites_
+  const blocTem = PORTEES_TEM404[progCle];
+  const porteesTem = blocTem ? Object.entries(blocTem[1]).filter(([cle]) => J[`${blocTem[0]}.${cle}`] === true).map(([, c]) => {
+    const q = T.Qualifications_List.find(x => refId(x.Programme) === prog.id && code(x) === c);
+    return q ? `${q.Qualifications} (${c})` : c;
+  }) : [];
+  if (porteesTem.length) set('EVAL_PORTEES', porteesTem, `${temNom} (bloc ${blocTem[0]})`);
+  else set('EVAL_PORTEES', quals.map(q => `${q.Qualifications} (${code(q)})`), 'Evaluations.Activites_' + (tem ? ` (aucune portée cochée dans ${temNom})` : ''));
   const niv = J[`b.${progCle}.niveau`];
   set('EVAL_NIVEAU', niv && niv !== '-' ? niv : '', temNom + ` b.${progCle}.niveau`);
   const objectifs = types.map(t => OBJECTIFS_TYPE[t]).find(Boolean);
@@ -349,6 +434,10 @@ function calculer(id) {
   set('CHARGE_LIVRABLES', jours('Rédaction du rapport'), uo('Rédaction du rapport'));
   set('CHARGE_SOUTENANCE', jours('Soutenance des travaux à l\'ANSSI et suivi'), uo('Soutenance ANSSI et suivi'));
 
+  /* Période d'évaluation (stratégie) : 1re date connue de l'évaluation */
+  const debutEval = debut(uos) || ev.Date_Debut_prevue;
+  if (debutEval) { const d = new Date(debutEval * 1000); set('PERIODE_INIT', periode({ m: d.getUTCMonth(), a: d.getUTCFullYear() }), debut(uos) ? 'Planning (1re unité d’œuvre)' : 'Evaluations.Date_Debut_prevue'); }
+
   /* Équipe */
   const evr = i => T.Evaluateurs.par.get(i);
   const nom = e => e ? [e.Evaluateur_Prenom, String(e.Evaluateur_Nom || '').toUpperCase()].filter(Boolean).join(' ') : '';
@@ -372,72 +461,142 @@ function calculer(id) {
   set('DOC_REF', ev.Libelle, 'Evaluations.Libelle');
   set('DOC_VERSION', '1.0', 'Version par défaut', 'modele');
   set('DOC_DATE', aujourdhui(), 'Date du jour', 'modele');
-  for (const [k] of TEXTES) set(k, TEXTES_DEFAUT[k], 'Texte du modèle de plan', 'modele');
+  for (const k of Object.keys(TEXTES_DEFAUT)) set(k, TEXTES_DEFAUT[k], 'Texte du modèle', 'modele');
 
   // Libellés des portées : ceux du programme de l'évaluation d'abord (CODE = PASSI_CODE et non PRIS_CODE)
   const qs = T.Qualifications_List.filter(q => q.Qualification_code).sort((a, b) => (refId(a.Programme) === prog.id) - (refId(b.Programme) === prog.id));
   const libQual = new Map(qs.map(q => [code(q), q.Qualifications]));
-  const portéesProg = T.Qualifications_List.filter(q => refId(q.Programme) === prog.id && q.Qualification_code && !PORTEES_EXCLUES.test(q.Qualification_code)).map(code);
+  const qualsProg = T.Qualifications_List.filter(q => refId(q.Programme) === prog.id && q.Qualification_code && !PORTEES_EXCLUES.test(q.Qualification_code));
   return {
-    B, ctx: { ev, ent, progNom, progCourt, refVersion: refDoc && refDoc.Version ? String(refDoc.Version) : '', equipe, libQual, portéesProg,
+    B, ctx: { ev, ent, progNom, progCourt, refVersion: refDoc && refDoc.Version ? String(refDoc.Version) : '', equipe, libQual,
+      portéesProg: qualsProg.map(code), optionsPortees: qualsProg.map(q => `${q.Qualifications} (${code(q)})`),
       nbUO: uos.length, nonAffectees: uos.filter(u => !affectee(u)).length,
       tousEvaluateurs: T.Evaluateurs.map(nom).filter(Boolean).sort() },
   };
 }
 
-/* ═════════ Valeurs affichées = saisie manuelle, sinon Grist ═════════ */
+/* ═════════ Valeurs affichées = saisie manuelle, sinon calcul, sinon Grist ═════════ */
 function totalCalcule() {
   const ns = CHARGES.map(k => num(val(k))).filter(n => n !== null);
   return ns.length ? nombre(ns.reduce((a, b) => a + b, 0)) : '';
 }
+function surveillance18() {
+  const p = lirePeriode(val('PERIODE_INIT')); if (!p) return '';
+  const t = p.a * 12 + p.m + 18; return periode({ m: t % 12, a: Math.floor(t / 12) });
+}
+// Valeurs déduites d'autres cases (suivent leurs modifications tant qu'elles ne sont pas saisies)
+const CALCULS = {
+  CHARGE_TOTAL: { f: totalCalcule, st: 'grist', src: 'Somme des lignes' },
+  PERIODE_SURV: { f: surveillance18, st: 'modele', src: 'Période initiale + 18 mois' },
+};
 function val(k) {
-  if (Object.prototype.hasOwnProperty.call(P.champs, k)) return P.champs[k];
-  if (k === 'CHARGE_TOTAL') return totalCalcule();
+  if (a_(P.champs, k)) return P.champs[k];
+  if (CALCULS[k]) return CALCULS[k].f();
   return base[k] ? base[k].v : '';
 }
 function etat(k, opt) {
   const v = val(k);
-  if (Object.prototype.hasOwnProperty.call(P.champs, k)) return vide(v) ? (opt ? 'na' : 'manque') : 'saisi';
+  if (a_(P.champs, k)) return vide(v) ? (opt ? 'na' : 'manque') : 'saisi';
   if (vide(v)) return opt ? 'na' : 'manque';
-  return k === 'CHARGE_TOTAL' ? 'grist' : (base[k] ? base[k].st : 'grist');
+  return CALCULS[k] ? CALCULS[k].st : (base[k] ? base[k].st : 'grist');
 }
 function source(k) {
-  if (Object.prototype.hasOwnProperty.call(P.champs, k)) return 'Saisi à la main' + (base[k] ? ` — valeur Grist : ${base[k].v.split('\n')[0]}` : '');
-  if (k === 'CHARGE_TOTAL') return 'Somme des lignes';
+  if (a_(P.champs, k)) return 'Saisi à la main' + (base[k] ? ` — valeur Grist : ${base[k].v.split('\n')[0]}` : '');
+  if (CALCULS[k]) return CALCULS[k].src;
   return base[k] ? base[k].src : 'Absent de Grist : à saisir';
 }
-const equipe = () => P.equipe || ctx.equipe || [];
+const tableau = b => P[b.cle] || b.defaut();
+const blocDe = cle => Object.values(DOCS).flatMap(d => d.blocs).find(b => b.t === 'tableau' && b.cle === cle);
 const agendas = () => P.agendas || (ctx.progCourt === 'PASSI' ? AGENDAS_PASSI : []);
 function resoudre(s) {
   return String(s || '').replace(/\{([A-Z_]+)\}/g, (_, k) => { const v = lignesDe(val(k)).join(', '); return v || 'à définir'; });
 }
+
+/* Cases à cocher : options, et options cochées d'après la valeur (lignes de texte) */
+function options(k) {
+  if (k === 'EVAL_TYPE') return TYPES_GRIST.map(t => PHRASES_TYPE[t] || t);
+  if (/^TEMOIN_PORTEES/.test(k)) {
+    // Portées observées en prestation témoin : choisies parmi les portées demandées
+    const demandees = lignesDe(val('EVAL_PORTEES')).filter(l => !/^n\/?a\.?$/i.test(l));
+    return demandees.length ? demandees : (ctx.optionsPortees || []);
+  }
+  if (/PORTEES/.test(k)) {
+    // Portées demandées : toutes celles du programme, plus celles du TEM-404 absentes de la liste (ex. SecNumCloud)
+    const base_ = lignesDe(base.EVAL_PORTEES ? base.EVAL_PORTEES.v : '');
+    const opts = ctx.optionsPortees || [];
+    return [...opts, ...base_.filter(l => !opts.some(o => norm(o) === norm(l) || (codeDe(o) && codeDe(o) === codeDe(l))))];
+  }
+  if (k === 'EVAL_NIVEAU') return ['Substantiel', 'Élevé'];
+  if (k === 'SIDR_CLASSE') return ['Classe 2', 'Classe 1'];
+  return [];
+}
+function coches(k) {
+  const opts = options(k), sel = new Set(), hors = [];
+  let na = false;
+  for (const l of lignesDe(val(k))) {
+    if (/^n\/?a\.?$/i.test(l)) { na = true; continue; }
+    const o = opts.find(o => norm(o) === norm(l) || (codeDe(o) && codeDe(o) === codeDe(l)));
+    if (o) sel.add(o); else hors.push(l);
+  }
+  return { opts, sel, hors, na };
+}
+// Une seule case possible (niveau, classe du SI DR) ; les autres listes sont à choix multiple.
+const CHOIX_UNIQUE = new Set(['EVAL_NIVEAU', 'SIDR_CLASSE']);
+function basculer(k, quoi) {
+  const c = coches(k);
+  let lignes;
+  if (quoi === 'na') lignes = c.na ? [] : ['N/A'];
+  else if (quoi.startsWith('h')) { c.hors.splice(Number(quoi.slice(1)), 1); lignes = [...c.opts.filter(o => c.sel.has(o)), ...c.hors]; }
+  else {
+    const o = c.opts[Number(quoi)];
+    if (c.sel.has(o)) c.sel.delete(o);
+    else { if (CHOIX_UNIQUE.has(k)) { c.sel.clear(); c.hors.length = 0; } c.sel.add(o); }
+    lignes = [...c.opts.filter(o => c.sel.has(o)), ...c.hors];
+  }
+  P.champs[k] = lignes.join('\n');
+}
+
 // Une ligne d'évaluateur par portée : celles demandées, sinon celles du programme.
 function portees() {
-  let codes = lignesDe(val('EVAL_PORTEES')).map(l => { const m = l.match(/\(([^()]+)\)\s*[,;.]?$/); return (m ? m[1] : l).trim(); });
+  let codes = lignesDe(val('EVAL_PORTEES')).map(l => codeDe(l) || l.trim()).filter(l => !/^n\/?a\.?$/i.test(l));
   if (!codes.length) codes = ctx.portéesProg || [];
   return [...new Set(codes)];
 }
 function roles() {
-  const r = [['MEMBRE_RE', 'Responsable d’évaluation'], ['MEMBRE_ETA', 'Évaluateur technique (ETA)']];
-  for (const c of portees()) r.push([`MEMBRE_ET_${c.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}`, `Évaluateur ${(ctx.libQual.get(c) || c).replace(/^./, x => x.toLowerCase())}`]);
-  r.push(['MEMBRE_OBS', 'Observateur d’évaluation', 't', true], ['MEMBRE_SUP', 'Superviseur d’évaluation', 't', true]);
+  const r = [F('MEMBRE_RE', 'Responsable d’évaluation'), F('MEMBRE_ETA', 'Évaluateur technique (ETA)')];
+  for (const c of portees()) r.push(F(`MEMBRE_ET_${c.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}`, `Évaluateur ${(ctx.libQual.get(c) || c).replace(/^./, x => x.toLowerCase())}`));
+  r.push(F('MEMBRE_OBS', 'Observateur d’évaluation', 't', true), F('MEMBRE_SUP', 'Superviseur d’évaluation', 't', true));
   return r;
 }
+// Champs du document courant (pour les compteurs et l'export)
 function tousLesChamps() {
-  const l = [['DOC_REF'], ['DOC_VERSION'], ['DOC_DATE']];
-  SECTIONS.forEach(s => l.push(...s.champs));
-  l.push(...roles(), ...TEXTES.map(([k]) => [k, '', 'x']));
-  return l.map(([k, , type = 't', opt = false]) => ({ k, type, opt }));
+  const l = DOC.entete.map(k => F(k, '', k === 'DOC_DATE' ? 'd' : 't'));
+  for (const b of DOC.blocs) {
+    if (b.t === 'champs') l.push(...b.champs);
+    else if (b.t === 'roles') l.push(...roles());
+    else if (b.t === 'textes') l.push(...b.liste.map(([k]) => F(k, '', 'x')));
+    else if (b.t === 'matrice') b.lignes.forEach(([, ...ks]) => ks.forEach(k => l.push(F(k, '', 'd'))));
+  }
+  return l;
 }
 
 /* ═════════ Rendu écran ═════════ */
-function htmlValeur(k, type, opt) {
-  const v = val(k);
-  if (vide(v)) return opt ? '<span class="na">N/A</span>' : '<span class="vide-txt">à compléter</span>';
-  if (type === 'l') return '<ul>' + lignesDe(v).map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
-  if (type === 'n') return esc(jours(v));
-  if (type === 'x') return htmlRiche(v);
+const jours = v => { const n = num(v); return n === null ? String(v) : nombre(n) + (n > 1 ? ' jours' : ' jour'); };
+function htmlValeur(f) {
+  if (f.type === 'c') return htmlCases(f.k);
+  const v = val(f.k);
+  if (vide(v)) return f.opt ? '<span class="na">N/A</span>' : '<span class="vide-txt">à compléter</span>';
+  if (f.type === 'l') return '<ul>' + lignesDe(v).map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
+  if (f.type === 'n') return esc(jours(v));
+  if (f.type === 'x') return htmlRiche(v);
   return esc(v);
+}
+function htmlCases(k) {
+  const c = coches(k);
+  let h = c.opts.map((o, i) => `<label class="cc"><input type="checkbox" data-cc="${k}|${i}" ${c.sel.has(o) ? 'checked' : ''}><span>${esc(o)}</span></label>`).join('');
+  h += c.hors.map((o, i) => `<label class="cc hors" title="Valeur hors liste (décocher pour la retirer)"><input type="checkbox" data-cc="${k}|h${i}" checked><span>${esc(o)}</span></label>`).join('');
+  h += `<label class="cc na-opt"><input type="checkbox" data-cc="${k}|na" ${c.na ? 'checked' : ''}><span>N/A</span></label>`;
+  return h;
 }
 function htmlRiche(v) {
   let h = '', ul = false;
@@ -448,69 +607,73 @@ function htmlRiche(v) {
   }
   return h + (ul ? '</ul>' : '');
 }
-const jours = v => { const n = num(v); return n === null ? String(v) : nombre(n) + (n > 1 ? ' jours' : ' jour'); };
-function cellule(k, type = 't', opt = false, balise = 'td', classe = '') {
-  const st = etat(k, opt);
-  const raz = st === 'saisi' ? `<button class="raz" data-act="raz" data-k="${k}" title="Revenir à la valeur Grist">↺</button>` : '';
-  return `<${balise} class="v ${classe} ${st}" data-k="${k}" data-type="${type}" data-opt="${opt ? 1 : ''}" title="${esc(source(k))}">${htmlValeur(k, type, opt)}${raz}</${balise}>`;
+function cellule(f, balise = 'td', classe = '') {
+  const st = etat(f.k, f.opt);
+  const raz = st === 'saisi' || (f.type === 'c' && a_(P.champs, f.k)) ? `<button class="raz" data-act="raz" data-k="${f.k}" title="Revenir à la valeur Grist">↺</button>` : '';
+  return `<${balise} class="v ${f.type === 'c' ? 'c' : ''} ${classe} ${st}" data-k="${f.k}" data-type="${f.type}" title="${esc(source(f.k))}">${htmlValeur(f)}${raz}</${balise}>`;
 }
 function tableChamps(titre, champs, classeTotal) {
   let h = `<table><thead><tr><th class="bar" colspan="2">${esc(titre)}</th></tr></thead><tbody>`;
-  for (const [k, lib, type, opt] of champs) h += `<tr class="${classeTotal && k === 'CHARGE_TOTAL' ? 'total' : ''}"><td class="lib">${esc(lib)}</td>${cellule(k, type, opt)}</tr>`;
+  for (const f of champs) h += `<tr class="${classeTotal && f.k === 'CHARGE_TOTAL' ? 'total' : ''}"><td class="lib">${esc(f.lib)}</td>${cellule(f)}</tr>`;
   return h + '</tbody></table>';
 }
+const RENDU = {
+  champs: b => tableChamps(b.titre, b.champs, b.charge)
+    + (b.charge && ctx.nonAffectees ? `<div class="aide">${ctx.nonAffectees} unité(s) d’œuvre sans évaluateur ne sont pas comptées dans la charge.</div>` : ''),
+  roles: () => tableChamps('Rôles', roles()),
+  textes: b => (b.titre ? `<h2 class="sec">${esc(b.titre)}</h2>` : '') + b.liste.map(([k, t]) => `<h3>${esc(t)}</h3>${cellule(F(k, t, 'x'), 'div', 'txt')}`).join(''),
+  matrice: b => `<table style="margin-top:14px"><thead><tr><th class="bar" colspan="${b.cols.length + 1}">${esc(b.titre)}</th></tr>`
+    + `<tr class="sous"><th style="width:30%"></th>${b.cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`
+    + b.lignes.map(([lib, ...ks]) => `<tr><td class="lib" style="width:30%">${esc(lib)}</td>${ks.map(k => cellule(F(k, lib, 'd'))).join('')}</tr>`).join('') + '</tbody></table>',
+  tableau: b => {
+    const l = tableau(b), saisi = !!P[b.cle];
+    let h = `<table><thead><tr><th class="bar" colspan="${b.cols.length}">${esc(b.titre)}</th><th class="act"></th></tr>`
+      + `<tr class="sous">${b.cols.map(([, lib, w]) => `<th${w ? ` style="width:${w}"` : ''}>${esc(lib)}</th>`).join('')}<th class="act"></th></tr></thead><tbody>`;
+    l.forEach((m, i) => {
+      h += '<tr>' + b.cols.map(([f, , , requis]) => `<td class="v ${saisi ? 'saisi' : (vide(m[f]) ? (requis ? 'manque' : '') : 'grist')}" data-tb="${b.cle}|${i}|${f}">${vide(m[f]) ? (requis ? '<span class="vide-txt">à compléter</span>' : '') : esc(m[f])}</td>`).join('')
+        + `<td class="act"><button data-act="tb-del" data-cle="${b.cle}" data-i="${i}" title="Supprimer la ligne">✕</button></td></tr>`;
+    });
+    if (!l.length) h += `<tr><td colspan="${b.cols.length}" class="v manque"><span class="vide-txt">${esc(b.vide)}</span></td></tr>`;
+    return h + `</tbody></table><div class="outils"><button data-act="tb-add" data-cle="${b.cle}">${esc(b.ajout)}</button>`
+      + (saisi ? `<button data-act="tb-raz" data-cle="${b.cle}">${esc(b.raz)}</button>` : '') + '</div>';
+  },
+  agendas: () => {
+    let h = '<h2 class="sec">Agendas</h2><div class="aide">Les titres et textes acceptent les jetons {DATE_LANCEMENT}, {DATE_DOC_DEBUT}, {DATE_DOC_FIN}, {DATE_SIEGE_DEBUT}, {DATE_SIEGE_FIN}, {DATE_TEMOIN}, {DATE_CLOTURE}, remplacés par les jalons.</div>';
+    agendas().forEach((a, i) => {
+      h += `<h2 class="ag v ${P.agendas ? 'saisi' : 'modele'}" data-ag="${i}|titre" title="Titre (cliquer pour modifier)">${esc(resoudre(a.titre))}</h2>`;
+      if (a.type === 'texte') h += `<div class="v txt ${P.agendas ? 'saisi' : 'modele'}" data-ag="${i}|texte">${htmlRiche(resoudre(a.texte))}</div>`;
+      else {
+        h += '<table><thead><tr>' + a.cols.map((c, j) => `<th class="bar v" data-ag="${i}|h|${j}" style="${largeurCol(a.cols, j)}">${esc(c)}</th>`).join('') + '<th class="act"></th></tr></thead><tbody>';
+        a.lignes.forEach((l, r) => {
+          h += `<tr class="${estPause(l) ? 'pause' : ''}">` + a.cols.map((_, j) => `<td class="v" data-ag="${i}|${r}|${j}">${esc(l[j] || '')}</td>`).join('')
+            + `<td class="act"><button data-act="ag-ins" data-i="${i}" data-r="${r}" title="Insérer une ligne dessous">+</button> <button data-act="ag-sup" data-i="${i}" data-r="${r}" title="Supprimer la ligne">✕</button></td></tr>`;
+        });
+        h += '</tbody></table>';
+      }
+      h += `<div class="outils">${a.type === 'table' ? `<button data-act="ag-ins" data-i="${i}" data-r="-1">+ Ligne</button>` : ''}`
+        + `<button data-act="ag-haut" data-i="${i}">↑</button><button data-act="ag-bas" data-i="${i}">↓</button>`
+        + `<button data-act="ag-del" data-i="${i}">Supprimer cet agenda</button></div>`;
+    });
+    return h + '<div class="outils" style="margin-top:6px"><button data-act="ag-new-table">+ Agenda (tableau)</button><button data-act="ag-new-texte">+ Bloc texte</button>'
+      + (P.agendas ? '<button data-act="ag-raz">↺ Agendas du modèle</button>' : '') + '</div>';
+  },
+};
 function rendre() {
   if (!T || !evalId || !ctx.ev) return;
   const ev = ctx.ev;
-  $('titre').textContent = `${ctx.ent.Denomination || '?'} — ${ctx.progNom || '?'} ${liste(ev.Type_d_evaluation).join(', ')}`;
+  $('titre').textContent = `${DOC.nom} — ${ctx.ent.Denomination || '?'} — ${ctx.progNom || '?'} ${liste(ev.Type_d_evaluation).join(', ')}`;
   const champs = tousLesChamps();
   const n = s => champs.filter(c => etat(c.k, c.opt) === s).length;
   $('cpt').innerHTML = `<span class="pastille p-grist">${n('grist')} Grist</span> <span class="pastille p-modele">${n('modele')} modèle</span> `
     + `<span class="pastille p-saisi">${n('saisi')} saisis</span> <span class="pastille p-manque">${n('manque')} à compléter</span>`;
   $('alerte').innerHTML = colOk ? '' : `<div class="alerte">La colonne <b>Evaluations.${COL}</b> n’existe pas encore : vos saisies restent affichées et exportables, mais <b>ne sont pas enregistrées</b> dans Grist.</div>`;
 
-  let h = `<div class="page"><div class="entete"><img src="logo.png" alt="Certi-Trust"><h1>Plan d’évaluation ${esc(ctx.progCourt)}</h1></div>`;
-  h += `<div class="ref">Réf. ${cellule('DOC_REF', 't', false, 'span')} · Version ${cellule('DOC_VERSION', 't', false, 'span')} · du ${cellule('DOC_DATE', 'd', false, 'span')}</div>`;
-  for (const s of SECTIONS) h += tableChamps(s.titre, s.champs, s.charge);
-  if (ctx.nonAffectees) h += `<div class="aide">${ctx.nonAffectees} unité(s) d’œuvre sans évaluateur ne sont pas comptées dans la charge.</div>`;
-
-  // Équipe
-  h += `<table><thead><tr><th class="bar" colspan="4">Équipe d’évaluation</th><th class="act" style="border:none;background:none"></th></tr>`
-    + `<tr class="sous"><th style="width:30%">Nom</th><th style="width:14%">Trigramme</th><th style="width:22%">Téléphone</th><th>Email</th><th class="act" style="border:none;background:none"></th></tr></thead><tbody>`;
-  equipe().forEach((m, i) => {
-    h += '<tr>' + ['nom', 'tri', 'tel', 'mail'].map(f => `<td class="v ${P.equipe ? 'saisi' : (vide(m[f]) ? 'manque' : 'grist')}" data-eq="${i}|${f}">${vide(m[f]) ? '<span class="vide-txt">à compléter</span>' : esc(m[f])}</td>`).join('')
-      + `<td class="act"><button data-act="eq-del" data-i="${i}" title="Retirer de l’équipe">✕</button></td></tr>`;
-  });
-  if (!equipe().length) h += '<tr><td colspan="4" class="v manque"><span class="vide-txt">Aucun évaluateur : renseigner RE / ETA / ETM dans l’évaluation ou ajouter une ligne</span></td></tr>';
-  h += '</tbody></table><div class="outils"><button data-act="eq-add">+ Membre</button>'
-    + (P.equipe ? '<button data-act="eq-raz">↺ Équipe depuis Grist</button>' : '') + '</div>';
-  h += tableChamps('Rôles', roles());
-
-  // Textes du modèle
-  for (const [k, titre] of TEXTES) h += `<h3>${esc(titre)}</h3>${cellule(k, 'x', false, 'div', 'txt')}`;
-
-  // Agendas
-  h += '<h2 class="sec">Agendas</h2><div class="aide">Les titres et textes acceptent les jetons {DATE_LANCEMENT}, {DATE_DOC_DEBUT}, {DATE_DOC_FIN}, {DATE_SIEGE_DEBUT}, {DATE_SIEGE_FIN}, {DATE_TEMOIN}, {DATE_CLOTURE}, remplacés par les jalons.</div>';
-  agendas().forEach((a, i) => {
-    h += `<h2 class="ag v ${P.agendas ? 'saisi' : 'modele'}" data-ag="${i}|titre" title="Titre (cliquer pour modifier)">${esc(resoudre(a.titre))}</h2>`;
-    if (a.type === 'texte') h += `<div class="v txt ${P.agendas ? 'saisi' : 'modele'}" data-ag="${i}|texte">${htmlRiche(resoudre(a.texte))}</div>`;
-    else {
-      h += '<table><thead><tr>' + a.cols.map((c, j) => `<th class="bar v" data-ag="${i}|h|${j}" style="${largeurCol(a.cols, j)}">${esc(c)}</th>`).join('') + '<th class="act" style="border:none"></th></tr></thead><tbody>';
-      a.lignes.forEach((l, r) => {
-        const pause = estPause(l);
-        h += `<tr class="${pause ? 'pause' : ''}">` + a.cols.map((_, j) => `<td class="v" data-ag="${i}|${r}|${j}">${esc(l[j] || '')}</td>`).join('')
-          + `<td class="act"><button data-act="ag-ins" data-i="${i}" data-r="${r}" title="Insérer une ligne dessous">+</button> <button data-act="ag-sup" data-i="${i}" data-r="${r}" title="Supprimer la ligne">✕</button></td></tr>`;
-      });
-      h += '</tbody></table>';
-    }
-    h += `<div class="outils">${a.type === 'table' ? `<button data-act="ag-ins" data-i="${i}" data-r="-1">+ Ligne</button>` : ''}`
-      + `<button data-act="ag-haut" data-i="${i}">↑</button><button data-act="ag-bas" data-i="${i}">↓</button>`
-      + `<button data-act="ag-del" data-i="${i}">Supprimer cet agenda</button></div>`;
-  });
-  h += '<div class="outils" style="margin-top:6px"><button data-act="ag-new-table">+ Agenda (tableau)</button><button data-act="ag-new-texte">+ Bloc texte</button>'
-    + (P.agendas ? '<button data-act="ag-raz">↺ Agendas du modèle</button>' : '') + '</div>';
+  let h = `<div class="page"><div class="entete"><img src="logo.png" alt="Certi-Trust"><h1>${esc(DOC.titre())}</h1><span></span></div>`;
+  h += `<div class="ref">Réf. ${cellule(F('DOC_REF'), 'span')}`;
+  h += ` · Version ${cellule(F('DOC_VERSION'), 'span')} · du ${cellule(F('DOC_DATE', '', 'd'), 'span')}`;
   h += '</div>';
-  $('doc').innerHTML = h;
+  for (const b of DOC.blocs) h += RENDU[b.t](b);
+  $('doc').innerHTML = h + '</div>';
   $('dl-eval').innerHTML = (ctx.tousEvaluateurs || []).map(n => `<option value="${esc(n)}">`).join('');
 }
 const estPause = l => l.length > 2 && l.slice(2).every(vide) && !vide(l[1]) && /^(pause|repas|déjeuner|dejeuner)\b/i.test(l[1].trim());
@@ -520,7 +683,10 @@ const largeurCol = (cols, j) => j === 0 ? 'width:15%' : (/sujet/i.test(cols[j]) 
 $('doc').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]');
   if (b) { e.stopPropagation(); action(b.dataset); return; }
-  const c = e.target.closest('[data-k],[data-eq],[data-ag]');
+  const cc = e.target.closest('input[data-cc]');
+  if (cc) { const [k, quoi] = cc.dataset.cc.split('|'); muter(() => basculer(k, quoi)); return; }
+  if (e.target.closest('.v.c')) return;
+  const c = e.target.closest('[data-k],[data-tb],[data-ag]');
   if (c && !c.querySelector('.ed')) editer(c);
 });
 
@@ -530,18 +696,18 @@ function cible(cell) {
     return { texte: val(k), multi: ['l', 'm', 'x'].includes(type), liste: /^MEMBRE_/.test(k),
       appliquer: v => { v = v.trim(); if (type === 'n' && num(v) !== null && /^[\d\s.,]+\s*(j|jours?)?$/i.test(v)) v = nombre(num(v)); P.champs[k] = v; } };
   }
-  if (cell.dataset.eq) {
-    const [i, f] = cell.dataset.eq.split('|');
-    return { texte: equipe()[i][f] || '', multi: false, liste: f === 'nom',
-      appliquer: v => { const eq = clone(equipe()); eq[i][f] = v.trim(); P.equipe = eq; } };
+  if (cell.dataset.tb) {
+    const [cle, i, f] = cell.dataset.tb.split('|'), b = blocDe(cle);
+    return { texte: (tableau(b)[i] || {})[f] || '', multi: false, liste: b.liste === f,
+      appliquer: v => { const l = clone(tableau(b)); if (l[i]) { l[i][f] = v.trim(); P[cle] = l; } } };
   }
   const [i, a, b] = cell.dataset.ag.split('|');
   const ag = agendas()[i];
   const lire = () => a === 'titre' ? ag.titre : a === 'texte' ? ag.texte : a === 'h' ? ag.cols[b] : (ag.lignes[a][b] || '');
   return { texte: lire(), multi: a !== 'titre' && a !== 'h',
     appliquer: v => {
-      const L = clone(agendas()), x = L[i];
-      if (a === 'titre') x.titre = v.trim(); else if (a === 'texte') x.texte = v; else if (a === 'h') x.cols[b] = v.trim(); else x.lignes[a][b] = v;
+      const L = clone(agendas()), x = L[i]; if (!x) return;
+      if (a === 'titre') x.titre = v.trim(); else if (a === 'texte') x.texte = v; else if (a === 'h') x.cols[b] = v.trim(); else if (x.lignes[a]) x.lignes[a][b] = v;
       P.agendas = L;
     } };
 }
@@ -558,7 +724,7 @@ function editer(cell) {
   let fini = false;
   const finir = async ok => {
     if (fini) return; fini = true; enEdition = false;
-    if (ok && ed.value !== c.texte) { c.appliquer(ed.value); nettoyer(); rendre(); await enregistrer(); }
+    if (ok && ed.value !== c.texte) await muter(() => c.appliquer(ed.value));
     else rendre();
   };
   ed.addEventListener('blur', () => finir(true));
@@ -568,40 +734,59 @@ function editer(cell) {
   });
 }
 
-// Une saisie identique à la valeur Grist n'est pas conservée (la valeur Grist reste suivie).
+// Une saisie identique à la valeur Grist (ou au calcul) n'est pas conservée : la valeur Grist reste suivie.
 function nettoyer() {
   for (const k of Object.keys(P.champs)) {
-    if (k === 'CHARGE_TOTAL') { const v = P.champs[k]; delete P.champs[k]; if (v !== totalCalcule()) P.champs[k] = v; }
-    else if (P.champs[k] === (base[k] ? base[k].v : '')) delete P.champs[k];
+    const v = P.champs[k]; delete P.champs[k];
+    if (v !== val(k)) P.champs[k] = v;
   }
 }
 
 async function action(d) {
   const i = Number(d.i);
-  if (d.act === 'raz') delete P.champs[d.k];
-  else if (d.act === 'eq-add') { P.equipe = [...clone(equipe()), { nom: '', tri: '', tel: '', mail: '' }]; }
-  else if (d.act === 'eq-del') { const eq = clone(equipe()); eq.splice(i, 1); P.equipe = eq; }
-  else if (d.act === 'eq-raz') P.equipe = null;
-  else if (d.act === 'ag-raz') P.agendas = null;
-  else {
-    const L = clone(agendas());
-    if (d.act === 'ag-ins') { const r = Number(d.r); L[i].lignes.splice(r < 0 ? L[i].lignes.length : r + 1, 0, L[i].cols.map(() => '')); }
-    else if (d.act === 'ag-sup') L[i].lignes.splice(Number(d.r), 1);
-    else if (d.act === 'ag-del') L.splice(i, 1);
-    else if (d.act === 'ag-haut' && i > 0) [L[i - 1], L[i]] = [L[i], L[i - 1]];
-    else if (d.act === 'ag-bas' && i < L.length - 1) [L[i + 1], L[i]] = [L[i], L[i + 1]];
-    else if (d.act === 'ag-new-table') L.push({ type: 'table', titre: 'Nouvel agenda : {DATE_SIEGE_DEBUT}', cols: C4.slice(), lignes: [C4.map(() => '')] });
-    else if (d.act === 'ag-new-texte') L.push({ type: 'texte', titre: 'Nouveau bloc', texte: '' });
-    else return;
-    P.agendas = L;
-  }
-  rendre();
-  await enregistrer();
+  await muter(() => {
+    if (d.act === 'raz') delete P.champs[d.k];
+    else if (d.act === 'tb-add') { const b = blocDe(d.cle); P[d.cle] = [...clone(tableau(b)), Object.fromEntries(b.cols.map(([f]) => [f, '']))]; }
+    else if (d.act === 'tb-del') { const l = clone(tableau(blocDe(d.cle))); l.splice(i, 1); P[d.cle] = l; }
+    else if (d.act === 'tb-raz') P[d.cle] = null;
+    else if (d.act === 'ag-raz') P.agendas = null;
+    else {
+      const L = clone(agendas());
+      if (d.act === 'ag-ins') { const r = Number(d.r); L[i].lignes.splice(r < 0 ? L[i].lignes.length : r + 1, 0, L[i].cols.map(() => '')); }
+      else if (d.act === 'ag-sup') L[i].lignes.splice(Number(d.r), 1);
+      else if (d.act === 'ag-del') L.splice(i, 1);
+      else if (d.act === 'ag-haut' && i > 0) [L[i - 1], L[i]] = [L[i], L[i - 1]];
+      else if (d.act === 'ag-bas' && i < L.length - 1) [L[i + 1], L[i]] = [L[i], L[i + 1]];
+      else if (d.act === 'ag-new-table') L.push({ type: 'table', titre: 'Nouvel agenda : {DATE_SIEGE_DEBUT}', cols: C4.slice(), lignes: [C4.map(() => '')] });
+      else if (d.act === 'ag-new-texte') L.push({ type: 'texte', titre: 'Nouveau bloc', texte: '' });
+      else return;
+      P.agendas = L;
+    }
+  });
 }
 
+/* Enregistrement. Le plan et la stratégie partagent la colonne : avant d'appliquer une modification,
+   on relit la valeur actuelle pour ne pas écraser ce que l'autre page vient d'enregistrer. */
+function lireP(brut) {
+  if (!brut) return vierge();
+  try { const p = Object.assign(vierge(), JSON.parse(brut)); p.champs = p.champs || {}; return p; }
+  catch { toast('Saisies illisibles dans ' + COL + ' : ignorées', 5000); return vierge(); }
+}
+async function lireCourant() {
+  try { const r = await grist.fetchSelectedRecord(evalId, { includeColumns: 'normal' }); if (r && a_(r, COL)) return r[COL] || ''; } catch { /* repli */ }
+  try { const t = rows(await grist.docApi.fetchTable('Evaluations')); const r = t.find(x => x.id === evalId); return r ? (r[COL] || '') : null; } catch { return null; }
+}
+async function muter(fn) {
+  if (colOk) {
+    const brut = await lireCourant();
+    if (brut !== null && brut !== (dernierEnr || '')) { P = lireP(brut); dernierEnr = brut; }
+  }
+  fn(); nettoyer(); rendre(); await enregistrer();
+}
 async function enregistrer() {
   if (!colOk) { toast('Non enregistré : la colonne ' + COL + ' n’existe pas'); return; }
-  const s = (vide(P.champs) || !Object.keys(P.champs).length) && !P.equipe && !P.agendas ? '' : JSON.stringify(P);
+  const vid = !Object.keys(P.champs).length && Object.entries(P).every(([k, v]) => k === 'v' || k === 'champs' || v == null);
+  const s = vid ? '' : JSON.stringify(P);
   dernierEnr = s;
   try { await grist.docApi.applyUserActions([['UpdateRecord', 'Evaluations', evalId, { [COL]: s }]]); toast('Enregistré'); }
   catch (e) { toast('Erreur d’enregistrement : ' + (e.message || e), 5000); }
@@ -618,7 +803,7 @@ $('btn-suivant').onclick = () => {
 $('btn-maj').onclick = async () => { await chargerTables(); preparer(); rendre(); toast('Données Grist rechargées'); };
 
 /* ═════════ Export PDF (pdfmake, police Montserrat) ═════════ */
-const MARINE = '#32406C', PALE = '#EDF0F6', TEXTE = '#262B38', BORD = '#D5DCEA', GRIS = '#7A7C7A', ROUGE = '#C00000';
+const MARINE = '#32406C', PALE = '#EDF0F6', TEXTE = '#262B38', BORD = '#D5DCEA', GRIS = '#7A7C7A';
 const POLICES = 'https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@v7.222/fonts/ttf/';
 const FICHIERS_POLICE = { normal: 'Montserrat-Regular.ttf', bold: 'Montserrat-Bold.ttf', italics: 'Montserrat-Italic.ttf', bolditalics: 'Montserrat-BoldItalic.ttf' };
 let pdfPret = null;
@@ -647,12 +832,29 @@ async function preparerPdf() {
   try { return await pdfPret; } catch (e) { pdfPret = null; throw e; }
 }
 
-function pdfValeur(k, type = 't', opt = false) {
-  const v = val(k);
-  if (vide(v)) return { text: opt ? 'N/A' : '' };
-  if (type === 'l') return { ul: lignesDe(v) };
-  if (type === 'n') return { text: jours(v) };
-  if (type === 'x') return pdfRiche(v);
+// Case à cocher dessinée (les polices n'ont pas toutes le glyphe ☒)
+const caseCochee = (texte, coche) => ({ columns: [
+  { width: 11, canvas: [{ type: 'rect', x: 0, y: 2.5, w: 7.5, h: 7.5, lineWidth: 0.7, lineColor: MARINE },
+    ...(coche ? [{ type: 'line', x1: 1.5, y1: 6.3, x2: 3.3, y2: 8.3, lineWidth: 1.3, lineColor: MARINE, lineCap: 'round' },
+      { type: 'line', x1: 3.3, y1: 8.3, x2: 6.6, y2: 3.6, lineWidth: 1.3, lineColor: MARINE, lineCap: 'round' }] : [])] },
+  { width: '*', text: texte }], columnGap: 3, margin: [0, 0, 0, 1.5] });
+function pdfValeur(f) {
+  if (f.type === 'c') {
+    const c = coches(f.k);
+    if (DOC.cases) {
+      const l = [...c.opts.map(o => caseCochee(o, c.sel.has(o))), ...c.hors.map(o => caseCochee(o, true))];
+      if (c.na) l.push({ text: 'N/A', color: GRIS });
+      return { stack: l };
+    }
+    const l = [...c.opts.filter(o => c.sel.has(o)), ...c.hors];
+    if (!l.length) return { text: c.na ? 'N/A' : '' };
+    return l.length === 1 ? { text: l[0] } : { ul: l };
+  }
+  const v = val(f.k);
+  if (vide(v)) return { text: f.opt ? 'N/A' : '' };
+  if (f.type === 'l') return { ul: lignesDe(v) };
+  if (f.type === 'n') return { text: jours(v) };
+  if (f.type === 'x') return pdfRiche(v);
   return { text: String(v) };
 }
 function pdfRiche(v) {
@@ -669,54 +871,60 @@ const LAYOUT = {
   paddingLeft: () => 5, paddingRight: () => 5, paddingTop: () => 3, paddingBottom: () => 3,
 };
 const barre = (texte, colSpan) => ({ text: texte, bold: true, color: '#FFFFFF', fillColor: MARINE, colSpan });
+const sous = t => ({ text: t, bold: true, fillColor: PALE });
+const vides = n => Array.from({ length: n }, () => ({}));
 function pdfTableChamps(titre, champs, total) {
   const body = [[barre(titre, 2), {}]];
-  for (const [k, lib, type, opt] of champs) {
-    const gras = total && k === 'CHARGE_TOTAL';
-    body.push([{ text: lib, bold: gras }, Object.assign(pdfValeur(k, type, opt), gras ? { bold: true } : {})]);
+  for (const f of champs) {
+    const gras = total && f.k === 'CHARGE_TOTAL';
+    body.push([{ text: f.lib, bold: gras }, Object.assign(pdfValeur(f), gras ? { bold: true } : {})]);
   }
   return { table: { headerRows: 1, dontBreakRows: true, widths: ['38%', '*'], body }, layout: LAYOUT, margin: [0, 0, 0, 14] };
 }
-function construirePdf(res) {
-  const soc = val('SOC_NOM');
-  const titre = `Plan d’évaluation ${ctx.progCourt}`;
-  const pied = `${titre}${ctx.refVersion ? ' ' + ctx.refVersion : ''} – ${soc}`;
-  const content = [
-    { text: titre, fontSize: 18, bold: true, color: MARINE, margin: [0, 0, 0, 2] },
-    { text: `Réf. ${val('DOC_REF')}  ·  Version ${val('DOC_VERSION')}  ·  ${val('DOC_DATE')}`, fontSize: 8.5, color: GRIS, margin: [0, 0, 0, 14] },
-  ];
-  for (const s of SECTIONS) content.push(pdfTableChamps(s.titre, s.champs, s.charge));
-
-  const eq = equipe();
-  const sous = t => ({ text: t, bold: true, fillColor: PALE });
-  content.push({ table: { headerRows: 2, dontBreakRows: true, widths: ['30%', '14%', '22%', '*'], body: [
-    [barre('Équipe d’évaluation', 4), {}, {}, {}], [sous('Nom'), sous('Trigramme'), sous('Téléphone'), sous('Email')],
-    ...(eq.length ? eq.map(m => [m.nom, m.tri, m.tel, m.mail].map(x => ({ text: x || '' }))) : [[{ text: '', colSpan: 4 }, {}, {}, {}]])] },
-    layout: LAYOUT, margin: [0, 0, 0, 14] });
-  content.push(pdfTableChamps('Rôles', roles()));
-
-  for (const [k, t] of TEXTES) content.push({ text: t, style: 'h3', headlineLevel: 1 }, Object.assign(pdfValeur(k, 'x'), { margin: [0, 0, 0, 6] }));
-
-  for (const a of agendas()) {
-    content.push({ stack: [{ text: resoudre(a.titre), style: 'agenda' },
-      { canvas: [{ type: 'line', x1: 0, y1: 1, x2: 481, y2: 1, lineWidth: 1, lineColor: ROUGE }], margin: [0, 0, 0, 6] }], headlineLevel: 1, margin: [0, 12, 0, 0] });
-    if (a.type === 'texte') { content.push(Object.assign(pdfRiche(resoudre(a.texte)), { margin: [0, 0, 0, 8] })); continue; }
+const titreSection = t => ({ text: t, fontSize: 13, bold: true, color: MARINE, margin: [0, 6, 0, 8], headlineLevel: 1 });
+const PDF = {
+  champs: b => [pdfTableChamps(b.titre, b.champs, b.charge)],
+  roles: () => [pdfTableChamps('Rôles', roles())],
+  textes: b => [...(b.titre ? [titreSection(b.titre)] : []),
+    ...b.liste.flatMap(([k, t]) => [{ text: t, style: 'h3', headlineLevel: 1 }, Object.assign(pdfValeur(F(k, t, 'x')), { margin: [0, 0, 0, 6] })])],
+  matrice: b => [{ table: { headerRows: 2, dontBreakRows: true, widths: ['30%', ...b.cols.map(() => '*')], body: [
+    [barre(b.titre, b.cols.length + 1), ...vides(b.cols.length)], [sous(''), ...b.cols.map(sous)],
+    ...b.lignes.map(([lib, ...ks]) => [{ text: lib, bold: true }, ...ks.map(k => pdfValeur(F(k, lib, 'd')))])] },
+    layout: LAYOUT, margin: [0, 10, 0, 14] }],
+  tableau: b => {
+    const l = tableau(b), n = b.cols.length;
+    return [{ table: { headerRows: 2, dontBreakRows: true, widths: b.cols.map(([, , w]) => w || '*'), body: [
+      [barre(b.titre, n), ...vides(n - 1)], b.cols.map(([, lib]) => sous(lib)),
+      ...(l.length ? l.map(m => b.cols.map(([f]) => ({ text: m[f] || '' }))) : [[{ text: '', colSpan: n }, ...vides(n - 1)]])] },
+      layout: LAYOUT, margin: [0, 0, 0, 14] }];
+  },
+  agendas: () => agendas().flatMap(a => {
+    const out = [{ stack: [{ text: resoudre(a.titre), style: 'agenda' },
+      { canvas: [{ type: 'line', x1: 0, y1: 1, x2: 481, y2: 1, lineWidth: 1, lineColor: MARINE }], margin: [0, 0, 0, 6] }], headlineLevel: 1, margin: [0, 12, 0, 0] }];
+    if (a.type === 'texte') return [...out, Object.assign(pdfRiche(resoudre(a.texte)), { margin: [0, 0, 0, 8] })];
     const n = a.cols.length;
     const widths = a.cols.map((c, j) => j === 0 ? 70 : (/sujet/i.test(c) ? '*' : (c.length > 15 ? 100 : 66)));
     const body = [a.cols.map(c => ({ text: c, bold: true, color: '#FFFFFF', fillColor: MARINE }))];
     for (const l of a.lignes) {
-      if (estPause(l)) body.push([{ text: l[0] || '', fillColor: PALE }, { text: l[1], colSpan: n - 1, italics: true, fillColor: PALE }, ...Array.from({ length: n - 2 }, () => ({}))]);
+      if (estPause(l)) body.push([{ text: l[0] || '', fillColor: PALE }, { text: l[1], colSpan: n - 1, italics: true, fillColor: PALE }, ...vides(n - 2)]);
       else body.push(a.cols.map((_, j) => ({ text: l[j] || '' })));
     }
-    content.push({ table: { headerRows: 1, dontBreakRows: true, widths, body }, layout: LAYOUT, fontSize: 8.5, margin: [0, 0, 0, 10] });
-  }
-
+    return [...out, { table: { headerRows: 1, dontBreakRows: true, widths, body }, layout: LAYOUT, fontSize: 8.5, margin: [0, 0, 0, 10] }];
+  }),
+};
+function construirePdf(res) {
+  const titre = DOC.titre(), version = DOC.version(), date = DOC.date();
+  const content = [
+    { text: titre, fontSize: 18, bold: true, color: MARINE, alignment: 'center', margin: [0, 0, 0, 2] },
+    { text: [`Réf. ${val('DOC_REF')}`, version && `Version ${version}`, date].filter(Boolean).join('  ·  '), fontSize: 8.5, color: GRIS, alignment: 'center', margin: [0, 0, 0, 14] },
+  ];
+  for (const b of DOC.blocs) content.push(...PDF[b.t](b));
   return {
     pageSize: 'A4', pageMargins: [57, 92, 57, 62],
-    info: { title: `${titre} – ${soc}`, author: 'Certi-Trust', subject: val('DOC_REF') },
+    info: { title: `${titre} – ${val('SOC_NOM')}`, author: 'Certi-Trust', subject: val('DOC_REF') },
     header: () => res.logo ? { image: res.logo, width: 120, margin: [50, 26, 0, 0] } : { text: 'Certi-Trust', bold: true, color: MARINE, margin: [57, 36, 0, 0] },
     footer: (page, pages) => ({ margin: [57, 14, 57, 0], fontSize: 7.5, color: GRIS, columns: [
-      { width: '*', stack: [pied, `Version : ${val('DOC_VERSION')}`] },
+      { width: '*', stack: [DOC.pied(), `Version : ${version || '—'}`] },
       { width: 70, text: `Page ${page} / ${pages}`, alignment: 'center' },
       { width: '*', stack: ['C1 – Diffusion limitée', 'Certi-Trust'], alignment: 'right' }] }),
     content,
@@ -727,33 +935,44 @@ function construirePdf(res) {
   };
 }
 function nomFichier() {
-  const d = String(val('DOC_DATE')).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const d = String(DOC.date() || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   const date = d ? d[3] + d[2].padStart(2, '0') + d[1].padStart(2, '0') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const ref = String(val('DOC_REF') || `evaluation_${evalId}`).replace(/[\\/:*?"<>|\s]+/g, '_');
-  return `${date}-Plan_d_evaluation-${ref}.pdf`;
+  return `${date}-${DOC.fichier}-${ref}.pdf`;
 }
-$('btn-pdf').onclick = async () => {
+async function exporter(cle, b) {
   if (!ctx.ev) return;
-  const b = $('btn-pdf'); b.disabled = true; const lib = b.textContent; b.textContent = 'Génération…';
+  b.disabled = true; const lib = b.textContent; b.textContent = 'Génération…';
+  const affiche = MODE;
   try {
     const res = await preparerPdf();
-    const manque = tousLesChamps().filter(c => etat(c.k, c.opt) === 'manque').length;
-    const pdf = window.pdfMake.createPdf(construirePdf(res), null, res.fonts, res.vfs);
-    try { pdf.download(nomFichier()); } catch { pdf.open(); }
-    toast(manque ? `PDF généré — ${manque} case(s) encore vide(s)` : 'PDF généré', 3500);
+    // Le document exporté peut différer du document affiché : bascule le temps de construire le PDF.
+    let def, nom, manque;
+    choisirDoc(cle);
+    try {
+      manque = tousLesChamps().filter(c => etat(c.k, c.opt) === 'manque').length;
+      def = construirePdf(res); nom = nomFichier();
+    } finally { choisirDoc(affiche); }
+    const pdf = window.pdfMake.createPdf(def, null, res.fonts, res.vfs);
+    try { pdf.download(nom); } catch { pdf.open(); }
+    toast(`PDF « ${DOCS[cle].nom} » généré${manque ? ` — ${manque} case(s) encore vide(s)` : ''}`, 3500);
   } catch (e) { toast('Erreur PDF : ' + (e.message || e), 6000); }
   finally { b.disabled = false; b.textContent = lib; }
-};
+}
+for (const cle of Object.keys(DOCS)) {
+  $('btn-pdf-' + cle).onclick = e => exporter(cle, e.currentTarget);
+  $('doc-' + cle).onclick = () => { if (MODE !== cle) { choisirDoc(cle); rendre(); } };
+}
+choisirDoc(MODE);
 
 /* ═════════ Grist ═════════ */
 function preparer() {
   const r = calculer(evalId);
   if (!r) { ctx = {}; base = {}; return; }
   base = r.B; ctx = r.ctx;
-  colOk = T.Evaluations.length > 0 && Object.prototype.hasOwnProperty.call(T.Evaluations[0], COL);
+  colOk = T.Evaluations.length > 0 && a_(T.Evaluations[0], COL);
   const brut = colOk ? ctx.ev[COL] : null;
-  P = vierge();
-  if (brut) { try { P = Object.assign(vierge(), JSON.parse(brut)); P.champs = P.champs || {}; } catch { toast('Saisies illisibles dans ' + COL + ' : ignorées', 5000); } }
+  P = lireP(brut);
   dernierEnr = brut || '';
 }
 grist.ready({ requiredAccess: 'full' });
