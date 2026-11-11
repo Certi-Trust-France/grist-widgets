@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan d’évaluation</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  /* Charte Certi-Trust (reprise du modèle Word) */
+  :root { --marine:#32406C; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A; --rouge:#C00000;
+          --saisi:#9a5b00; --saisi-bg:#fff4e0; --manque:#b91c1c; --manque-bg:#fdecec; --modele:#3b5bab; --modele-bg:#eef3ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color:var(--txt); background:#eef0f4; }
+  .barre { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--bord); padding:8px 14px;
+           display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; }
+  .barre .titre { font-weight:700; color:var(--marine); margin-right:auto; font-size:13px; }
+  .pastille { font-size:11px; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+  .p-grist { background:#e7ecf7; color:var(--marine); } .p-modele { background:var(--modele-bg); color:var(--modele); }
+  .p-saisi { background:var(--saisi-bg); color:var(--saisi); } .p-manque { background:var(--manque-bg); color:var(--manque); }
+  button { font:inherit; font-size:12px; padding:5px 10px; border:1px solid var(--bord); border-radius:6px; background:#fff; cursor:pointer; color:var(--txt); }
+  button:hover { background:var(--pale); }
+  button.prim { background:var(--marine); color:#fff; border-color:var(--marine); } button.prim:hover { background:#26325a; }
+  button:disabled { opacity:.5; cursor:default; }
+  .alerte { max-width:860px; margin:10px auto 0; background:#fff4e0; border:1px solid #f1cf94; color:#6b4300; padding:8px 12px; border-radius:6px; font-size:12px; }
+  #msg { padding:40px 14px; color:var(--gris); text-align:center; }
+  .page { max-width:860px; margin:12px auto 40px; background:#fff; padding:26px 40px 40px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .entete { display:flex; align-items:center; gap:18px; margin-bottom:4px; }
+  .entete img { width:150px; }
+  h1 { font-size:20px; color:var(--marine); margin:0; }
+  .ref { font-size:11px; color:var(--gris); margin:2px 0 18px; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center; }
+  .ref .v { display:inline-block; min-width:40px; padding:0 4px; }
+  table { width:100%; border-collapse:collapse; margin:0 0 16px; table-layout:fixed; }
+  td, th { border:1px solid var(--bord); padding:4px 7px; vertical-align:top; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; }
+  th.bar { background:var(--marine); color:#fff; font-weight:700; }
+  tr.sous th { background:var(--pale); font-weight:600; }
+  td.lib { width:38%; }
+  tr.total td { font-weight:700; }
+  .v { cursor:text; position:relative; min-height:21px; }
+  .v:hover { outline:1px dashed #9aa6c6; outline-offset:-2px; }
+  .v.modele { box-shadow:inset 3px 0 0 var(--modele); }
+  .v.saisi { background:var(--saisi-bg); box-shadow:inset 3px 0 0 var(--saisi); }
+  .v.manque { background:var(--manque-bg); box-shadow:inset 3px 0 0 var(--manque); }
+  .v .vide-txt { color:var(--manque); font-style:italic; font-size:11px; }
+  .v .na { color:var(--gris); }
+  .v ul { margin:0; padding-left:16px; white-space:normal; }
+  .v p { margin:0 0 4px; white-space:normal; }
+  .raz { position:absolute; top:2px; right:3px; font-size:10px; padding:0 5px; display:none; }
+  .v:hover > .raz { display:block; }
+  textarea.ed, input.ed { width:100%; font:inherit; border:1px solid var(--marine); border-radius:3px; padding:3px 5px; resize:vertical; background:#fff; color:var(--txt); }
+  h2.ag { font-size:14px; color:var(--marine); margin:24px 0 8px; padding-bottom:3px; border-bottom:1.5px solid var(--rouge); }
+  h2.ag.v { min-height:0; }
+  h2.sec { font-size:15px; color:var(--marine); margin:26px 0 10px; }
+  h3 { font-size:12.5px; color:var(--marine); margin:14px 0 4px; }
+  .txt.v { padding:3px 6px; white-space:normal; }
+  tr.pause td { background:var(--pale); }
+  .outils { display:flex; gap:6px; margin:-8px 0 16px; flex-wrap:wrap; }
+  .outils button, td.act button { font-size:11px; padding:1px 7px; }
+  .act { width:58px; }
+  td.act { border:none; padding:2px 0 2px 4px; white-space:nowrap; vertical-align:middle; }
+  td.act button { opacity:0; }
+  tr:hover td.act button { opacity:1; }
+  .aide { font-size:11px; color:var(--gris); margin:-4px 0 10px; }
+  .flash { animation:flash 1.4s; }
+  @keyframes flash { 0% { box-shadow:0 0 0 3px var(--manque); } 100% { box-shadow:0 0 0 0 transparent; } }
+  #toast { position:fixed; bottom:12px; right:12px; background:var(--txt); color:#fff; padding:6px 12px; border-radius:6px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:9; }
+  #toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div class="barre">
+  <span class="titre" id="titre">Plan d’évaluation</span>
+  <span id="cpt"></span>
+  <button id="btn-suivant" title="Aller à la prochaine case à compléter">À compléter →</button>
+  <button id="btn-maj" title="Relire les données Grist (UO, équipe, entreprise…)">↻ Recharger</button>
+  <button id="btn-pdf" class="prim">Exporter en PDF</button>
+</div>
+<div id="alerte"></div>
+<main id="doc"><div id="msg">Sélectionnez une évaluation dans la liste.</div></main>
+<datalist id="dl-eval"></datalist>
+<div id="toast"></div>
+<script>
+'use strict';
+/* ═════════ Utilitaires ═════════ */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const rows = t => (t && t.id ? t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]]))) : []);
+const liste = v => Array.isArray(v) ? (v[0] === 'L' ? v.slice(1) : v) : (v ? [v] : []);
+const refId = v => typeof v === 'number' ? v : (v && (v.rowId ?? v.id)) || 0;
+const vide = v => v === null || v === undefined || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && !v.length);
+const fr = sec => { if (typeof sec !== 'number' || !sec) return ''; return new Date(sec * 1000).toISOString().slice(0, 10).split('-').reverse().join('/'); };
+const nombre = x => (Math.round(x * 100) / 100).toString().replace('.', ',');
+const num = s => { const m = String(s ?? '').replace(',', '.').match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; };
+const clone = o => JSON.parse(JSON.stringify(o));
+const lignesDe = v => String(v ?? '').split('\n').map(s => s.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean);
+const aujourdhui = () => { const d = new Date(); return [d.getDate(), d.getMonth() + 1].map(n => String(n).padStart(2, '0')).join('/') + '/' + d.getFullYear(); };
+function toast(m, ms = 2200) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), ms); }
+
+const COL = 'Plan_evaluation';     // colonne Texte de Evaluations qui garde les saisies (JSON)
+let T = null;                       // tables Grist
+let evalId = null;
+let base = {};                      // valeurs calculées depuis Grist : k → {v, src, st}
+let ctx = {};                       // contexte de l'évaluation (programme, équipe Grist…)
+let P = vierge();                   // saisies manuelles de l'évaluation
+let colOk = false, enEdition = false, dernierEnr = null;
+function vierge() { return { v: 1, champs: {}, equipe: null, agendas: null }; }
+
+/* ═════════ Structure du plan (libellés du modèle Word) ═════════
+   type : t texte · m multiligne · l liste à puces · d date · n nombre de jours · x texte mis en forme
+   opt  : champ facultatif (vide → « N/A », non compté comme manquant) */
+const SECTIONS = [
+  { titre: 'Société', champs: [
+    ['SOC_NOM', 'Nom de la société'], ['SOC_SIREN', 'SIREN'], ['SOC_SIEGE_ADRESSE', 'Adresse du siège social', 'm'],
+    ['SITE_ADRESSE', 'Adresse du site audité', 'm'], ['SITE_ACTIVITE', 'Activité du site'], ['SOC_WEB', 'Site internet'],
+    ['SOC_EFFECTIF_TOTAL', 'Effectif total'], ['SOC_EFFECTIF_PERIMETRE', 'Effectif dans le périmètre'],
+    ['CONTACT_NOM', 'Nom du contact'], ['CONTACT_EMAIL', 'Email du contact'], ['CONTACT_TEL', 'Téléphone du contact']] },
+  { titre: 'Information sur l’évaluation', champs: [
+    ['CRIT_REFERENTIEL', 'Référentiel d’exigences', 'm'], ['CRIT_TRAME', 'Trame d’évaluation'], ['CRIT_REGLEMENT', 'Règlement Certi-Trust'],
+    ['EVAL_TYPE', 'Type d’évaluation'], ['EVAL_TYPE_AUTRE', 'Précision si type « Autre »', 'm', true],
+    ['EVAL_PORTEES', 'Portée(s) demandée(s)', 'l'], ['EVAL_NIVEAU', 'Niveau de qualification'], ['SIDR_CLASSE', 'Classe du SI DR'],
+    ['EVAL_OBJECTIFS', 'Objectifs de l’évaluation', 'l'], ['TEMOIN_NB', 'Nombre de prestations témoin'],
+    ['TEMOIN_PORTEES_INIT', 'Portées observées en prestation témoin (initiale ou renouvellement)', 'l'],
+    ['TEMOIN_PORTEES_SURV', 'Portées observées en prestation témoin (surveillance 18 mois)', 'l'],
+    ['INCIDENT_ANSSI', 'Incidents déclarés à l’ANSSI', 'm'], ['NC_FICHIER', 'Fichier des NC précédentes à revoir'],
+    ['CHANGEMENTS', 'Changements depuis la dernière évaluation', 'm']] },
+  { titre: 'Jalons', champs: [
+    ['DATE_ENVOI_PLAN', 'Envoi du plan d’évaluation à l’ANSSI', 'd'], ['DATE_LANCEMENT', 'Journée de lancement', 'd'],
+    ['DATE_DOC_DEBUT', 'Évaluation documentaire – début', 'd'], ['DATE_DOC_FIN', 'Évaluation documentaire – fin', 'd'],
+    ['DATE_SIEGE_DEBUT', 'Évaluation siège – début', 'd'], ['DATE_SIEGE_FIN', 'Évaluation siège – fin', 'd'],
+    ['DATE_TEMOIN', 'Prestation(s) témoin', 'm'], ['DATE_CLOTURE', 'Réunion de clôture', 'd'],
+    ['DATE_REMISE_RAPPORT', 'Remise du rapport (échéance)', 'd'], ['STRAT_COMM_PRESTA', 'Stratégie : envoi prestataire', 'd'],
+    ['STRAT_COMM_ANSSI', 'Stratégie : date d’envoi à l’ANSSI', 'd'], ['STRAT_VALIDATION', 'Stratégie : date de validation', 'd']] },
+  { titre: 'Charge en jours-homme', charge: true, champs: [
+    ['CHARGE_PILOTAGE', 'Plan d’évaluation et pilotage', 'n'], ['CHARGE_LANCEMENT', 'Présentation de l’entreprise', 'n'],
+    ['CHARGE_DOC', 'Évaluation documentaire', 'n'], ['CHARGE_SIEGE', 'Évaluation siège (sur site)', 'n'], ['CHARGE_SI', 'Évaluation SI', 'n'],
+    ['CHARGE_TEMOIN', 'Évaluation prestation témoin', 'n'], ['CHARGE_LIVRABLES', 'Élaboration des livrables', 'n'],
+    ['CHARGE_SOUTENANCE', 'Soutenance ANSSI et suivi', 'n'], ['CHARGE_TOTAL', 'Total', 'n']] },
+];
+const CHARGES = SECTIONS[3].champs.map(c => c[0]).filter(k => k !== 'CHARGE_TOTAL');
+
+const TEXTES = [
+  ['TXT_ECHANTILLONNAGE', 'Échantillonnage'], ['TXT_LIVRABLES', 'Livrables'], ['TXT_NC', 'Classement des non-conformités'],
+  ['TXT_ECHANGE', 'Modalité d’échange documentaire'], ['TXT_MARQUAGE', 'Marquage et protection'], ['TXT_LANGUE', 'Langue']];
+const TEXTES_DEFAUT = {
+  TXT_ECHANTILLONNAGE: 'Lors d’une évaluation initiale ou de renouvellement, l’ensemble des points de contrôle de la trame doit être documenté. Si des points de contrôle ne sont pas évalués, une justification doit être apportée.\nL’échantillonnage doit couvrir l’ensemble des chapitres de la trame. Ainsi, pour chaque chapitre, un tiers des exigences doit être sélectionné à des fins de vérification. Cette règle s’applique également aux documents de référence spécifiques tels que le GHY et le II 901, lorsque ces derniers sont concernés.',
+  TXT_LIVRABLES: 'Le responsable d’évaluation produira les livrables suivants :\n- Un rapport d’évaluation présentant les tâches d’évaluation menées, les résultats de ces tâches, les vulnérabilités et non-conformités au référentiel d’exigences identifiées.\n- La trame d’évaluation complétée par les évaluateurs.\n- Un tableau listant l’ensemble des non-conformités et leur niveau de gravité. Ce tableau sera complété par le prestataire avec les plans d’action de mise en conformité et leurs délais de mise en œuvre associés. Certi-Trust formulera un avis sur les plans d’action et leurs délais de mise en œuvre.',
+  TXT_NC: 'Les modalités ci-dessous sont prises en compte pour la qualification du niveau de criticité d’une non-conformité.\nLe niveau de criticité de la non-conformité doit prendre en compte : le niveau de gravité du risque couvert par l’exigence, la vraisemblance de l’exploitation du risque et l’impact que pourraient avoir les conséquences si le risque se produit.\nLes non-conformités peuvent être qualifiées de majeures :\n- Si la non-conformité engendre des risques avérés sur la sécurité des systèmes d’information ou des informations relatives à la prestation ;\n- Si la non-conformité engendre des risques avérés sur l’efficacité de délivrance de la prestation ;\n- Si la non-conformité implique une correction à court terme ou immédiate.\nLes non-conformités peuvent être qualifiées de mineures dans les autres cas.\nLes non-conformités mineures peuvent être regroupées dans une ou plusieurs non-conformités majeures lorsqu’elles engendrent par cumulation des risques avérés.\nUne non-conformité mineure peut être reconsidérée comme majeure du fait de la récurrence de son identification : indiquant un défaut d’amélioration en continu du service et de la non-correction de la non-conformité.\nUne non-conformité doit faire l’objet d’une qualification de sa criticité : majeure ou mineure.\nLes non-conformités devront rapporter fidèlement un fait, basé sur l’observation objective et étayé d’une preuve tangible, en incluant un contexte et en exposant une différence par rapport aux critères d’évaluation.',
+  TXT_ECHANGE: 'Toutes les informations communiquées entre le prestataire et Certi-Trust devront se faire par le biais d’un conteneur ZED.',
+  TXT_MARQUAGE: 'Le rapport d’évaluation portera la mention Diffusion Restreinte, conformément à l’instruction interministérielle n° 901.\nCerti-Trust apposera sur le rapport d’évaluation une signature électronique avancée conforme au règlement européen n° 910/2014 afin de garantir son authenticité et permettre de détecter toute altération de son contenu.',
+  TXT_LANGUE: 'Le rapport d’évaluation sera rédigé en langue française.',
+};
+
+// Valeurs du modèle Word, utilisées seulement si Grist n'a rien (marquées « modèle »).
+const MODELE_PROGRAMME = {
+  PASSI: { CRIT_TRAME: 'PASSI – trame d’évaluation – v1.3', CRIT_REGLEMENT: 'MAN-402_Reglement_Certification_PASSI2.2_V1.5' },
+};
+const PHRASES_TYPE = { 'Renouvellement': 'Évaluation en vue d’un renouvellement de qualification' };
+const OBJECTIFS_TYPE = {
+  'Renouvellement': ['Évaluation par échantillonnage de la conformité par rapport aux critères d’évaluation,',
+    'Évaluation par échantillonnage des prestations qualifiées,', 'Évaluation de l’impact des changements depuis la précédente évaluation,',
+    'Évaluation des plans d’action relatifs aux non-conformités précédentes,',
+    'Évaluation des conditions d’utilisation du service indiquées dans la décision de qualification du service.'],
+};
+// Portées qui ne donnent pas lieu à un évaluateur dédié (qualifications d'évaluateur, tronc commun…)
+const PORTEES_EXCLUES = /_(RA|AUDIT|RP|TC)$/;
+
+/* ═════════ Agendas par défaut (modèle PASSI) ═════════
+   Les jetons {DATE_…} sont remplacés par les jalons du plan. */
+const C4 = ['Créneau', 'Sujets', 'Clauses PASSI', 'Évaluateur(s)'];
+const AGENDAS_PASSI = [
+  { type: 'table', titre: 'Présentation – sur site – {DATE_LANCEMENT}', cols: ['Créneau', 'Sujets', 'Évaluateur(s)', 'Personne(s) à rencontrer'], lignes: [
+    ['09:00 – 09:30', 'Réunion d’ouverture\nRevue de l’agenda de la journée\nRevue du plan d’évaluation', 'RE', 'Responsable du service\nRSSI'],
+    ['09:30 – 10:15', 'Présentation de l’entreprise et de son contexte (organisation, implantations géographiques, activités, provenance de ses capitaux, partenariats, clients signés et en cours)\nPrésentation de l’équipe de prestation PASSI\nPrésentation du programme de gestion des ressources et des compétences\nPrésentation sommaire des prestations types et activités visées (processus, méthodes, outils, etc.)', 'RE', 'Responsable du service\nRSSI'],
+    ['10:15 – 11:00', 'Présentation du SI interne : analyse de risque, PSSI, note d’organisation de la SSI, architecture et cartographie du SI DR, homologation du SI\nPrésentation des principaux documents liés aux exigences PASSI du prestataire\nDéfinition des modalités d’accès à la documentation par l’équipe d’évaluation\nPrésentation et discussion sur la prestation témoin', 'RE', 'RSSI']] },
+  { type: 'texte', titre: 'Étude documentaire – À distance – Entre le {DATE_DOC_DEBUT} et le {DATE_DOC_FIN}',
+    texte: 'L’étude documentaire aura lieu entre le {DATE_DOC_DEBUT} et le {DATE_DOC_FIN}.\nLes évaluateurs feront des points de synchronisation avec le prestataire pendant la période de revue documentaire.\nTrame onglet « I-Etude-Documentaire »\nÀ la fin de l’évaluation documentaire, une restitution à chaud sera réalisée afin de présenter les écarts qui auraient été constatés.' },
+  { type: 'table', titre: 'Évaluation du siège : {DATE_SIEGE_DEBUT} sur site (ETA)', cols: C4, lignes: [
+    ['09h00 – 09h15', 'Revue de l’agenda', 'N.A.', 'ETA'],
+    ['09h15 – 10h00', 'Présentation de l’architecture et de la cartographie du système d’information', 'IV.3\nGHY – II\nII 901 – Art. 9', 'ETA'],
+    ['10h00 – 10h45', 'Protection de l’information\n- Gestion des rôles, identités, authentification', 'PASSI IV.3\nGHY – III', 'ETA'],
+    ['10h45 – 11h00', 'Pause', '', ''],
+    ['11h00 – 12h30', 'Protection de l’information – Sécurité des postes', 'PASSI IV.3\nGHY – IV', 'ETA'],
+    ['12h30 – 14h00', 'Repas', '', ''],
+    ['14h00 – 15h45', 'Protection de l’information – Sécurité réseau', 'PASSI IV.3\nGHY – V', 'ETA'],
+    ['15h45 – 16h00', 'Pause', '', ''],
+    ['16h00 – 17h30', 'Protection de l’information – Sécurité de l’administration', 'PASSI IV.3\nGHY – VI', 'ETA'],
+    ['17h30 – 18h00', 'Débriefing', '', 'ETA']] },
+  { type: 'table', titre: 'Évaluation du siège : {DATE_SIEGE_FIN} sur site (ETA)', cols: C4, lignes: [
+    ['09h00 – 09h30', 'Accueil. Revue du plan et questions en suspens.', '', 'ETA'],
+    ['09h30 – 10h30', 'Protection de l’information – Nomadisme', 'PASSI IV.3\nGHY – VII\nII 901 Art. 17', 'ETA'],
+    ['10h30 – 10h45', 'Pause', '', ''],
+    ['10h45 – 12h30', 'Mesures relatives à la sécurité – Maintien en condition opérationnelle et de sécurité', 'PASSI IV.3\nGHY – VII\nII 901 Art. 11', 'ETA'],
+    ['', 'Protection de l’information – Sécurité opérationnelle', 'PASSI IV.3\nGHY – VIII\nGHY – IX\nII 901 Art. 10', 'ETA'],
+    ['12h30 – 14h00', 'Repas', '', ''],
+    ['14h00 – 15h45', 'Mesures relatives à la sécurité des documents et des médias de stockage', 'PASSI IV.3\nGHY – V\nII 901 Art. 5\nII 901 Art. 14\nII 901 Art. 18', 'ETA'],
+    ['15h45 – 16h00', 'Pause', '', ''],
+    ['16h00 – 17h00', 'Présentation des méthodes, outils, techniques et rapports types utilisés lors des audits techniques', 'PASSI VI.4 Étape 6', 'ETA'],
+    ['17h00 – 18h00', 'Revue des exigences relatives au déroulement d’un audit (exécution technique de l’audit)', 'PASSI VI.4', 'ETA'],
+    ['18h00 – 18h30', 'Réunion de clôture', 'N.A.', 'ETA']] },
+  { type: 'table', titre: 'Évaluation du siège : {DATE_SIEGE_DEBUT} sur site (RE)', cols: C4, lignes: [
+    ['10h30 – 10h45', 'Revue de l’agenda', 'N.A.', 'RE'],
+    ['10h45 – 12h15', 'Protection de l’information\n- Homologation / PSSI\n- Organisation\n- Gestion des incidents\n- Pilotage SSI', 'PASSI IV.3\nII 901 – Art. 6, 8, 10, 11, 13\nGHY – IX', 'RE'],
+    ['12h15 – 13h30', 'Repas', '', ''],
+    ['13h30 – 15h00', 'Analyse de risque', 'PASSI IV.3\nII 901 Art. 7\nGHY – X', 'RE'],
+    ['15h00 – 15h30', 'Exigences générales\nGestion des personnels', 'IV.1\nIV.2\nGHY – I – II', 'RE'],
+    ['15h30 – 16h00', 'Protection de l’information – Sécurité physique', 'PASSI IV.3\nII 901 Art. 15\nGHY – III', 'RE'],
+    ['16h00 – 16h15', 'Pause', '', ''],
+    ['16h15 – 17h00', 'Revue de la convention type et échantillonnage des conventions d’audit signées et des prestations réalisées (présence des clauses exigées), gestion des plaintes et des logos (marque de certification et qualification)', 'PASSI VI.2 Étape 2', 'RE'],
+    ['17h00 – 17h30', 'Gestion des auditeurs et de leurs dossiers (recrutement, compétences, charte d’éthique, constitution d’équipe)', 'PASSI V', 'RE'],
+    ['17h30 – 17h45', 'Pause', '', ''],
+    ['17h45 – 18h30', 'Préparation de la réunion de clôture', 'N.A.', 'RE'],
+    ['18h30 – 19h00', 'Réunion de clôture', 'N.A.', 'RE']] },
+  { type: 'table', titre: 'Évaluation prestation témoin – jour 1 : {DATE_TEMOIN}', cols: C4, lignes: [
+    ['09:00 – 10:00', 'Observation de la réunion d’ouverture de la prestation chez le client et démarrage de la mission', 'VI.3.5', 'RE et ETA'],
+    ['10:00 – 12:30', 'Observation du déroulé de l’audit chez le client (entretiens, collecte d’information, etc.) – Entretiens séparés sur deux portées', 'VI.4', 'ETA'],
+    ['', 'Revue des exigences relatives à la préparation d’un audit avec l’équipe d’audit (établissement de la convention d’audit, préparation, revue documentaire et déclenchement de l’audit)', 'VI.1, VI.2, VI.3', 'RE'],
+    ['12:30 – 14:00', 'Repas', '', ''],
+    ['14:00 – 17:00', 'Observation du déroulé de l’audit chez le client (entretiens, collecte d’information, etc.) – Entretiens séparés sur deux portées', 'VI.4', 'ETA'],
+    ['', 'Revue des exigences relatives à la préparation d’un audit avec l’équipe d’audit (établissement de la convention d’audit, préparation, revue documentaire et déclenchement de l’audit)', 'VI.1, VI.2, VI.3', 'RE'],
+    ['17:00 – 18:00', 'Débriefing', '', 'RE et ETA']] },
+  { type: 'table', titre: 'Évaluation prestation témoin – jour 2 : {DATE_TEMOIN}', cols: C4, lignes: [
+    ['09:00 – 09:15', 'Accueil sur site chez le prestataire', 'N.A.', 'RE et ETA'],
+    ['09:15 – 12:30', 'Revue des exigences relatives au déroulement d’un audit (exécution de l’audit, réunion de restitution, élaboration du rapport d’audit)', 'VI.5, VI.6', 'RE'],
+    ['', 'Revue des exigences relatives au déroulement d’un audit (exécution technique de l’audit)', 'VI.4', 'ETA'],
+    ['12:30 – 14:00', 'Déjeuner', '', ''],
+    ['14:00 – 15:30', 'Observation de la réunion de clôture et conclusion de l’audit', 'VI.7', 'RE et ETA'],
+    ['15:30 – 16:00', 'Notes des évaluateurs', 'N.A.', 'RE et ETA'],
+    ['16:30 – 17:30', 'Réunion de clôture de l’évaluation', 'N.A.', 'RE et ETA']] },
+];
+
+/* ═════════ Lecture Grist ═════════ */
+async function chargerTables() {
+  const noms = ['Evaluations', 'Entreprises', 'Sites', 'Contacts', 'Programmes', 'Documents_Referentiel',
+    'Qualifications_List', 'Unites_d_oeuvre', 'Evaluateurs', 'TEM_404', 'Systemes_Information', 'Propositions_prestation'];
+  const res = await Promise.all(noms.map(n => grist.docApi.fetchTable(n).then(rows).catch(() => [])));
+  T = {};
+  noms.forEach((n, i) => { T[n] = res[i]; T[n].par = new Map(res[i].map(r => [r.id, r])); });
+}
+
+// Ajoute n jours ouvrés (lun.–ven.) à une date Grist (secondes UTC) ; n = 1 → même jour.
+function finOuvree(sec, jours) {
+  let d = new Date(sec * 1000), reste = Math.max(Math.ceil(jours || 1), 1) - 1;
+  while (reste > 0) { d.setUTCDate(d.getUTCDate() + 1); const j = d.getUTCDay(); if (j !== 0 && j !== 6) reste--; }
+  return d.getTime() / 1000;
+}
+
+/* Valeurs proposées par Grist pour une évaluation. st : 'grist' ou 'modele'. */
+function calculer(id) {
+  const ev = T.Evaluations.par.get(id);
+  if (!ev) return null;
+  const ent = T.Entreprises.par.get(refId(ev.Entreprise)) || {};
+  const prog = T.Programmes.par.get(refId(ev.Programme)) || {};
+  const progNom = prog.Nom_du_programme || '';
+  const progCourt = progNom.replace(/_.*$/, '');
+  const progCle = progCourt.toLowerCase();
+  const po = T.Propositions_prestation.par.get(refId(ev.PO));
+  let tem = po && T.TEM_404.par.get(refId(po.TEM_404));
+  if (!tem) tem = T.TEM_404.filter(t => refId(t.Entreprise) === ent.id && liste(t.PROGRAMME).includes(prog.id)).sort((a, b) => b.id - a.id)[0];
+  let J = {}; try { J = tem ? JSON.parse(tem.Json_Complet || '{}') : {}; } catch { J = {}; }
+  const temNom = tem ? `TEM-404 ${tem.NumTEM404 || ''}`.trim() : '';
+
+  const B = {};
+  const set = (k, v, src, st = 'grist') => {
+    const s = Array.isArray(v) ? v.filter(x => !vide(x)).join('\n') : (v == null ? '' : String(v));
+    if (!vide(s)) B[k] = { v: s, src, st };
+  };
+
+  /* Société */
+  const sitesEnt = T.Sites.filter(s => refId(s.Entreprise) === ent.id);
+  const adr = s => [s.Street, s.Street2, [s.Zip, s.City].filter(Boolean).join(' '), s.Pays].filter(x => !vide(x)).join('\n');
+  const siege = sitesEnt.find(s => s.Siege);
+  set('SOC_NOM', ent.Denomination, 'Entreprises.Denomination');
+  set('SOC_SIREN', ent.SIREN ? String(ent.SIREN) : '', 'Entreprises.SIREN');
+  if (siege) set('SOC_SIEGE_ADRESSE', adr(siege), 'Sites (Siege = vrai)');
+  else set('SOC_SIEGE_ADRESSE', [J['demandeur.adresse1'], J['demandeur.adresse2'], [J['demandeur.code_postal'], J['demandeur.ville']].filter(Boolean).join(' '), J['demandeur.pays']].filter(x => !vide(x)).join('\n'), temNom + ' demandeur.adresse');
+  const actifs = sitesEnt.filter(s => s.Actif !== false);
+  set('SITE_ADRESSE', actifs.length === 1 ? adr(actifs[0]) : actifs.map(s => (s.Nom_site ? s.Nom_site + ' — ' : '') + adr(s).replace(/\n/g, ', ')), `Sites actifs de l’entreprise (${actifs.length})`);
+  set('SOC_WEB', J['demandeur.site_internet'], temNom + ' demandeur.site_internet');
+  set('SOC_EFFECTIF_TOTAL', J['e.effectif_total'], temNom + ' e.effectif_total');
+  set('SOC_EFFECTIF_PERIMETRE', J[`e.${progCle}.total`] || J['e.effectif_perimetre'], temNom + ` e.${progCle}.total`);
+  const contacts = T.Contacts.filter(c => refId(c.Entreprise) === ent.id);
+  const resp = contacts.find(c => c.Responsable_de_programme && liste(c.Programmes_Responsable).includes(prog.id)) || contacts.find(c => c.Responsable_de_programme);
+  if (resp) {
+    set('CONTACT_NOM', [resp.Prenom, resp.Nom].filter(Boolean).join(' '), 'Contacts (Responsable_de_programme)');
+    set('CONTACT_EMAIL', resp.Courriel, 'Contacts.Courriel');
+    set('CONTACT_TEL', resp.telephone, 'Contacts.telephone');
+  } else {
+    const cp = k => J[`b.${progCle}.chef_projet.${k}`];
+    set('CONTACT_NOM', [cp('prenom'), cp('nom')].filter(Boolean).join(' '), temNom + ' chef de projet');
+    set('CONTACT_EMAIL', cp('courriel'), temNom + ' chef de projet');
+    set('CONTACT_TEL', cp('telephone'), temNom + ' chef de projet');
+  }
+
+  /* Évaluation */
+  const doc = r => r ? [r.Document_Name, r.Version && 'v' + r.Version].filter(Boolean).join(' – ') : '';
+  const refEv = T.Documents_Referentiel.par.get(refId(ev.Referentiel));
+  const refPo = po && T.Documents_Referentiel.par.get(refId(po.Referentiel));
+  const refProg = liste(prog.Referentiel).map(i => T.Documents_Referentiel.par.get(i)).filter(Boolean);
+  let refDoc = refEv || refPo;
+  if (refDoc) set('CRIT_REFERENTIEL', doc(refDoc), refEv ? 'Evaluations.Referentiel' : 'Propale (Referentiel)');
+  else {
+    const vTem = J[`b.${progCle}.version`];
+    const choisi = refProg.filter(r => vTem && String(r.Version) === String(vTem));
+    const l = choisi.length ? choisi : refProg;
+    if (l.length === 1) refDoc = l[0];
+    set('CRIT_REFERENTIEL', l.map(doc), 'Programmes.Referentiel' + (choisi.length ? ` (version ${vTem} du TEM-404)` : ''));
+  }
+  set('CRIT_TRAME', doc(T.Documents_Referentiel.par.get(refId(prog.Trame))), 'Programmes.Trame');
+  const modele = MODELE_PROGRAMME[progNom] || {};
+  for (const [k, v] of Object.entries(modele)) if (!B[k]) set(k, v, 'Modèle de plan ' + progNom, 'modele');
+  const types = liste(ev.Type_d_evaluation);
+  set('EVAL_TYPE', types.map(t => PHRASES_TYPE[t] || t), 'Evaluations.Type_d_evaluation');
+  if (types.includes('Autre')) set('EVAL_TYPE_AUTRE', ev.Commentaires, 'Evaluations.Commentaires');
+  const quals = liste(ev.Activites_).map(i => T.Qualifications_List.par.get(i)).filter(Boolean);
+  const code = q => String(q.Qualification_code || '').replace(/^[^_]+_/, '');
+  set('EVAL_PORTEES', quals.map(q => `${q.Qualifications} (${code(q)})`), 'Evaluations.Activites_');
+  const niv = J[`b.${progCle}.niveau`];
+  set('EVAL_NIVEAU', niv && niv !== '-' ? niv : '', temNom + ` b.${progCle}.niveau`);
+  const objectifs = types.map(t => OBJECTIFS_TYPE[t]).find(Boolean);
+  if (objectifs) set('EVAL_OBJECTIFS', objectifs, 'Texte type « ' + types.join(', ') + ' »', 'modele');
+  if (!vide(ev.SI_DR)) set('SIDR_CLASSE', ev.SI_DR, 'Evaluations.SI_DR');
+  else set('SIDR_CLASSE', T.Systemes_Information.filter(s => refId(s.Entreprise) === ent.id && liste(s.Programmes).includes(prog.id) && /DR|Classe/i.test(s.Classification || '')).map(s => s.Classification), 'Systemes_Information.Classification');
+
+  /* Jalons et charges : unités d'œuvre */
+  const uos = T.Unites_d_oeuvre.filter(u => refId(u.Evaluation) === ev.id);
+  const deType = (...t) => uos.filter(u => t.includes(u.Unite_d_oeuvre));
+  const debut = us => { const d = us.map(u => u.date_debut_incluse).filter(Boolean); return d.length ? Math.min(...d) : null; };
+  const fin = us => { const d = us.filter(u => u.date_debut_incluse).map(u => finOuvree(u.date_debut_incluse, u.Jours)); return d.length ? Math.max(...d) : null; };
+  const uo = t => `Unités d’œuvre « ${t} »`;
+  set('DATE_LANCEMENT', fr(debut(deType('Journée de lancement'))), uo('Journée de lancement'));
+  set('DATE_DOC_DEBUT', fr(debut(deType('Revue documentaire'))), uo('Revue documentaire') + ' : début');
+  set('DATE_DOC_FIN', fr(fin(deType('Revue documentaire'))), uo('Revue documentaire') + ' : fin (jours ouvrés)');
+  set('DATE_SIEGE_DEBUT', fr(debut(deType('évaluation siège'))), uo('évaluation siège') + ' : début');
+  set('DATE_SIEGE_FIN', fr(fin(deType('évaluation siège'))), uo('évaluation siège') + ' : fin (jours ouvrés)');
+  set('DATE_TEMOIN', [...new Set(deType('évaluation prestation témoin').map(u => fr(u.date_debut_incluse)).filter(Boolean))], uo('évaluation prestation témoin'));
+  set('DATE_CLOTURE', fr(debut(deType('Réunion de clôture'))), uo('Réunion de clôture'));
+  const remise = fin(deType('Rédaction du rapport'));
+  if (remise) set('DATE_REMISE_RAPPORT', fr(remise), uo('Rédaction du rapport') + ' : fin');
+  else set('DATE_REMISE_RAPPORT', fr(ev.Date_fin_prevue), 'Evaluations.Date_fin_prevue');
+  const affectee = u => liste(u.evaluateurs).length > 0;     // UO sans évaluateur = créneau non affecté, non compté
+  const jours = (...t) => { const us = deType(...t).filter(affectee); return us.length ? nombre(us.reduce((a, u) => a + (u.Jours || 0), 0)) : ''; };
+  set('CHARGE_PILOTAGE', jours('Plan d\'évaluation', 'Planification'), uo('Plan d’évaluation') + ' + « Planification »');
+  set('CHARGE_LANCEMENT', jours('Journée de lancement'), uo('Journée de lancement'));
+  set('CHARGE_DOC', jours('Revue documentaire'), uo('Revue documentaire'));
+  set('CHARGE_SIEGE', jours('évaluation siège'), uo('évaluation siège'));
+  set('CHARGE_TEMOIN', jours('évaluation prestation témoin'), uo('évaluation prestation témoin'));
+  set('CHARGE_LIVRABLES', jours('Rédaction du rapport'), uo('Rédaction du rapport'));
+  set('CHARGE_SOUTENANCE', jours('Soutenance des travaux à l\'ANSSI et suivi'), uo('Soutenance ANSSI et suivi'));
+
+  /* Équipe */
+  const evr = i => T.Evaluateurs.par.get(i);
+  const nom = e => e ? [e.Evaluateur_Prenom, String(e.Evaluateur_Nom || '').toUpperCase()].filter(Boolean).join(' ') : '';
+  const re = evr(refId(ev.RE));
+  const eta = liste(ev.ETA).map(evr).filter(Boolean);
+  const etm = liste(ev.ETM).map(evr).filter(Boolean);
+  const obs = liste(ev.OBS).map(evr).filter(Boolean);
+  set('MEMBRE_RE', nom(re), 'Evaluations.RE');
+  set('MEMBRE_ETA', eta.map(nom).join(', '), 'Evaluations.ETA');
+  set('MEMBRE_OBS', obs.map(nom).join(', '), 'Evaluations.OBS');
+  const equipe = [...new Map([re, ...eta, ...etm, ...obs].filter(Boolean).map(e => [e.id, e])).values()]
+    .map(e => ({ nom: nom(e), tri: e.Evaluateur_Trigramme || '', tel: e.Evaluateur_Telephone || '', mail: e.Evaluateur_Courriel || '' }));
+
+  /* En-tête du document */
+  set('DOC_REF', ev.Libelle, 'Evaluations.Libelle');
+  set('DOC_VERSION', '1.0', 'Version par défaut', 'modele');
+  set('DOC_DATE', aujourdhui(), 'Date du jour', 'modele');
+  for (const [k] of TEXTES) set(k, TEXTES_DEFAUT[k], 'Texte du modèle de plan', 'modele');
+
+  // Libellés des portées : ceux du programme de l'évaluation d'abord (CODE = PASSI_CODE et non PRIS_CODE)
+  const qs = T.Qualifications_List.filter(q => q.Qualification_code).sort((a, b) => (refId(a.Programme) === prog.id) - (refId(b.Programme) === prog.id));
+  const libQual = new Map(qs.map(q => [code(q), q.Qualifications]));
+  const portéesProg = T.Qualifications_List.filter(q => refId(q.Programme) === prog.id && q.Qualification_code && !PORTEES_EXCLUES.test(q.Qualification_code)).map(code);
+  return {
+    B, ctx: { ev, ent, progNom, progCourt, refVersion: refDoc && refDoc.Version ? String(refDoc.Version) : '', equipe, libQual, portéesProg,
+      nbUO: uos.length, nonAffectees: uos.filter(u => !affectee(u)).length,
+      tousEvaluateurs: T.Evaluateurs.map(nom).filter(Boolean).sort() },
+  };
+}
+
+/* ═════════ Valeurs affichées = saisie manuelle, sinon Grist ═════════ */
+function totalCalcule() {
+  const ns = CHARGES.map(k => num(val(k))).filter(n => n !== null);
+  return ns.length ? nombre(ns.reduce((a, b) => a + b, 0)) : '';
+}
+function val(k) {
+  if (Object.prototype.hasOwnProperty.call(P.champs, k)) return P.champs[k];
+  if (k === 'CHARGE_TOTAL') return totalCalcule();
+  return base[k] ? base[k].v : '';
+}
+function etat(k, opt) {
+  const v = val(k);
+  if (Object.prototype.hasOwnProperty.call(P.champs, k)) return vide(v) ? (opt ? 'na' : 'manque') : 'saisi';
+  if (vide(v)) return opt ? 'na' : 'manque';
+  return k === 'CHARGE_TOTAL' ? 'grist' : (base[k] ? base[k].st : 'grist');
+}
+function source(k) {
+  if (Object.prototype.hasOwnProperty.call(P.champs, k)) return 'Saisi à la main' + (base[k] ? ` — valeur Grist : ${base[k].v.split('\n')[0]}` : '');
+  if (k === 'CHARGE_TOTAL') return 'Somme des lignes';
+  return base[k] ? base[k].src : 'Absent de Grist : à saisir';
+}
+const equipe = () => P.equipe || ctx.equipe || [];
+const agendas = () => P.agendas || (ctx.progCourt === 'PASSI' ? AGENDAS_PASSI : []);
+function resoudre(s) {
+  return String(s || '').replace(/\{([A-Z_]+)\}/g, (_, k) => { const v = lignesDe(val(k)).join(', '); return v || 'à définir'; });
+}
+// Une ligne d'évaluateur par portée : celles demandées, sinon celles du programme.
+function portees() {
+  let codes = lignesDe(val('EVAL_PORTEES')).map(l => { const m = l.match(/\(([^()]+)\)\s*[,;.]?$/); return (m ? m[1] : l).trim(); });
+  if (!codes.length) codes = ctx.portéesProg || [];
+  return [...new Set(codes)];
+}
+function roles() {
+  const r = [['MEMBRE_RE', 'Responsable d’évaluation'], ['MEMBRE_ETA', 'Évaluateur technique (ETA)']];
+  for (const c of portees()) r.push([`MEMBRE_ET_${c.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}`, `Évaluateur ${(ctx.libQual.get(c) || c).replace(/^./, x => x.toLowerCase())}`]);
+  r.push(['MEMBRE_OBS', 'Observateur d’évaluation', 't', true], ['MEMBRE_SUP', 'Superviseur d’évaluation', 't', true]);
+  return r;
+}
+function tousLesChamps() {
+  const l = [['DOC_REF'], ['DOC_VERSION'], ['DOC_DATE']];
+  SECTIONS.forEach(s => l.push(...s.champs));
+  l.push(...roles(), ...TEXTES.map(([k]) => [k, '', 'x']));
+  return l.map(([k, , type = 't', opt = false]) => ({ k, type, opt }));
+}
+
+/* ═════════ Rendu écran ═════════ */
+function htmlValeur(k, type, opt) {
+  const v = val(k);
+  if (vide(v)) return opt ? '<span class="na">N/A</span>' : '<span class="vide-txt">à compléter</span>';
+  if (type === 'l') return '<ul>' + lignesDe(v).map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
+  if (type === 'n') return esc(jours(v));
+  if (type === 'x') return htmlRiche(v);
+  return esc(v);
+}
+function htmlRiche(v) {
+  let h = '', ul = false;
+  for (const l of String(v).split('\n')) {
+    const t = l.trim(); if (!t) continue;
+    if (/^[-•]\s+/.test(t)) { if (!ul) { h += '<ul>'; ul = true; } h += `<li>${esc(t.replace(/^[-•]\s+/, ''))}</li>`; }
+    else { if (ul) { h += '</ul>'; ul = false; } h += `<p>${esc(t)}</p>`; }
+  }
+  return h + (ul ? '</ul>' : '');
+}
+const jours = v => { const n = num(v); return n === null ? String(v) : nombre(n) + (n > 1 ? ' jours' : ' jour'); };
+function cellule(k, type = 't', opt = false, balise = 'td', classe = '') {
+  const st = etat(k, opt);
+  const raz = st === 'saisi' ? `<button class="raz" data-act="raz" data-k="${k}" title="Revenir à la valeur Grist">↺</button>` : '';
+  return `<${balise} class="v ${classe} ${st}" data-k="${k}" data-type="${type}" data-opt="${opt ? 1 : ''}" title="${esc(source(k))}">${htmlValeur(k, type, opt)}${raz}</${balise}>`;
+}
+function tableChamps(titre, champs, classeTotal) {
+  let h = `<table><thead><tr><th class="bar" colspan="2">${esc(titre)}</th></tr></thead><tbody>`;
+  for (const [k, lib, type, opt] of champs) h += `<tr class="${classeTotal && k === 'CHARGE_TOTAL' ? 'total' : ''}"><td class="lib">${esc(lib)}</td>${cellule(k, type, opt)}</tr>`;
+  return h + '</tbody></table>';
+}
+function rendre() {
+  if (!T || !evalId || !ctx.ev) return;
+  const ev = ctx.ev;
+  $('titre').textContent = `${ctx.ent.Denomination || '?'} — ${ctx.progNom || '?'} ${liste(ev.Type_d_evaluation).join(', ')}`;
+  const champs = tousLesChamps();
+  const n = s => champs.filter(c => etat(c.k, c.opt) === s).length;
+  $('cpt').innerHTML = `<span class="pastille p-grist">${n('grist')} Grist</span> <span class="pastille p-modele">${n('modele')} modèle</span> `
+    + `<span class="pastille p-saisi">${n('saisi')} saisis</span> <span class="pastille p-manque">${n('manque')} à compléter</span>`;
+  $('alerte').innerHTML = colOk ? '' : `<div class="alerte">La colonne <b>Evaluations.${COL}</b> n’existe pas encore : vos saisies restent affichées et exportables, mais <b>ne sont pas enregistrées</b> dans Grist.</div>`;
+
+  let h = `<div class="page"><div class="entete"><img src="logo.png" alt="Certi-Trust"><h1>Plan d’évaluation ${esc(ctx.progCourt)}</h1></div>`;
+  h += `<div class="ref">Réf. ${cellule('DOC_REF', 't', false, 'span')} · Version ${cellule('DOC_VERSION', 't', false, 'span')} · du ${cellule('DOC_DATE', 'd', false, 'span')}</div>`;
+  for (const s of SECTIONS) h += tableChamps(s.titre, s.champs, s.charge);
+  if (ctx.nonAffectees) h += `<div class="aide">${ctx.nonAffectees} unité(s) d’œuvre sans évaluateur ne sont pas comptées dans la charge.</div>`;
+
+  // Équipe
+  h += `<table><thead><tr><th class="bar" colspan="4">Équipe d’évaluation</th><th class="act" style="border:none;background:none"></th></tr>`
+    + `<tr class="sous"><th style="width:30%">Nom</th><th style="width:14%">Trigramme</th><th style="width:22%">Téléphone</th><th>Email</th><th class="act" style="border:none;background:none"></th></tr></thead><tbody>`;
+  equipe().forEach((m, i) => {
+    h += '<tr>' + ['nom', 'tri', 'tel', 'mail'].map(f => `<td class="v ${P.equipe ? 'saisi' : (vide(m[f]) ? 'manque' : 'grist')}" data-eq="${i}|${f}">${vide(m[f]) ? '<span class="vide-txt">à compléter</span>' : esc(m[f])}</td>`).join('')
+      + `<td class="act"><button data-act="eq-del" data-i="${i}" title="Retirer de l’équipe">✕</button></td></tr>`;
+  });
+  if (!equipe().length) h += '<tr><td colspan="4" class="v manque"><span class="vide-txt">Aucun évaluateur : renseigner RE / ETA / ETM dans l’évaluation ou ajouter une ligne</span></td></tr>';
+  h += '</tbody></table><div class="outils"><button data-act="eq-add">+ Membre</button>'
+    + (P.equipe ? '<button data-act="eq-raz">↺ Équipe depuis Grist</button>' : '') + '</div>';
+  h += tableChamps('Rôles', roles());
+
+  // Textes du modèle
+  for (const [k, titre] of TEXTES) h += `<h3>${esc(titre)}</h3>${cellule(k, 'x', false, 'div', 'txt')}`;
+
+  // Agendas
+  h += '<h2 class="sec">Agendas</h2><div class="aide">Les titres et textes acceptent les jetons {DATE_LANCEMENT}, {DATE_DOC_DEBUT}, {DATE_DOC_FIN}, {DATE_SIEGE_DEBUT}, {DATE_SIEGE_FIN}, {DATE_TEMOIN}, {DATE_CLOTURE}, remplacés par les jalons.</div>';
+  agendas().forEach((a, i) => {
+    h += `<h2 class="ag v ${P.agendas ? 'saisi' : 'modele'}" data-ag="${i}|titre" title="Titre (cliquer pour modifier)">${esc(resoudre(a.titre))}</h2>`;
+    if (a.type === 'texte') h += `<div class="v txt ${P.agendas ? 'saisi' : 'modele'}" data-ag="${i}|texte">${htmlRiche(resoudre(a.texte))}</div>`;
+    else {
+      h += '<table><thead><tr>' + a.cols.map((c, j) => `<th class="bar v" data-ag="${i}|h|${j}" style="${largeurCol(a.cols, j)}">${esc(c)}</th>`).join('') + '<th class="act" style="border:none"></th></tr></thead><tbody>';
+      a.lignes.forEach((l, r) => {
+        const pause = estPause(l);
+        h += `<tr class="${pause ? 'pause' : ''}">` + a.cols.map((_, j) => `<td class="v" data-ag="${i}|${r}|${j}">${esc(l[j] || '')}</td>`).join('')
+          + `<td class="act"><button data-act="ag-ins" data-i="${i}" data-r="${r}" title="Insérer une ligne dessous">+</button> <button data-act="ag-sup" data-i="${i}" data-r="${r}" title="Supprimer la ligne">✕</button></td></tr>`;
+      });
+      h += '</tbody></table>';
+    }
+    h += `<div class="outils">${a.type === 'table' ? `<button data-act="ag-ins" data-i="${i}" data-r="-1">+ Ligne</button>` : ''}`
+      + `<button data-act="ag-haut" data-i="${i}">↑</button><button data-act="ag-bas" data-i="${i}">↓</button>`
+      + `<button data-act="ag-del" data-i="${i}">Supprimer cet agenda</button></div>`;
+  });
+  h += '<div class="outils" style="margin-top:6px"><button data-act="ag-new-table">+ Agenda (tableau)</button><button data-act="ag-new-texte">+ Bloc texte</button>'
+    + (P.agendas ? '<button data-act="ag-raz">↺ Agendas du modèle</button>' : '') + '</div>';
+  h += '</div>';
+  $('doc').innerHTML = h;
+  $('dl-eval').innerHTML = (ctx.tousEvaluateurs || []).map(n => `<option value="${esc(n)}">`).join('');
+}
+const estPause = l => l.length > 2 && l.slice(2).every(vide) && !vide(l[1]) && /^(pause|repas|déjeuner|dejeuner)\b/i.test(l[1].trim());
+const largeurCol = (cols, j) => j === 0 ? 'width:15%' : (/sujet/i.test(cols[j]) ? '' : 'width:' + (cols[j].length > 15 ? '21%' : '15%'));
+
+/* ═════════ Édition ═════════ */
+$('doc').addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]');
+  if (b) { e.stopPropagation(); action(b.dataset); return; }
+  const c = e.target.closest('[data-k],[data-eq],[data-ag]');
+  if (c && !c.querySelector('.ed')) editer(c);
+});
+
+function cible(cell) {
+  if (cell.dataset.k) {
+    const k = cell.dataset.k, type = cell.dataset.type;
+    return { texte: val(k), multi: ['l', 'm', 'x'].includes(type), liste: /^MEMBRE_/.test(k),
+      appliquer: v => { v = v.trim(); if (type === 'n' && num(v) !== null && /^[\d\s.,]+\s*(j|jours?)?$/i.test(v)) v = nombre(num(v)); P.champs[k] = v; } };
+  }
+  if (cell.dataset.eq) {
+    const [i, f] = cell.dataset.eq.split('|');
+    return { texte: equipe()[i][f] || '', multi: false, liste: f === 'nom',
+      appliquer: v => { const eq = clone(equipe()); eq[i][f] = v.trim(); P.equipe = eq; } };
+  }
+  const [i, a, b] = cell.dataset.ag.split('|');
+  const ag = agendas()[i];
+  const lire = () => a === 'titre' ? ag.titre : a === 'texte' ? ag.texte : a === 'h' ? ag.cols[b] : (ag.lignes[a][b] || '');
+  return { texte: lire(), multi: a !== 'titre' && a !== 'h',
+    appliquer: v => {
+      const L = clone(agendas()), x = L[i];
+      if (a === 'titre') x.titre = v.trim(); else if (a === 'texte') x.texte = v; else if (a === 'h') x.cols[b] = v.trim(); else x.lignes[a][b] = v;
+      P.agendas = L;
+    } };
+}
+
+function editer(cell) {
+  const c = cible(cell);
+  enEdition = true;
+  const ed = document.createElement(c.multi ? 'textarea' : 'input');
+  ed.className = 'ed'; ed.value = c.texte;
+  if (c.multi) ed.rows = Math.min(Math.max(2, String(c.texte).split('\n').length + 1), 18);
+  if (c.liste) ed.setAttribute('list', 'dl-eval');
+  if (cell.dataset.type === 'd') ed.placeholder = 'JJ/MM/AAAA ou N/A';
+  cell.innerHTML = ''; cell.appendChild(ed); ed.focus();
+  let fini = false;
+  const finir = async ok => {
+    if (fini) return; fini = true; enEdition = false;
+    if (ok && ed.value !== c.texte) { c.appliquer(ed.value); nettoyer(); rendre(); await enregistrer(); }
+    else rendre();
+  };
+  ed.addEventListener('blur', () => finir(true));
+  ed.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { ev.preventDefault(); finir(false); }
+    else if (ev.key === 'Enter' && (!c.multi || ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); ed.blur(); }
+  });
+}
+
+// Une saisie identique à la valeur Grist n'est pas conservée (la valeur Grist reste suivie).
+function nettoyer() {
+  for (const k of Object.keys(P.champs)) {
+    if (k === 'CHARGE_TOTAL') { const v = P.champs[k]; delete P.champs[k]; if (v !== totalCalcule()) P.champs[k] = v; }
+    else if (P.champs[k] === (base[k] ? base[k].v : '')) delete P.champs[k];
+  }
+}
+
+async function action(d) {
+  const i = Number(d.i);
+  if (d.act === 'raz') delete P.champs[d.k];
+  else if (d.act === 'eq-add') { P.equipe = [...clone(equipe()), { nom: '', tri: '', tel: '', mail: '' }]; }
+  else if (d.act === 'eq-del') { const eq = clone(equipe()); eq.splice(i, 1); P.equipe = eq; }
+  else if (d.act === 'eq-raz') P.equipe = null;
+  else if (d.act === 'ag-raz') P.agendas = null;
+  else {
+    const L = clone(agendas());
+    if (d.act === 'ag-ins') { const r = Number(d.r); L[i].lignes.splice(r < 0 ? L[i].lignes.length : r + 1, 0, L[i].cols.map(() => '')); }
+    else if (d.act === 'ag-sup') L[i].lignes.splice(Number(d.r), 1);
+    else if (d.act === 'ag-del') L.splice(i, 1);
+    else if (d.act === 'ag-haut' && i > 0) [L[i - 1], L[i]] = [L[i], L[i - 1]];
+    else if (d.act === 'ag-bas' && i < L.length - 1) [L[i + 1], L[i]] = [L[i], L[i + 1]];
+    else if (d.act === 'ag-new-table') L.push({ type: 'table', titre: 'Nouvel agenda : {DATE_SIEGE_DEBUT}', cols: C4.slice(), lignes: [C4.map(() => '')] });
+    else if (d.act === 'ag-new-texte') L.push({ type: 'texte', titre: 'Nouveau bloc', texte: '' });
+    else return;
+    P.agendas = L;
+  }
+  rendre();
+  await enregistrer();
+}
+
+async function enregistrer() {
+  if (!colOk) { toast('Non enregistré : la colonne ' + COL + ' n’existe pas'); return; }
+  const s = (vide(P.champs) || !Object.keys(P.champs).length) && !P.equipe && !P.agendas ? '' : JSON.stringify(P);
+  dernierEnr = s;
+  try { await grist.docApi.applyUserActions([['UpdateRecord', 'Evaluations', evalId, { [COL]: s }]]); toast('Enregistré'); }
+  catch (e) { toast('Erreur d’enregistrement : ' + (e.message || e), 5000); }
+}
+
+$('btn-suivant').onclick = () => {
+  const l = [...document.querySelectorAll('.v.manque')];
+  if (!l.length) { toast('Rien à compléter'); return; }
+  const y = window.scrollY + 60;
+  const c = l.find(x => x.getBoundingClientRect().top + window.scrollY > y + 5) || l[0];
+  c.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash');
+};
+$('btn-maj').onclick = async () => { await chargerTables(); preparer(); rendre(); toast('Données Grist rechargées'); };
+
+/* ═════════ Export PDF (pdfmake, police Montserrat) ═════════ */
+const MARINE = '#32406C', PALE = '#EDF0F6', TEXTE = '#262B38', BORD = '#D5DCEA', GRIS = '#7A7C7A', ROUGE = '#C00000';
+const POLICES = 'https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@v7.222/fonts/ttf/';
+const FICHIERS_POLICE = { normal: 'Montserrat-Regular.ttf', bold: 'Montserrat-Bold.ttf', italics: 'Montserrat-Italic.ttf', bolditalics: 'Montserrat-BoldItalic.ttf' };
+let pdfPret = null;
+
+const script = src => new Promise((ok, ko) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => ko(new Error('chargement ' + src)); document.head.appendChild(s); });
+const base64 = buf => { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+async function preparerPdf() {
+  if (pdfPret) return pdfPret;
+  pdfPret = (async () => {
+    if (!window.pdfMake) await script('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js');
+    const vfs = {}; let fonts, police = 'Montserrat';
+    try {
+      const bufs = await Promise.all(Object.values(FICHIERS_POLICE).map(f => fetch(POLICES + f).then(r => { if (!r.ok) throw new Error(f); return r.arrayBuffer(); })));
+      Object.values(FICHIERS_POLICE).forEach((f, i) => { vfs[f] = base64(bufs[i]); });
+      fonts = { Montserrat: FICHIERS_POLICE };
+    } catch (e) {
+      await script('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.js');
+      Object.assign(vfs, window.pdfMake.vfs || {});
+      fonts = { Roboto: { normal: 'Roboto-Regular.ttf', bold: 'Roboto-Medium.ttf', italics: 'Roboto-Italic.ttf', bolditalics: 'Roboto-MediumItalic.ttf' } };
+      police = 'Roboto';
+    }
+    let logo = null;
+    try { const r = await fetch('logo.png'); if (r.ok) logo = 'data:image/png;base64,' + base64(await r.arrayBuffer()); } catch { /* sans logo */ }
+    return { vfs, fonts, police, logo };
+  })();
+  try { return await pdfPret; } catch (e) { pdfPret = null; throw e; }
+}
+
+function pdfValeur(k, type = 't', opt = false) {
+  const v = val(k);
+  if (vide(v)) return { text: opt ? 'N/A' : '' };
+  if (type === 'l') return { ul: lignesDe(v) };
+  if (type === 'n') return { text: jours(v) };
+  if (type === 'x') return pdfRiche(v);
+  return { text: String(v) };
+}
+function pdfRiche(v) {
+  const out = []; let ul = null;
+  for (const l of String(v).split('\n')) {
+    const t = l.trim(); if (!t) { ul = null; continue; }
+    if (/^[-•]\s+/.test(t)) { if (!ul) { ul = { ul: [], margin: [4, 0, 0, 4] }; out.push(ul); } ul.ul.push(t.replace(/^[-•]\s+/, '')); }
+    else { ul = null; out.push({ text: t, margin: [0, 0, 0, 4] }); }
+  }
+  return { stack: out };
+}
+const LAYOUT = {
+  hLineWidth: () => 0.6, vLineWidth: () => 0.6, hLineColor: () => BORD, vLineColor: () => BORD,
+  paddingLeft: () => 5, paddingRight: () => 5, paddingTop: () => 3, paddingBottom: () => 3,
+};
+const barre = (texte, colSpan) => ({ text: texte, bold: true, color: '#FFFFFF', fillColor: MARINE, colSpan });
+function pdfTableChamps(titre, champs, total) {
+  const body = [[barre(titre, 2), {}]];
+  for (const [k, lib, type, opt] of champs) {
+    const gras = total && k === 'CHARGE_TOTAL';
+    body.push([{ text: lib, bold: gras }, Object.assign(pdfValeur(k, type, opt), gras ? { bold: true } : {})]);
+  }
+  return { table: { headerRows: 1, dontBreakRows: true, widths: ['38%', '*'], body }, layout: LAYOUT, margin: [0, 0, 0, 14] };
+}
+function construirePdf(res) {
+  const soc = val('SOC_NOM');
+  const titre = `Plan d’évaluation ${ctx.progCourt}`;
+  const pied = `${titre}${ctx.refVersion ? ' ' + ctx.refVersion : ''} – ${soc}`;
+  const content = [
+    { text: titre, fontSize: 18, bold: true, color: MARINE, margin: [0, 0, 0, 2] },
+    { text: `Réf. ${val('DOC_REF')}  ·  Version ${val('DOC_VERSION')}  ·  ${val('DOC_DATE')}`, fontSize: 8.5, color: GRIS, margin: [0, 0, 0, 14] },
+  ];
+  for (const s of SECTIONS) content.push(pdfTableChamps(s.titre, s.champs, s.charge));
+
+  const eq = equipe();
+  const sous = t => ({ text: t, bold: true, fillColor: PALE });
+  content.push({ table: { headerRows: 2, dontBreakRows: true, widths: ['30%', '14%', '22%', '*'], body: [
+    [barre('Équipe d’évaluation', 4), {}, {}, {}], [sous('Nom'), sous('Trigramme'), sous('Téléphone'), sous('Email')],
+    ...(eq.length ? eq.map(m => [m.nom, m.tri, m.tel, m.mail].map(x => ({ text: x || '' }))) : [[{ text: '', colSpan: 4 }, {}, {}, {}]])] },
+    layout: LAYOUT, margin: [0, 0, 0, 14] });
+  content.push(pdfTableChamps('Rôles', roles()));
+
+  for (const [k, t] of TEXTES) content.push({ text: t, style: 'h3', headlineLevel: 1 }, Object.assign(pdfValeur(k, 'x'), { margin: [0, 0, 0, 6] }));
+
+  for (const a of agendas()) {
+    content.push({ stack: [{ text: resoudre(a.titre), style: 'agenda' },
+      { canvas: [{ type: 'line', x1: 0, y1: 1, x2: 481, y2: 1, lineWidth: 1, lineColor: ROUGE }], margin: [0, 0, 0, 6] }], headlineLevel: 1, margin: [0, 12, 0, 0] });
+    if (a.type === 'texte') { content.push(Object.assign(pdfRiche(resoudre(a.texte)), { margin: [0, 0, 0, 8] })); continue; }
+    const n = a.cols.length;
+    const widths = a.cols.map((c, j) => j === 0 ? 70 : (/sujet/i.test(c) ? '*' : (c.length > 15 ? 100 : 66)));
+    const body = [a.cols.map(c => ({ text: c, bold: true, color: '#FFFFFF', fillColor: MARINE }))];
+    for (const l of a.lignes) {
+      if (estPause(l)) body.push([{ text: l[0] || '', fillColor: PALE }, { text: l[1], colSpan: n - 1, italics: true, fillColor: PALE }, ...Array.from({ length: n - 2 }, () => ({}))]);
+      else body.push(a.cols.map((_, j) => ({ text: l[j] || '' })));
+    }
+    content.push({ table: { headerRows: 1, dontBreakRows: true, widths, body }, layout: LAYOUT, fontSize: 8.5, margin: [0, 0, 0, 10] });
+  }
+
+  return {
+    pageSize: 'A4', pageMargins: [57, 92, 57, 62],
+    info: { title: `${titre} – ${soc}`, author: 'Certi-Trust', subject: val('DOC_REF') },
+    header: () => res.logo ? { image: res.logo, width: 120, margin: [50, 26, 0, 0] } : { text: 'Certi-Trust', bold: true, color: MARINE, margin: [57, 36, 0, 0] },
+    footer: (page, pages) => ({ margin: [57, 14, 57, 0], fontSize: 7.5, color: GRIS, columns: [
+      { width: '*', stack: [pied, `Version : ${val('DOC_VERSION')}`] },
+      { width: 70, text: `Page ${page} / ${pages}`, alignment: 'center' },
+      { width: '*', stack: ['C1 – Diffusion limitée', 'Certi-Trust'], alignment: 'right' }] }),
+    content,
+    defaultStyle: { font: res.police, fontSize: 9.5, color: TEXTE, lineHeight: 1.15 },
+    styles: { h3: { fontSize: 10.5, bold: true, color: MARINE, margin: [0, 8, 0, 3] }, agenda: { fontSize: 11.5, bold: true, color: MARINE } },
+    // Évite un titre seul en bas de page
+    pageBreakBefore: node => node.headlineLevel === 1 && node.startPosition.top > 690,
+  };
+}
+function nomFichier() {
+  const d = String(val('DOC_DATE')).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const date = d ? d[3] + d[2].padStart(2, '0') + d[1].padStart(2, '0') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const ref = String(val('DOC_REF') || `evaluation_${evalId}`).replace(/[\\/:*?"<>|\s]+/g, '_');
+  return `${date}-Plan_d_evaluation-${ref}.pdf`;
+}
+$('btn-pdf').onclick = async () => {
+  if (!ctx.ev) return;
+  const b = $('btn-pdf'); b.disabled = true; const lib = b.textContent; b.textContent = 'Génération…';
+  try {
+    const res = await preparerPdf();
+    const manque = tousLesChamps().filter(c => etat(c.k, c.opt) === 'manque').length;
+    const pdf = window.pdfMake.createPdf(construirePdf(res), null, res.fonts, res.vfs);
+    try { pdf.download(nomFichier()); } catch { pdf.open(); }
+    toast(manque ? `PDF généré — ${manque} case(s) encore vide(s)` : 'PDF généré', 3500);
+  } catch (e) { toast('Erreur PDF : ' + (e.message || e), 6000); }
+  finally { b.disabled = false; b.textContent = lib; }
+};
+
+/* ═════════ Grist ═════════ */
+function preparer() {
+  const r = calculer(evalId);
+  if (!r) { ctx = {}; base = {}; return; }
+  base = r.B; ctx = r.ctx;
+  colOk = T.Evaluations.length > 0 && Object.prototype.hasOwnProperty.call(T.Evaluations[0], COL);
+  const brut = colOk ? ctx.ev[COL] : null;
+  P = vierge();
+  if (brut) { try { P = Object.assign(vierge(), JSON.parse(brut)); P.champs = P.champs || {}; } catch { toast('Saisies illisibles dans ' + COL + ' : ignorées', 5000); } }
+  dernierEnr = brut || '';
+}
+grist.ready({ requiredAccess: 'full' });
+grist.onRecord(async rec => {
+  if (!rec || !rec.id) return;
+  // Écho de notre propre enregistrement : on ne recharge pas.
+  if (T && rec.id === evalId && (enEdition || !(COL in rec) || (rec[COL] || '') === (dernierEnr || ''))) return;
+  evalId = rec.id;
+  if (!T) $('doc').innerHTML = '<div id="msg">Chargement…</div>';
+  try { await chargerTables(); preparer(); if (!ctx.ev) { $('doc').innerHTML = '<div id="msg">Évaluation introuvable.</div>'; return; } rendre(); }
+  catch (e) { $('doc').innerHTML = `<div id="msg">Erreur de lecture : ${esc(e.message || e)}</div>`; }
+});
+</script>
+</body>
+</html>
