@@ -352,14 +352,20 @@ function calculer(id) {
   /* Équipe */
   const evr = i => T.Evaluateurs.par.get(i);
   const nom = e => e ? [e.Evaluateur_Prenom, String(e.Evaluateur_Nom || '').toUpperCase()].filter(Boolean).join(' ') : '';
-  const re = evr(refId(ev.RE));
-  const eta = liste(ev.ETA).map(evr).filter(Boolean);
-  const etm = liste(ev.ETM).map(evr).filter(Boolean);
-  const obs = liste(ev.OBS).map(evr).filter(Boolean);
-  set('MEMBRE_RE', nom(re), 'Evaluations.RE');
-  set('MEMBRE_ETA', eta.map(nom).join(', '), 'Evaluations.ETA');
-  set('MEMBRE_OBS', obs.map(nom).join(', '), 'Evaluations.OBS');
-  const equipe = [...new Map([re, ...eta, ...etm, ...obs].filter(Boolean).map(e => [e.id, e])).values()]
+  // Rôles de l'évaluation complétés par les personnes positionnées au planning (unités d'œuvre)
+  const unique = l => [...new Map(l.filter(Boolean).map(e => [e.id, e])).values()];
+  const dePlanning = champ => uos.flatMap(u => (champ === 'RE' ? [refId(u.RE)] : liste(u[champ]))).map(evr);
+  const reEv = evr(refId(ev.RE));
+  const reUo = unique(dePlanning('RE'));
+  const re = reEv || reUo[0];
+  const eta = unique([...liste(ev.ETA).map(evr), ...dePlanning('ETA')]);
+  const etm = unique([...liste(ev.ETM).map(evr), ...dePlanning('ETM'), ...reUo.filter(e => e !== re)]);
+  const obs = unique([...liste(ev.OBS).map(evr), ...dePlanning('OBS')]);
+  const src = (c, l) => `Evaluations.${c}` + (dePlanning(c).some(e => e && l.includes(e)) ? ' + planning' : '');
+  set('MEMBRE_RE', nom(re), reEv ? 'Evaluations.RE' : 'Planning (unités d’œuvre, RE)');
+  set('MEMBRE_ETA', eta.map(nom).join(', '), src('ETA', eta));
+  set('MEMBRE_OBS', obs.map(nom).join(', '), src('OBS', obs));
+  const equipe = unique([re, ...eta, ...etm, ...obs])
     .map(e => ({ nom: nom(e), tri: e.Evaluateur_Trigramme || '', tel: e.Evaluateur_Telephone || '', mail: e.Evaluateur_Courriel || '' }));
 
   /* En-tête du document */
