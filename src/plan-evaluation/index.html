@@ -45,7 +45,9 @@
   tr.total td { font-weight:700; }
   .v { cursor:text; position:relative; min-height:21px; }
   .v:hover { outline:1px dashed #9aa6c6; outline-offset:-2px; }
-  .v.c { cursor:default; white-space:normal; }
+  .v.c { cursor:pointer; white-space:normal; }
+  .cc-fin { margin-top:4px; }
+  .cc-fin button { font-size:11px; padding:1px 8px; }
   .v.modele { box-shadow:inset 3px 0 0 var(--modele); }
   .v.saisi { background:var(--saisi-bg); box-shadow:inset 3px 0 0 var(--saisi); }
   .v.manque { background:var(--manque-bg); box-shadow:inset 3px 0 0 var(--manque); }
@@ -119,6 +121,7 @@ let base = {};                      // valeurs calculées depuis Grist : k → {
 let ctx = {};                       // contexte de l'évaluation (programme, équipe Grist…)
 let P = vierge();                   // saisies manuelles de l'évaluation
 let colOk = false, enEdition = false, dernierEnr = null;
+let ouvert = null;                  // case à cocher en cours de choix (clé du champ), sinon seules les valeurs cochées s'affichent
 function vierge() { return { v: 1, champs: {}, equipe: null, agendas: null }; }
 
 /* ═════════ Champs ═════════
@@ -583,13 +586,22 @@ function tousLesChamps() {
 /* ═════════ Rendu écran ═════════ */
 const jours = v => { const n = num(v); return n === null ? String(v) : nombre(n) + (n > 1 ? ' jours' : ' jour'); };
 function htmlValeur(f) {
-  if (f.type === 'c') return htmlCases(f.k);
+  if (f.type === 'c') return ouvert === f.k
+    ? htmlCases(f.k) + '<div class="cc-fin"><button data-act="cc-fermer">Terminé</button></div>'
+    : htmlChoisis(f);
   const v = val(f.k);
   if (vide(v)) return f.opt ? '<span class="na">N/A</span>' : '<span class="vide-txt">à compléter</span>';
   if (f.type === 'l') return '<ul>' + lignesDe(v).map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
   if (f.type === 'n') return esc(jours(v));
   if (f.type === 'x') return htmlRiche(v);
   return esc(v);
+}
+// Hors édition : uniquement les valeurs cochées, sans les cases (comme dans le PDF)
+function htmlChoisis(f) {
+  const c = coches(f.k);
+  const l = [...c.opts.filter(o => c.sel.has(o)), ...c.hors];
+  if (!l.length) return c.na || f.opt ? '<span class="na">N/A</span>' : '<span class="vide-txt">à compléter (cliquer pour choisir)</span>';
+  return l.length === 1 ? esc(l[0]) : '<ul>' + l.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
 }
 function htmlCases(k) {
   const c = coches(k);
@@ -685,7 +697,8 @@ $('doc').addEventListener('click', e => {
   if (b) { e.stopPropagation(); action(b.dataset); return; }
   const cc = e.target.closest('input[data-cc]');
   if (cc) { const [k, quoi] = cc.dataset.cc.split('|'); muter(() => basculer(k, quoi)); return; }
-  if (e.target.closest('.v.c')) return;
+  const vc = e.target.closest('.v.c');
+  if (vc) { if (ouvert !== vc.dataset.k) { ouvert = vc.dataset.k; rendre(); } return; }
   const c = e.target.closest('[data-k],[data-tb],[data-ag]');
   if (c && !c.querySelector('.ed')) editer(c);
 });
@@ -743,6 +756,7 @@ function nettoyer() {
 }
 
 async function action(d) {
+  if (d.act === 'cc-fermer') { ouvert = null; rendre(); return; }
   const i = Number(d.i);
   await muter(() => {
     if (d.act === 'raz') delete P.champs[d.k];
@@ -967,6 +981,7 @@ choisirDoc(MODE);
 
 /* ═════════ Grist ═════════ */
 function preparer() {
+  ouvert = null;
   const r = calculer(evalId);
   if (!r) { ctx = {}; base = {}; return; }
   base = r.B; ctx = r.ctx;
