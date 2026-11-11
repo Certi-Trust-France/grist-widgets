@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fiche entreprise</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; color: #1e293b; margin: 0; padding: 12px; background: #f8fafc; }
+  .empty { padding: 40px 0; text-align: center; color: #94a3b8; font-style: italic; }
+
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+  .head h2 { margin: 0; font-size: 18px; color: #1e3a8a; }
+  .head .ident { font-size: 12px; color: #475569; margin-top: 3px; line-height: 1.5; }
+  .btn-refresh { background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer; font-size: 12px; padding: 4px 8px; color: #475569; flex-shrink: 0; }
+  .btn-refresh:hover { background: #f1f5f9; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; }
+  .kpi .v { font-size: 18px; font-weight: 700; color: #1e3a8a; }
+  .kpi .l { font-size: 11px; color: #64748b; }
+
+  .msg { padding: 6px 10px; border-radius: 5px; font-size: 12px; margin-bottom: 4px; }
+  .msg.warn  { background: #fef3c7; color: #78350f; border-left: 3px solid #d97706; }
+  .msg.error { background: #fee2e2; color: #991b1b; border-left: 3px solid #dc2626; }
+  .alerts { margin-bottom: 10px; }
+
+  details { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; }
+  summary { cursor: pointer; padding: 7px 10px; font-weight: 600; color: #1e3a8a; user-select: none; }
+  summary .n { color: #64748b; font-weight: 400; }
+  .body { padding: 0 10px 10px; overflow-x: auto; }
+  .none { color: #94a3b8; font-style: italic; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th { text-align: left; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; padding: 4px 6px; white-space: nowrap; }
+  td { border-bottom: 1px solid #f1f5f9; padding: 4px 6px; vertical-align: top; }
+  tr.sel td { background: #eff6ff; }
+  tr.sel td:first-child { box-shadow: inset 3px 0 0 #2563eb; }
+  .num { text-align: right; white-space: nowrap; }
+  .muted { color: #94a3b8; }
+
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 11px; white-space: nowrap; background: #e2e8f0; color: #1e293b; margin: 1px 2px 1px 0; }
+  .soon { color: #b45309; font-weight: 600; }
+  .late { color: #b91c1c; font-weight: 600; }
+  a { color: #2563eb; }
+</style>
+</head>
+<body>
+
+<div id="empty" class="empty">Sélectionnez une évaluation.</div>
+<div id="main" style="display:none"></div>
+
+<script>
+// Le widget ne fait que lire : l'accès « full » n'est requis que parce que
+// docApi.fetchTable sur d'autres tables que la table liée l'exige.
+grist.ready({ requiredAccess: 'full' });
+
+const TABLES = [
+  'Evaluations', 'Entreprises', 'Contacts', 'Sites', 'Systemes_Information', 'Programmes',
+  'Qualifications_List', 'Evaluateurs', 'LIS_12', 'Cycles_services', 'Propositions_prestation',
+  'Propositions_commerciales', 'Demandes_devis_examens', 'Candidats', 'Qualification_individuelle',
+  'Examens_ecrits', 'Examens_oraux', 'Unites_d_oeuvre', 'TEM_404', 'Attestations_individuelles',
+];
+
+// Couleurs reprises des choiceOptions Grist (Programmes.Nom_du_programme, Evaluations.Statut, LIS_12.Statut)
+const PROG_COLOR = { PACS: '#E1FEDE', PASSI: '#FECBCC', PDIS: '#FED6FB', PRIS: '#FFFACD', PAMS: '#CCFEFE', SecNumCloud: '#F3E1D2', 'PASSI_2.0': '#DCDCDC' };
+const EVAL_STATUT_COLOR = { 'à planifier': '#FED7AA', 'En cours': '#BBF7D0', 'Terminé': '#A5F3FC', 'Annulé': '#E2E8F0', 'En attente devis': '#F5D0FE' };
+const LIS_STATUT = { active: ['Active', '#E1FEDE'], suspended: ['Suspendue', '#FFFACD'], withdrawn: ['Retirée', '#FECBCC'], expired: ['Expirée', '#DCDCDC'] };
+const PROPALE_STATUT_COLOR = { Brouillon: '#E2E8F0', 'Envoyée': '#DBEAFE', 'Signée': '#BBF7D0', 'Annulée': '#FECACA' };
+
+const CACHE_TTL_MS = 60_000;
+let cache = null, cacheAt = 0, reqId = 0, lastEvalId = null;
+
+grist.onRecord(rec => {
+  lastEvalId = rec?.id || null;
+  show(false);
+});
+
+async function show(force) {
+  const my = ++reqId;
+  if (!lastEvalId) { setEmpty('Sélectionnez une évaluation.'); return; }
+  let db;
+  try { db = await loadAll(force); } catch (e) { setEmpty('Erreur de chargement : ' + e.message); return; }
+  if (my !== reqId) return;
+  const ev = db.byId.Evaluations?.get(lastEvalId);
+  if (!ev) { setEmpty('Évaluation introuvable.'); return; }
+  if (!ev.Entreprise) { setEmpty('Aucune entreprise renseignée sur cette évaluation.'); return; }
+  render(db, ev.Entreprise, lastEvalId);
+}
+
+/* ── Chargement : toutes les tables en une fois, mises en cache (une sélection
+   de ligne ne doit pas relancer 20 requêtes). ── */
+async function loadAll(force) {
+  if (cache && !force && Date.now() - cacheAt < CACHE_TTL_MS) return cache;
+  const res = await Promise.all(TABLES.map(t => grist.docApi.fetchTable(t).catch(() => null)));
+  const rows = {}, byId = {};
+  TABLES.forEach((t, k) => {
+    const cols = res[k];
+    if (!cols) { rows[t] = null; return; }
+    const keys = Object.keys(cols);
+    rows[t] = cols.id.map((id, i) => { const o = {}; for (const c of keys) o[c] = cols[c][i]; return o; });
+    byId[t] = new Map(rows[t].map(r => [r.id, r]));
+  });
+  cache = { rows, byId };
+  cacheAt = Date.now();
+  return cache;
+}
+
+/* ──────────────────────────────────────────
+   Rendu de la fiche
+────────────────────────────────────────── */
+function render(db, entId, evalId) {
+  const R = t => db.rows[t] || [];
+  const get = (t, id) => (id && db.byId[t]?.get(id)) || null;
+  const ent = get('Entreprises', entId);
+  if (!ent) { setEmpty('Entreprise introuvable.'); return; }
+
+  const now = Date.now() / 1000;
+  const prog = id => get('Programmes', id)?.Nom_du_programme || '';
+  const qual = id => get('Qualifications_List', id)?.Qualification_code || '';
+  const evalr = id => { const e = get('Evaluateurs', id); return e ? `${e.Evaluateur_Prenom || ''} ${e.Evaluateur_Nom || ''}`.trim() : ''; };
+  const cand = id => { const c = get('Candidats', id); return c ? `${c.First_Name || ''} ${c.Last_Name || ''}`.trim() : ''; };
+
+  const contacts = R('Contacts').filter(r => r.Entreprise === entId);
+  const sites = R('Sites').filter(r => r.Entreprise === entId);
+  const sis = R('Systemes_Information').filter(r => r.Entreprise === entId);
+  const lis = R('LIS_12').filter(r => r.Denomination === entId).sort((a, b) => (b.Date_Fin || 0) - (a.Date_Fin || 0));
+  const cycles = R('Cycles_services').filter(r => r.Denomination === entId).sort((a, b) => (a.Prochaine_echeance || Infinity) - (b.Prochaine_echeance || Infinity));
+  const evals = R('Evaluations').filter(r => r.Entreprise === entId).sort((a, b) => (b.Date_Debut_prevue || 0) - (a.Date_Debut_prevue || 0));
+  const evalIds = new Set(evals.map(e => e.id));
+  const uos = R('Unites_d_oeuvre').filter(r => evalIds.has(r.Evaluation));
+  const pps = R('Propositions_prestation').filter(r => r.Denomination === entId).sort((a, b) => (b.Date || 0) - (a.Date || 0));
+  const pcs = R('Propositions_commerciales').filter(r => r.Entreprise === entId);
+  const dde = R('Demandes_devis_examens').filter(r => r.Entreprise === entId).sort((a, b) => (b.date_envoi || 0) - (a.date_envoi || 0));
+  const tem = R('TEM_404').filter(r => r.Entreprise === entId).sort((a, b) => (b.Date_Reception || 0) - (a.Date_Reception || 0));
+  const candidats = R('Candidats').filter(r => r.Entreprise === entId);
+  const qis = R('Qualification_individuelle').filter(r => r.Denomination === entId);
+  const ecrits = R('Examens_ecrits').filter(r => r.Denomination === entId);
+  const oraux = R('Examens_oraux').filter(r => r.Denomination === entId);
+  const atts = R('Attestations_individuelles').filter(r => r.Denomination === entId);
+
+  // LIS_12.Statut n'est pas saisi en pratique : à défaut, statut déduit de Date_Fin.
+  for (const l of lis) l.statut = l.Statut || (l.Date_Fin ? (l.Date_Fin >= now ? 'active' : 'expired') : '');
+
+  const siege = sites.find(s => s.Siege) || (sites.length === 1 ? sites[0] : null);
+  const signees = pps.filter(p => p.Statut === 'Signée' || p.devis_signe);
+  const caSigne = signees.reduce((s, p) => s + (Number(p.Montant_PO) || 0), 0);
+  const qiValides = qis.filter(q => q.Valide);
+  const personnesQualifiees = new Set(qiValides.map(q => q.Candidat));
+
+  /* ── Points d'attention ── */
+  const alerts = [];
+  const J = 86400;
+  for (const l of lis) {
+    if (l.statut === 'active' && l.Date_Fin && l.Date_Fin - now < 180 * J)
+      alerts.push(['warn', `Qualification ${prog(l.Programme)} : fin de validité le ${fmtDate(l.Date_Fin)}.`]);
+  }
+  for (const c of cycles) {
+    if (c.Prochaine_echeance && c.Prochaine_echeance - now < 90 * J)
+      alerts.push([c.Prochaine_echeance < now ? 'error' : 'warn', `Cycle ${prog(c.Programme)} : prochaine échéance le ${fmtDate(c.Prochaine_echeance)}.`]);
+  }
+  if (ent.Examens_sans_devis) alerts.push(['warn', 'Des examens écrits n’ont ni devis ni code devis.']);
+  if (!contacts.some(c => c.Facturation)) alerts.push(['warn', 'Aucun contact facturation.']);
+  if (!contacts.some(c => c.Representant_legal)) alerts.push(['warn', 'Aucun représentant légal renseigné.']);
+  if (candidats.length && !contacts.some(c => c.Responsable_examens)) alerts.push(['warn', 'Des candidats sont inscrits mais aucun responsable examens n’est renseigné.']);
+  if (!siege) alerts.push(['warn', 'Siège social non identifié dans les sites.']);
+  if (!ent.SIREN && !ent.SIRET) alerts.push(['warn', 'SIREN / SIRET manquants.']);
+
+  /* ── Sections ── */
+  const sections = [];
+
+  sections.push(section('Qualifications ANSSI', lis.length, lis.length ? table(
+    ['Programme', 'Statut', 'Niveau', 'Qualifications', 'Délivrance', 'Fin', 'Décision'],
+    lis.map(l => [
+      progBadge(prog(l.Programme)),
+      badge(...(LIS_STATUT[l.statut] || [l.statut || '—', '#E2E8F0'])),
+      esc(l.Niveau === 'Sansobjet' ? '—' : (l.Niveau || '—')),
+      asList(l.Qualifications).map(q => badge(qual(q))).join(''),
+      fmtDate(l.Date_Delivrance),
+      dueDate(l.Date_Fin, now, 180),
+      l.Lien_vers_la_decision_de_qualification
+        ? `<a href="${escAttr(l.Lien_vers_la_decision_de_qualification)}" target="_blank" rel="noopener">${esc(l.N_decision_ANSSI || 'lien')}</a>`
+        : esc(l.N_decision_ANSSI || ''),
+    ])) : none('Aucune qualification enregistrée.'), true));
+
+  sections.push(section('Cycles de certification', cycles.length, cycles.length ? table(
+    ['Programme', 'Début du cycle', 'Surveillance', 'Fin de certification', 'Prochaine échéance', 'Commentaires'],
+    cycles.map(c => [
+      progBadge(prog(c.Programme)), fmtDate(c.date_debut_cycle), fmtDate(c.Date_surveillance_certification),
+      fmtDate(c.date_fin_certification), dueDate(c.Prochaine_echeance, now, 90), esc(c.Commentaires || ''),
+    ])) : none('Aucun cycle.'), true));
+
+  sections.push(section('Évaluations', evals.length, evals.length ? table(
+    ['Libellé', 'Programme', 'Type', 'Statut', 'Début', 'Fin', 'RE', 'J/H', 'Montant'],
+    evals.map(e => [
+      esc(e.Libelle || ''), progBadge(prog(e.Programme)),
+      asList(e.Type_d_evaluation).map(t => esc(t)).join(', '),
+      e.Statut ? badge(e.Statut, EVAL_STATUT_COLOR[e.Statut]) : '',
+      fmtDate(e.Date_Debut_prevue), fmtDate(e.Date_fin_prevue), esc(evalr(e.RE)),
+      num(e.JH), money(e.Montant_Eval_Devis),
+    ]), evals.map(e => e.id === evalId ? 'sel' : '')) : none('Aucune évaluation.'), true));
+
+  const prochaines = uos.filter(u => u.date_debut_incluse && u.date_debut_incluse >= now - J)
+    .sort((a, b) => a.date_debut_incluse - b.date_debut_incluse);
+  sections.push(section('Prochaines interventions', prochaines.length, prochaines.length ? table(
+    ['Date', 'Unité d’œuvre', 'Jours', 'Évaluation', 'Intervenants'],
+    prochaines.slice(0, 15).map(u => [
+      fmtDate(u.date_debut_incluse), esc(u.Unite_d_oeuvre || u.Libelle || ''), num(u.Jours),
+      esc(get('Evaluations', u.Evaluation)?.Libelle || ''),
+      [u.RE, ...asList(u.ETA), ...asList(u.ETM)].filter(Boolean).map(evalr).filter(Boolean).map(esc).join(', '),
+    ]), prochaines.slice(0, 15).map(u => u.Evaluation === evalId ? 'sel' : '')) : none('Aucune intervention planifiée.'), prochaines.length > 0));
+
+  sections.push(section('Contacts', contacts.length, contacts.length ? table(
+    ['Nom', 'Courriel', 'Téléphone', 'Rôles'],
+    contacts.map(c => {
+      const roles = [];
+      if (c.Representant_legal) roles.push(badge('Représentant légal', '#E0E7FF'));
+      if (c.Responsable_de_programme) roles.push(badge('Resp. programme' + progSuffix(c.Programmes_Responsable, prog), '#DBEAFE'));
+      if (c.Responsable_examens) roles.push(badge('Resp. examens' + progSuffix(c.Programmes_Examens, prog), '#CCFBF1'));
+      if (c.Facturation) roles.push(badge('Facturation', '#FEF3C7'));
+      return [
+        esc(`${c.Prenom || ''} ${c.Nom || ''}`.trim()),
+        c.Courriel ? `<a href="mailto:${escAttr(c.Courriel)}">${esc(c.Courriel)}</a>` : '',
+        esc(c.telephone || ''), roles.join(''),
+      ];
+    })) : none('Aucun contact.'), true));
+
+  sections.push(section('Sites', sites.length, sites.length ? table(
+    ['Site', 'Adresse', 'Statut'],
+    sites.map(s => [
+      esc(s.Nom_site || ''),
+      esc([s.Street, s.Street2, [s.Zip, s.City].filter(Boolean).join(' '), s.Pays].filter(Boolean).join(', ')),
+      (s.Siege ? badge('Siège', '#E0E7FF') : '') + (s.Actif === false ? badge('Inactif', '#E2E8F0') : ''),
+    ])) : none('Aucun site.'), false));
+
+  if (sis.length) sections.push(section('Systèmes d’information', sis.length, table(
+    ['Nom', 'Classification', 'Homologation', 'Programmes', 'Sites'],
+    sis.map(s => [
+      esc(s.Nom || ''), esc(s.Classification || ''), fmtDate(s.Date_Homologation),
+      asList(s.Programmes).map(p => progBadge(prog(p))).join(''),
+      asList(s.Sites).map(id => esc(get('Sites', id)?.Nom_site || '')).join(', '),
+    ])), false));
+
+  sections.push(section('Propositions et PO', pps.length, pps.length ? table(
+    ['Date', 'Libellé', 'Programme', 'Statut', 'Signature', 'BDC client', 'Montant PO'],
+    pps.map(p => [
+      fmtDate(p.Date), esc(p.libelle || p.Libelle_PL || p.Propale || ''), progBadge(prog(p.Programme)),
+      p.Statut ? badge(p.Statut, PROPALE_STATUT_COLOR[p.Statut]) : (p.devis_signe ? badge('Signée', PROPALE_STATUT_COLOR['Signée']) : ''),
+      fmtDate(p.Date_de_signature), esc(p.BDC_Client || ''), money(p.Montant_PO),
+    ])) : none('Aucune proposition.'), false));
+
+  const autresCommerciaux = [];
+  if (pcs.length) autresCommerciaux.push('<b>Propositions commerciales</b>' + table(
+    ['Créée le', 'Libellé', 'Statut', 'Montant HT'],
+    pcs.map(p => [fmtDate(p.Date_creation), esc(p.Libelle_TL || ''), p.Statut ? badge(p.Statut, PROPALE_STATUT_COLOR[p.Statut]) : '', money(p.Montant_HT)])));
+  if (dde.length) autresCommerciaux.push('<b>Demandes de devis examens</b>' + table(
+    ['Envoyée le', 'Code', 'Lignes', 'Total'],
+    dde.map(d => [fmtDateTime(d.date_envoi), esc(d.code || ''), num(d.nb_lignes), money(d.total)])));
+  if (tem.length) autresCommerciaux.push('<b>Dossiers TEM-404</b>' + table(
+    ['N°', 'Reçu le', 'Version', 'Programmes'],
+    tem.map(t => [esc(t.NumTEM404 || ''), fmtDate(t.Date_Reception), esc(t.Version || ''), asList(t.PROGRAMME).map(p => progBadge(prog(p))).join('')])));
+  if (autresCommerciaux.length)
+    sections.push(section('Autres éléments commerciaux', pcs.length + dde.length + tem.length, autresCommerciaux.join('<div style="height:8px"></div>'), false));
+
+  // Personnes qualifiées : qualifications en cours de validité (Qualification_individuelle.Valide)
+  const parPersonne = new Map();
+  for (const q of qiValides) {
+    if (!parPersonne.has(q.Candidat)) parPersonne.set(q.Candidat, []);
+    parPersonne.get(q.Candidat).push(q);
+  }
+  const personnes = [...parPersonne.entries()].map(([cid, qs]) => ({
+    nom: cand(cid) || '?',
+    qs: qs.sort((a, b) => qual(a.Qualification).localeCompare(qual(b.Qualification))),
+    fin: Math.min(...qs.map(q => q.Fin_validite || Infinity)),
+  })).sort((a, b) => a.nom.localeCompare(b.nom));
+  sections.push(section('Personnes qualifiées', personnes.length, personnes.length ? table(
+    ['Personne', 'Qualifications valides', 'Première fin de validité'],
+    personnes.map(p => [esc(p.nom), p.qs.map(q => badge(qual(q.Qualification))).join(''), dueDate(p.fin === Infinity ? null : p.fin, now, 180)])
+  ) : none('Aucune qualification individuelle en cours de validité.'), false));
+
+  const ecritsPasses = ecrits.filter(e => e.date_heure && e.date_heure < now);
+  const orauxPasses = oraux.filter(e => e.date_heure && e.date_heure < now);
+  const aVenir = [...ecrits.map(e => ({ ...e, type: 'Écrit', quals: [e.Qualification] })), ...oraux.map(e => ({ ...e, type: 'Oral', quals: asList(e.Qualifications) }))]
+    .filter(e => e.date_heure && e.date_heure >= now).sort((a, b) => a.date_heure - b.date_heure);
+  const statsExamens = `
+    <table>
+      <tr><th></th><th class="num">Passés</th><th class="num">Réussis</th><th class="num">Échecs</th><th class="num">À venir</th></tr>
+      <tr><td>Examens écrits</td><td class="num">${ecritsPasses.length}</td>
+        <td class="num">${ecritsPasses.filter(e => e.succes_echec === 'Succès').length}</td>
+        <td class="num">${ecritsPasses.filter(e => e.succes_echec === 'Échec').length}</td>
+        <td class="num">${ecrits.length - ecritsPasses.length}</td></tr>
+      <tr><td>Examens oraux</td><td class="num">${orauxPasses.length}</td><td class="num muted">—</td><td class="num muted">—</td>
+        <td class="num">${oraux.length - orauxPasses.length}</td></tr>
+    </table>
+    <p style="margin:8px 0 4px">${candidats.length} candidat(s) inscrit(s) · ${atts.length} attestation(s) délivrée(s)</p>` +
+    (aVenir.length ? '<b>Prochains examens</b>' + table(['Date', 'Type', 'Candidat', 'Qualification(s)'],
+      aVenir.slice(0, 15).map(e => [fmtDateTime(e.date_heure), e.type, esc(cand(e.Candidat)), e.quals.map(q => badge(qual(q))).join('')])) : '');
+  sections.push(section('Examens et certifications de personnes', ecrits.length + oraux.length, statsExamens, false));
+
+  /* ── Assemblage ── */
+  const progsActifs = [...new Set(lis.filter(l => l.statut === 'active').map(l => prog(l.Programme)).filter(Boolean))];
+  document.getElementById('main').innerHTML = `
+    <div class="head">
+      <div>
+        <h2>${esc(ent.Denomination || '?')}</h2>
+        <div class="ident">
+          ${ent.code ? `Code <b>${esc(ent.code)}</b> · ` : ''}SIREN ${esc(ent.SIREN || '—')} · SIRET ${esc(ent.SIRET || '—')}
+          ${ent.Responsable_de_compte ? ` · Responsable de compte : <b>${esc(ent.Responsable_de_compte)}</b>` : ''}<br>
+          ${siege ? esc([siege.Street, [siege.Zip, siege.City].filter(Boolean).join(' ')].filter(Boolean).join(', ')) : ''}
+          ${progsActifs.length ? '<br>' + progsActifs.map(progBadge).join('') : ''}
+        </div>
+      </div>
+      <button class="btn-refresh" id="btn-refresh" title="Recharger les données">↻ Actualiser</button>
+    </div>
+    <div class="kpis">
+      ${kpi(evals.filter(e => e.Statut === 'En cours' || e.Statut === 'à planifier').length, 'évaluation(s) en cours ou à planifier')}
+      ${kpi(lis.filter(l => l.statut === 'active').length, 'qualification(s) ANSSI active(s)')}
+      ${kpi(personnesQualifiees.size, 'personne(s) qualifiée(s)')}
+      ${kpi(fmtMoney(caSigne), `PO signés (${signees.length})`)}
+    </div>
+    <div class="alerts">${alerts.map(([k, m]) => `<div class="msg ${k}">${k === 'error' ? '⛔' : '⚠️'} ${esc(m)}</div>`).join('')}</div>
+    ${sections.join('')}`;
+
+  document.getElementById('btn-refresh').addEventListener('click', () => show(true));
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('main').style.display = 'block';
+}
+
+/* ──────────────────────────────────────────
+   Utilitaires de rendu
+────────────────────────────────────────── */
+function section(title, n, html, open) {
+  return `<details${open ? ' open' : ''}><summary>${esc(title)} <span class="n">(${n})</span></summary><div class="body">${html}</div></details>`;
+}
+function table(headers, rows, rowClasses) {
+  return `<table><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr>${
+    rows.map((r, i) => `<tr class="${rowClasses?.[i] || ''}">${r.map(c => `<td>${c ?? ''}</td>`).join('')}</tr>`).join('')}</table>`;
+}
+function kpi(v, l) { return `<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`; }
+function none(msg) { return `<span class="none">${esc(msg)}</span>`; }
+function badge(text, color) { return text ? `<span class="badge" style="background:${color || '#E2E8F0'}">${esc(text)}</span>` : ''; }
+function progBadge(p) { return p ? badge(p, PROG_COLOR[p]) : ''; }
+function progSuffix(raw, prog) { const l = asList(raw).map(prog).filter(Boolean); return l.length ? ` (${l.join(', ')})` : ''; }
+function asList(raw) { return Array.isArray(raw) ? raw.slice(1) : []; } // RefList/ChoiceList Grist : ['L', v1, v2…]
+
+function dueDate(ts, now, days) {
+  if (!ts) return '';
+  const cls = ts < now ? 'late' : (ts - now < days * 86400 ? 'soon' : '');
+  return `<span class="${cls}">${fmtDate(ts)}</span>`;
+}
+function num(v) { return (v === null || v === undefined || v === '' || typeof v === 'object') ? '' : `<span class="num">${esc(Number(v).toLocaleString('fr-FR'))}</span>`; }
+function money(v) { return (typeof v === 'number' && v) ? `<span class="num">${esc(fmtMoney(v))}</span>` : ''; }
+function fmtMoney(v) { return Number(v || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }); }
+
+// Colonnes Date Grist : secondes depuis epoch à minuit UTC → formater en UTC, sinon décalage d'un jour.
+function fmtDate(ts) {
+  if (!ts || typeof ts !== 'number') return '';
+  return new Date(ts * 1000).toLocaleDateString('fr-FR', { timeZone: 'UTC' });
+}
+function fmtDateTime(ts) {
+  if (!ts || typeof ts !== 'number') return '';
+  return new Date(ts * 1000).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function escAttr(s) { return /^(https?:|mailto:)/i.test(String(s)) || !/^[a-z]+:/i.test(String(s)) ? esc(s) : '#'; }
+function setEmpty(msg) {
+  document.getElementById('empty').textContent = msg;
+  document.getElementById('empty').style.display = 'block';
+  document.getElementById('main').style.display = 'none';
+}
+</script>
+</body>
+</html>
