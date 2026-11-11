@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tableau de bord évaluateurs</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; color: #1e293b; margin: 0; padding: 12px; background: #f8fafc; }
+  .empty { padding: 30px 0; text-align: center; color: #94a3b8; font-style: italic; }
+
+  .bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .bar h2 { margin: 0; font-size: 17px; color: #1e3a8a; }
+  .btn-refresh { background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer; font-size: 12px; padding: 4px 8px; color: #475569; }
+  .btn-refresh:hover { background: #f1f5f9; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; }
+  .kpi .v { font-size: 18px; font-weight: 700; color: #1e3a8a; }
+  .kpi .l { font-size: 11px; color: #64748b; }
+
+  .msg { padding: 6px 10px; border-radius: 5px; font-size: 12px; margin-bottom: 4px; }
+  .msg.warn  { background: #fef3c7; color: #78350f; border-left: 3px solid #d97706; }
+  .msg.error { background: #fee2e2; color: #991b1b; border-left: 3px solid #dc2626; }
+  .alerts { margin-bottom: 10px; }
+
+  details { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; }
+  summary { cursor: pointer; padding: 7px 10px; font-weight: 600; color: #1e3a8a; user-select: none; }
+  summary .n { color: #64748b; font-weight: 400; }
+  .body { padding: 0 10px 10px; overflow-x: auto; }
+  .none { color: #94a3b8; font-style: italic; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th { text-align: left; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; padding: 4px 6px; white-space: nowrap; }
+  td { border-bottom: 1px solid #f1f5f9; padding: 4px 6px; vertical-align: top; }
+  tr.sel td { background: #eff6ff; }
+  tr.sel td:first-child { box-shadow: inset 3px 0 0 #2563eb; }
+  tr.inactif td { color: #94a3b8; }
+  .num { text-align: right; white-space: nowrap; }
+  .muted { color: #94a3b8; }
+
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 11px; white-space: nowrap; background: #e2e8f0; color: #1e293b; margin: 1px 2px 1px 0; }
+  .soon { color: #b45309; font-weight: 600; }
+  .late { color: #b91c1c; font-weight: 600; }
+  a { color: #2563eb; }
+
+  .detail-head { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
+  .detail-head h3 { margin: 0 0 4px; font-size: 16px; color: #1e3a8a; }
+  .detail-head .ident { font-size: 12px; color: #475569; line-height: 1.6; }
+  .sep { margin: 14px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #64748b; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="main"><div class="empty">Chargement…</div></div>
+
+<script>
+// Le widget ne fait que lire : l'accès « full » n'est requis que parce que
+// docApi.fetchTable sur d'autres tables que la table liée l'exige.
+// Les modifications se font dans la fiche Grist native placée à côté.
+grist.ready({ requiredAccess: 'full' });
+
+const TABLES = [
+  'Evaluateurs', 'Reconnaissance_de_competences', 'Profils_evaluateur', 'Programmes', 'Evaluations',
+  'Entreprises', 'Unites_d_oeuvre', 'Examens_ecrits', 'Examens_oraux', 'Affectations', 'Creneaux',
+  'Qualifications_List', 'Candidats',
+];
+
+// Couleurs reprises des choiceOptions Grist (Programmes.Nom_du_programme, Evaluations.Statut)
+const PROG_COLOR = { PACS: '#E1FEDE', PASSI: '#FECBCC', PDIS: '#FED6FB', PRIS: '#FFFACD', PAMS: '#CCFEFE', SecNumCloud: '#F3E1D2', 'PASSI_2.0': '#DCDCDC' };
+const EVAL_STATUT_COLOR = { 'à planifier': '#FED7AA', 'En cours': '#BBF7D0', 'Terminé': '#A5F3FC', 'Annulé': '#E2E8F0', 'En attente devis': '#F5D0FE' };
+const ROLE_COLOR = { RE: '#E0E7FF', ETA: '#DBEAFE', ETM: '#CCFBF1', OBS: '#F1F5F9' };
+const ALERTE_VALIDITE_JOURS = 180;
+const CACHE_TTL_MS = 60_000;
+const J = 86400;
+
+let cache = null, cacheAt = 0, reqId = 0, selId = null;
+
+grist.onRecord(rec => { selId = rec?.id || null; show(false); });
+show(false);
+
+async function show(force) {
+  const my = ++reqId;
+  let db;
+  try { db = await loadAll(force); } catch (e) { setHtml(`<div class="empty">Erreur de chargement : ${esc(e.message)}</div>`); return; }
+  if (my !== reqId) return;
+  render(db);
+}
+
+async function loadAll(force) {
+  if (cache && !force && Date.now() - cacheAt < CACHE_TTL_MS) return cache;
+  const res = await Promise.all(TABLES.map(t => grist.docApi.fetchTable(t).catch(() => null)));
+  const rows = {}, byId = {};
+  TABLES.forEach((t, k) => {
+    const cols = res[k];
+    if (!cols) { rows[t] = null; return; }
+    const keys = Object.keys(cols);
+    rows[t] = cols.id.map((id, i) => { const o = {}; for (const c of keys) o[c] = cols[c][i]; return o; });
+    byId[t] = new Map(rows[t].map(r => [r.id, r]));
+  });
+  cache = { rows, byId };
+  cacheAt = Date.now();
+  return cache;
+}
+
+/* ──────────────────────────────────────────
+   Données dérivées
+────────────────────────────────────────── */
+function derive(db) {
+  const R = t => db.rows[t] || [];
+  const get = (t, id) => (id && db.byId[t]?.get(id)) || null;
+  const now = Date.now() / 1000;
+
+  const prog = id => get('Programmes', id)?.Nom_du_programme || '';
+  const profil = id => get('Profils_evaluateur', id);
+  const nomEval = e => e ? `${e.Evaluateur_Prenom || ''} ${e.Evaluateur_Nom || ''}`.trim() : '';
+
+  // Compétence active = reconnaissance non marquée Inactif (même règle que les
+  // formules Evaluations.Evaluateurs_qualifies / RE_qualifies du document).
+  const rcByEval = new Map();
+  for (const r of R('Reconnaissance_de_competences')) {
+    if (!r.evaluateur) continue;
+    const p = profil(r.Profil);
+    const item = {
+      ...r,
+      code: (p?.Profil_code || '').trim(),
+      libelle: (p?.Profil || '').trim(),
+      programme: prog(r.Programme || p?.Programme),
+      actif: !r.Inactif,
+    };
+    if (!rcByEval.has(r.evaluateur)) rcByEval.set(r.evaluateur, []);
+    rcByEval.get(r.evaluateur).push(item);
+  }
+
+  // Rôles dans les évaluations et les unités d'œuvre
+  const rolesEval = (ev, id) => {
+    const roles = [];
+    if (ev.RE === id) roles.push('RE');
+    if (asList(ev.ETA).includes(id)) roles.push('ETA');
+    if (asList(ev.ETM).includes(id)) roles.push('ETM');
+    if (asList(ev.OBS).includes(id)) roles.push('OBS');
+    return roles;
+  };
+  const rolesUo = (u, id) => {
+    const roles = [];
+    if (u.RE === id) roles.push('RE');
+    if (asList(u.ETA).includes(id)) roles.push('ETA');
+    if (asList(u.ETM).includes(id)) roles.push('ETM');
+    if (asList(u.OBS).includes(id)) roles.push('OBS');
+    return roles;
+  };
+
+  const debutAnnee = Date.UTC(new Date().getUTCFullYear(), 0, 1) / 1000;
+  const stats = new Map();
+  for (const e of R('Evaluateurs')) {
+    const id = e.id;
+    const rcs = rcByEval.get(id) || [];
+    const actives = rcs.filter(r => r.actif);
+    const uos = R('Unites_d_oeuvre').map(u => ({ u, roles: rolesUo(u, id) })).filter(x => x.roles.length && !x.roles.every(r => r === 'OBS'));
+    const joursAVenir = uos.filter(x => x.u.date_debut_incluse >= now - J).reduce((s, x) => s + (Number(x.u.Jours) || 0), 0);
+    const joursAnnee = uos.filter(x => x.u.date_debut_incluse >= debutAnnee).reduce((s, x) => s + (Number(x.u.Jours) || 0), 0);
+    const evals = R('Evaluations').map(ev => ({ ev, roles: rolesEval(ev, id) })).filter(x => x.roles.length);
+    const ecrits = R('Examens_ecrits').filter(x => x.Examinateur_1 === id || x.Examinateur_2 === id);
+    const oraux = R('Examens_oraux').filter(x => x.Examinateur_1 === id || x.Examinateur_2 === id);
+    stats.set(id, {
+      rcs, actives,
+      // Fenêtre utile : expirée depuis moins d'un an ou échéance proche. Au-delà, la date
+      // n'est vraisemblablement plus tenue à jour (cas de nombreuses reconnaissances ANSSI).
+      expirent: actives.filter(r => r.Date_validite && r.Date_validite >= now - 365 * J && r.Date_validite - now < ALERTE_VALIDITE_JOURS * J),
+      anciennes: actives.filter(r => r.Date_validite && r.Date_validite < now - 365 * J),
+      examinateur: actives.some(r => r.Examinateur),
+      programmes: [...new Set(actives.map(r => r.programme).filter(Boolean))],
+      evals, uos, joursAVenir, joursAnnee, ecrits, oraux,
+      evalsEnCours: evals.filter(x => x.ev.Statut === 'En cours' || x.ev.Statut === 'à planifier').length,
+    });
+  }
+  return { R, get, now, prog, nomEval, stats };
+}
+
+/* ──────────────────────────────────────────
+   Rendu
+────────────────────────────────────────── */
+function render(db) {
+  const D = derive(db);
+  const { R, get, now, stats } = D;
+  const evaluateurs = R('Evaluateurs').slice().sort((a, b) =>
+    String(a.Evaluateur_Nom || '').localeCompare(String(b.Evaluateur_Nom || ''), 'fr'));
+  const progsAll = [...new Set(R('Programmes').map(p => p.Nom_du_programme).filter(Boolean))];
+
+  const allStats = [...stats.values()];
+  const nbActifs = allStats.filter(s => s.actives.length).length;
+  const nbExaminateurs = allStats.filter(s => s.examinateur).length;
+  const nbExpirent = allStats.reduce((n, s) => n + s.expirent.length, 0);
+  const nbAnciennes = allStats.reduce((n, s) => n + s.anciennes.length, 0);
+  const joursAVenir = allStats.reduce((n, s) => n + s.joursAVenir, 0);
+
+  let html = `
+    <div class="bar">
+      <h2>Évaluateurs</h2>
+      <button class="btn-refresh" id="btn-refresh" title="Recharger les données">↻ Actualiser</button>
+    </div>
+    <div class="kpis">
+      ${kpi(evaluateurs.length, 'évaluateurs')}
+      ${kpi(nbActifs, 'avec au moins une compétence active')}
+      ${kpi(nbExaminateurs, 'examinateurs')}
+      ${kpi(nbExpirent, `compétence(s) à renouveler (échéance sous ${ALERTE_VALIDITE_JOURS} j ou dépassée < 1 an)`)}
+      ${kpi(fmtNum(joursAVenir), 'jours planifiés à venir')}
+    </div>`;
+
+  if (selId && get('Evaluateurs', selId)) html += renderDetail(D, get('Evaluateurs', selId));
+  else html += `<div class="empty">Sélectionnez un évaluateur pour afficher sa fiche détaillée.</div>`;
+
+  html += `<div class="sep">Vue d’ensemble</div>`;
+  html += section('Compétences par programme', evaluateurs.length, table(
+    ['Évaluateur', 'Employeur', ...progsAll, 'Examinateur', 'Jours à venir', 'Évals en cours'],
+    evaluateurs.map(e => {
+      const s = stats.get(e.id);
+      return [
+        `<b>${esc(e.Evaluateur_Trigramme || '')}</b> ${esc(D.nomEval(e))}`,
+        esc(e.Employeur || ''),
+        ...progsAll.map(p => s.actives.filter(r => r.programme === p)
+          .map(r => badge(shortCode(r.code, p), PROG_COLOR[p], r.libelle + (r.Date_validite ? ` — validité ${fmtDate(r.Date_validite)}` : ''))).join('')),
+        s.examinateur ? '✓' : '',
+        num(s.joursAVenir), num(s.evalsEnCours),
+      ];
+    }), evaluateurs.map(e => e.id === selId ? 'sel' : (stats.get(e.id).actives.length ? '' : 'inactif'))), true);
+
+  const expirations = allStats.flatMap(s => s.expirent).sort((a, b) => a.Date_validite - b.Date_validite);
+  html += section('Compétences à renouveler', expirations.length, expirations.length ? table(
+    ['Évaluateur', 'Profil', 'Validation', 'Fin de validité'],
+    expirations.map(r => [esc(D.nomEval(get('Evaluateurs', r.evaluateur))), badge(r.code, PROG_COLOR[r.programme]), esc(r.Validation || ''), dueDate(r.Date_validite, now)])
+  ) : none(`Aucune compétence active n’expire dans les ${ALERTE_VALIDITE_JOURS} prochains jours.`), expirations.length > 0);
+
+  const anciennes = allStats.flatMap(s => s.anciennes).sort((a, b) => a.Date_validite - b.Date_validite);
+  if (anciennes.length) html += section('Dates de validité dépassées depuis plus d’un an (à vérifier)', anciennes.length, table(
+    ['Évaluateur', 'Profil', 'Validation', 'Fin de validité'],
+    anciennes.map(r => [esc(D.nomEval(get('Evaluateurs', r.evaluateur))), badge(r.code, PROG_COLOR[r.programme]), esc(r.Validation || ''), fmtDate(r.Date_validite)])
+  ), false);
+
+  setHtml(html);
+  document.getElementById('btn-refresh').addEventListener('click', () => show(true));
+}
+
+function renderDetail(D, e) {
+  const { get, now, prog } = D;
+  const s = D.stats.get(e.id);
+  const alerts = [];
+  if (!e.Evaluateur_Courriel) alerts.push(['warn', 'Courriel manquant.']);
+  if (!e.Evaluateur_Telephone) alerts.push(['warn', 'Téléphone manquant.']);
+  if (!e.Cout_Jour_HT) alerts.push(['warn', 'Coût jour HT non renseigné (coûts des évaluations faussés).']);
+  if (!s.actives.length) alerts.push(['warn', 'Aucune compétence active.']);
+  for (const r of s.expirent)
+    alerts.push([r.Date_validite < now ? 'error' : 'warn', `Compétence ${r.code} : fin de validité le ${fmtDate(r.Date_validite)}.`]);
+  if (s.anciennes.length)
+    alerts.push(['warn', `${s.anciennes.length} compétence(s) active(s) avec une date de validité dépassée depuis plus d’un an (${s.anciennes.map(r => r.code).join(', ')}) : date à mettre à jour ou compétence à passer en Inactif.`]);
+  for (const r of s.actives.filter(r => !r.Date_validite))
+    alerts.push(['warn', `Compétence ${r.code || '?'} sans date de validité.`]);
+
+  const ident = [
+    e.Employeur ? `Employeur : <b>${esc(e.Employeur)}</b>` : '',
+    e.Evaluateur_Courriel ? `<a href="mailto:${esc(e.Evaluateur_Courriel)}">${esc(e.Evaluateur_Courriel)}</a>` : '',
+    esc(e.Evaluateur_Telephone || ''),
+  ].filter(Boolean).join(' · ');
+  const ident2 = [
+    e.Cout_Jour_HT ? `Coût jour : <b>${esc(fmtMoney(e.Cout_Jour_HT))} HT</b>` : '',
+    e.forfait_10_min ? `Forfait 10 min : ${esc(fmtMoney(e.forfait_10_min))}` : '',
+    e.planning ? 'Affiché au planning' : 'Masqué du planning',
+    (e.Evaluateur_Date || e.Evaluateur_Lieu) ? `Date / lieu : ${fmtDate(e.Evaluateur_Date)} ${esc(e.Evaluateur_Lieu || '')}` : '',
+  ].filter(Boolean).join(' · ');
+
+  let html = `
+    <div class="detail-head">
+      <h3>${esc(e.Evaluateur_Trigramme ? e.Evaluateur_Trigramme + ' — ' : '')}${esc(D.nomEval(e))}</h3>
+      <div class="ident">${ident}<br>${ident2}${s.programmes.length ? '<br>' + s.programmes.map(p => badge(p, PROG_COLOR[p])).join('') : ''}</div>
+    </div>
+    <div class="kpis">
+      ${kpi(s.actives.length, 'compétence(s) active(s)')}
+      ${kpi(s.evalsEnCours, 'évaluation(s) en cours / à planifier')}
+      ${kpi(fmtNum(s.joursAVenir), 'jours planifiés à venir')}
+      ${kpi(fmtNum(s.joursAnnee), `jours en ${new Date().getFullYear()}`)}
+      ${kpi(s.ecrits.length + s.oraux.length, 'examens corrigés / évalués')}
+    </div>
+    <div class="alerts">${alerts.map(([k, m]) => `<div class="msg ${k}">${k === 'error' ? '⛔' : '⚠️'} ${esc(m)}</div>`).join('')}</div>`;
+
+  const rcs = s.rcs.slice().sort((a, b) => (b.actif - a.actif) || a.code.localeCompare(b.code));
+  html += section('Compétences reconnues', rcs.length, rcs.length ? table(
+    ['Profil', 'Libellé', 'Validation', 'Décision', 'Date décision', 'Validité', 'Examinateur', 'État'],
+    rcs.map(r => [
+      badge(r.code, PROG_COLOR[r.programme]), esc(r.libelle), esc(r.Validation || ''), esc(r.Decision_no || ''),
+      fmtDate(r.Date_decision), r.actif && r.Date_validite >= now - 365 * J ? dueDate(r.Date_validite, now) : fmtDate(r.Date_validite),
+      r.Examinateur ? '✓' : '', r.actif ? 'Active' : 'Inactive',
+    ]), rcs.map(r => r.actif ? '' : 'inactif')) : none('Aucune reconnaissance de compétence.'), true);
+
+  const evals = s.evals.slice().sort((a, b) => (b.ev.Date_Debut_prevue || 0) - (a.ev.Date_Debut_prevue || 0));
+  html += section('Évaluations', evals.length, evals.length ? table(
+    ['Évaluation', 'Entreprise', 'Programme', 'Rôle(s)', 'Statut', 'Début', 'Fin'],
+    evals.map(({ ev, roles }) => [
+      esc(ev.Libelle || ''), esc(get('Entreprises', ev.Entreprise)?.Denomination || ''), progBadge(prog(ev.Programme)),
+      roles.map(r => badge(r, ROLE_COLOR[r])).join(''), ev.Statut ? badge(ev.Statut, EVAL_STATUT_COLOR[ev.Statut]) : '',
+      fmtDate(ev.Date_Debut_prevue), fmtDate(ev.Date_fin_prevue),
+    ])) : none('Aucune évaluation.'), true);
+
+  const uos = s.uos.slice().sort((a, b) => (a.u.date_debut_incluse || 0) - (b.u.date_debut_incluse || 0));
+  const aVenir = uos.filter(x => x.u.date_debut_incluse >= now - J);
+  html += section('Interventions à venir', aVenir.length, aVenir.length ? table(
+    ['Date', 'Unité d’œuvre', 'Jours', 'Rôle(s)', 'Évaluation'],
+    aVenir.map(({ u, roles }) => [
+      fmtDate(u.date_debut_incluse), esc(u.Unite_d_oeuvre || ''), num(u.Jours),
+      roles.map(r => badge(r, ROLE_COLOR[r])).join(''), esc(get('Evaluations', u.Evaluation)?.Libelle || ''),
+    ])) : none('Aucune intervention planifiée.'), aVenir.length > 0);
+
+  // Charge par année (unités d'œuvre hors OBS)
+  const parAnnee = new Map();
+  for (const { u, roles } of uos) {
+    if (!u.date_debut_incluse) continue;
+    const y = new Date(u.date_debut_incluse * 1000).getUTCFullYear();
+    const o = parAnnee.get(y) || { jours: 0, cout: 0 };
+    o.jours += Number(u.Jours) || 0;
+    if (roles.some(r => r !== 'OBS')) o.cout += (Number(u.Jours) || 0) * (Number(e.Cout_Jour_HT) || 0);
+    parAnnee.set(y, o);
+  }
+  const annees = [...parAnnee.keys()].sort((a, b) => b - a);
+  html += section('Charge par année', annees.length, annees.length ? table(
+    ['Année', 'Jours', 'Coût estimé (jours × coût jour)'],
+    annees.map(y => [String(y), num(parAnnee.get(y).jours), money(parAnnee.get(y).cout)])
+  ) : none('Aucune unité d’œuvre.'), false);
+
+  const exam = (list, type) => {
+    const passes = list.filter(x => x.date_heure && x.date_heure < now);
+    return [type, num(list.length), num(passes.filter(x => x.date_heure >= Date.UTC(new Date().getUTCFullYear(), 0, 1) / 1000).length),
+            num(list.length - passes.length), fmtDate(passes.length ? Math.max(...passes.map(x => x.date_heure)) : null)];
+  };
+  const prochainsExamens = [...s.ecrits.map(x => ({ ...x, type: 'Écrit' })), ...s.oraux.map(x => ({ ...x, type: 'Oral' }))]
+    .filter(x => x.date_heure && x.date_heure >= now).sort((a, b) => a.date_heure - b.date_heure);
+  const cand = id => { const c = get('Candidats', id); return c ? `${c.First_Name || ''} ${c.Last_Name || ''}`.trim() : ''; };
+  html += section('Examens (examinateur)', s.ecrits.length + s.oraux.length,
+    (s.ecrits.length + s.oraux.length) ? table(['Type', 'Total', `En ${new Date().getFullYear()}`, 'À venir', 'Dernier'],
+      [exam(s.ecrits, 'Écrits'), exam(s.oraux, 'Oraux')]) +
+      (prochainsExamens.length ? '<div style="height:6px"></div><b>Prochains examens</b>' + table(['Date', 'Type', 'Candidat', 'Entreprise'],
+        prochainsExamens.slice(0, 15).map(x => [fmtDateTime(x.date_heure), x.type, esc(cand(x.Candidat)), esc(get('Entreprises', x.Denomination)?.Denomination || '')])) : '')
+    : none('N’a pas encore examiné.'), false);
+
+  const affs = (D.R('Affectations')).filter(a => a.Evaluateur === e.id).sort((a, b) => (b.Date || 0) - (a.Date || 0));
+  const crs = (D.R('Creneaux')).filter(c => c.Evaluateur_affecte === e.id).sort((a, b) => (b.Date_debut || 0) - (a.Date_debut || 0));
+  if (affs.length || crs.length) {
+    html += section('Affectations et créneaux', affs.length + crs.length,
+      (affs.length ? '<b>Affectations</b>' + table(['Date', 'Jalon', 'Évaluation', 'Commentaire'],
+        affs.map(a => [fmtDate(a.Date), esc(a.Jalon || ''), esc(get('Evaluations', a.Evaluation)?.Libelle || ''), esc(a.Commentaire || '')])) : '') +
+      (crs.length ? '<div style="height:6px"></div><b>Créneaux</b>' + table(['Du', 'Au', 'Mission', 'Statut'],
+        crs.map(c => [fmtDate(c.Date_debut), fmtDate(c.Date_fin2), esc(c.Mission || c.Reference || ''), asList(c.Statut2).map(x => badge(x)).join('')])) : ''),
+      false);
+  }
+  return html;
+}
+
+/* ──────────────────────────────────────────
+   Utilitaires
+────────────────────────────────────────── */
+function setHtml(h) { document.getElementById('main').innerHTML = h; }
+function section(title, n, html, open) {
+  return `<details${open ? ' open' : ''}><summary>${esc(title)} <span class="n">(${n})</span></summary><div class="body">${html}</div></details>`;
+}
+function table(headers, rows, rowClasses) {
+  return `<table><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr>${
+    rows.map((r, i) => `<tr class="${rowClasses?.[i] || ''}">${r.map(c => `<td>${c ?? ''}</td>`).join('')}</tr>`).join('')}</table>`;
+}
+function kpi(v, l) { return `<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`; }
+function none(msg) { return `<span class="none">${esc(msg)}</span>`; }
+function badge(text, color, title) {
+  return text ? `<span class="badge" style="background:${color || '#E2E8F0'}"${title ? ` title="${esc(title)}"` : ''}>${esc(text)}</span>` : '';
+}
+function progBadge(p) { return p ? badge(p, PROG_COLOR[p]) : ''; }
+// PASSI_RE → RE dans la colonne PASSI (le programme est déjà donné par la colonne)
+function shortCode(code, p) { return code.startsWith(p + '_') ? code.slice(p.length + 1) : code; }
+function asList(raw) { return Array.isArray(raw) ? raw.slice(1) : []; } // RefList/ChoiceList Grist : ['L', v1, v2…]
+
+function dueDate(ts, now) {
+  if (!ts) return '';
+  const cls = ts < now ? 'late' : (ts - now < ALERTE_VALIDITE_JOURS * J ? 'soon' : '');
+  return `<span class="${cls}">${fmtDate(ts)}</span>`;
+}
+function num(v) { return (v === null || v === undefined || v === '' || typeof v === 'object') ? '' : `<span class="num">${esc(fmtNum(v))}</span>`; }
+function fmtNum(v) { return Number(v || 0).toLocaleString('fr-FR', { maximumFractionDigits: 1 }); }
+function money(v) { return (typeof v === 'number' && v) ? `<span class="num">${esc(fmtMoney(v))}</span>` : ''; }
+function fmtMoney(v) { return Number(v || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }); }
+
+// Colonnes Date Grist : secondes depuis epoch à minuit UTC → formater en UTC, sinon décalage d'un jour.
+function fmtDate(ts) {
+  if (!ts || typeof ts !== 'number') return '';
+  return new Date(ts * 1000).toLocaleDateString('fr-FR', { timeZone: 'UTC' });
+}
+function fmtDateTime(ts) {
+  if (!ts || typeof ts !== 'number') return '';
+  return new Date(ts * 1000).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>
