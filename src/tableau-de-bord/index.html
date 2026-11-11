@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tableau de bord</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  /* Chrome : charte Certi-Trust. Données : palette catégorielle de référence (slots 1-4, ordre validé). */
+  .viz-root {
+    color-scheme: light;
+    --page: #f4f5f8; --surface-1: #fcfcfb; --border: rgba(11,11,11,0.10);
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --marine: #32406C;
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+    --seq-light: #86b6ef; --track: #cde2fb; --other: #c3c2b7;
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --up: #006300; --down: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface-1: #1a1a19; --border: rgba(255,255,255,0.10);
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --marine: #9fb0e0;
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+      --seq-light: #184f95; --track: #10335e; --other: #4a4a46;
+      --up: #0ca30c; --down: #e66767;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19; --border: rgba(255,255,255,0.10);
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --marine: #9fb0e0;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --seq-light: #184f95; --track: #10335e; --other: #4a4a46;
+    --up: #0ca30c; --down: #e66767;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; }
+  .viz-root { background: var(--page); color: var(--text-primary); min-height: 100vh; padding: 16px; }
+
+  header.tete { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  header.tete h1 { margin: 0; font-size: 20px; font-weight: 650; color: var(--marine); }
+  header.tete .maj { color: var(--text-muted); font-size: 12px; }
+
+  .filtres { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 16px; }
+  .filtres label { color: var(--text-secondary); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .filtres select, .filtres input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface-1); color: var(--text-primary); }
+  .filtres button { font: inherit; font-size: 12px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1);
+    color: var(--text-secondary); cursor: pointer; }
+  .filtres button:hover { color: var(--text-primary); }
+  .filtres .portee { color: var(--text-muted); font-size: 12px; }
+  .filtres [hidden] { display: none; }
+  .mois-nav { display: inline-flex; align-items: center; gap: 4px; }
+  .mois-nav button { padding: 5px 8px; }
+  .mark.cliquable { cursor: pointer; }
+
+  .grille { display: grid; gap: 12px; grid-template-columns: repeat(12, 1fr); }
+  .carte { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .carte h2 { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
+  .carte .sous { color: var(--text-muted); font-size: 12px; margin-bottom: 10px; }
+  .s12 { grid-column: span 12; } .s8 { grid-column: span 8; } .s7 { grid-column: span 7; } .s6 { grid-column: span 6; }
+  .s5 { grid-column: span 5; } .s4 { grid-column: span 4; } .s3 { grid-column: span 3; }
+  @media (max-width: 1100px) { .s8, .s7, .s6, .s5, .s4 { grid-column: span 12; } .s3 { grid-column: span 6; } }
+  @media (max-width: 560px) { .s3 { grid-column: span 12; } .viz-root { padding: 12px; } }
+
+  /* Figures */
+  .hero .label { color: var(--text-secondary); font-size: 13px; }
+  .hero .valeur { font-size: 52px; font-weight: 650; line-height: 1.1; margin: 4px 0; letter-spacing: -0.5px; }
+  .hero .detail { color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+  .tuile .label { color: var(--text-secondary); font-size: 12px; }
+  .tuile .valeur { font-size: 26px; font-weight: 600; margin: 4px 0 2px; }
+  .tuile .detail { color: var(--text-muted); font-size: 12px; }
+  .delta { font-size: 12px; font-weight: 600; }
+  .delta.up { color: var(--up); } .delta.down { color: var(--down); } .delta.flat { color: var(--text-muted); }
+
+  /* Graphiques */
+  svg { display: block; overflow: visible; }
+  svg text { font-family: inherit; fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  svg .val { fill: var(--text-secondary); font-size: 11px; }
+  .legende { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 8px; color: var(--text-secondary); font-size: 12px; }
+  .legende span { display: inline-flex; align-items: center; gap: 6px; }
+  .legende i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .mark { cursor: default; }
+  .mark:hover, .mark:focus { opacity: .8; outline: none; }
+
+  /* Barre segmentée haute */
+  .seg { display: flex; gap: 2px; height: 28px; margin: 6px 0 8px; }
+  .seg div { border-radius: 4px; display: flex; align-items: center; padding: 0 8px; color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; min-width: 0; }
+  .seg div.fonce { color: #0b0b0b; }
+
+  /* Listes de jauges */
+  .jauges { display: grid; grid-template-columns: minmax(110px, 1.1fr) 3fr auto; gap: 7px 12px; align-items: center; }
+  .jauges .nom { color: var(--text-primary); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .jauges .nom small { color: var(--text-muted); }
+  .jauges .chiffre { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text-secondary); text-align: right; white-space: nowrap; }
+  .piste { height: 8px; border-radius: 4px; background: var(--track); position: relative; overflow: hidden; }
+  .piste b { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--series-1); }
+  .piste b.warning { background: var(--warning); } .piste b.critical { background: var(--critical); }
+  .etat { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+
+  /* Tableaux */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  td { padding: 5px 6px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .mini { display: inline-block; width: 70px; vertical-align: middle; margin-right: 6px; }
+  .pastille { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--grid); color: var(--text-secondary); white-space: nowrap; }
+
+  details.donnees { margin-top: 8px; }
+  details.donnees summary { color: var(--text-muted); font-size: 11.5px; cursor: pointer; }
+  details.donnees table { margin-top: 6px; }
+
+  .alertes { display: grid; gap: 8px; }
+  .alerte { display: flex; gap: 10px; align-items: baseline; }
+  .alerte .ico { font-size: 13px; width: 18px; text-align: center; }
+  .alerte .txt { color: var(--text-primary); }
+  .alerte .txt small { color: var(--text-muted); display: block; }
+  .vide { color: var(--text-muted); font-style: italic; padding: 8px 0; }
+
+  #bulle { position: fixed; pointer-events: none; z-index: 10; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); display: none; min-width: 140px; }
+  #bulle .t { color: var(--text-muted); margin-bottom: 4px; }
+  #bulle .l { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  #bulle .l span:first-child { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+  #bulle .l i { width: 10px; height: 2px; display: inline-block; }
+  #bulle .l strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .charge-msg { padding: 60px 0; text-align: center; color: var(--text-muted); }
+  #contenu.recharge { opacity: .55; transition: opacity .15s; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <header class="tete">
+    <h1>Tableau de bord Certi-Trust</h1>
+    <span class="maj" id="maj"></span>
+  </header>
+  <div class="filtres" id="filtres">
+    <label>Période
+      <select id="f-periode">
+        <option value="annee">Année en cours</option>
+        <option value="12m">12 derniers mois</option>
+        <option value="trimestre">Trimestre en cours</option>
+        <option value="un-mois">Un mois</option>
+        <option value="annee-1">Année précédente</option>
+        <option value="perso">Personnalisée…</option>
+      </select>
+    </label>
+    <span id="l-mois" class="mois-nav" hidden><button type="button" id="f-prec" title="Mois précédent" aria-label="Mois précédent">◀</button><input type="month" id="f-mois" aria-label="Mois"><button type="button" id="f-suiv" title="Mois suivant" aria-label="Mois suivant">▶</button></span>
+    <label id="l-perso" hidden>du <input type="month" id="f-debut"> au <input type="month" id="f-fin"></label>
+    <label>Programme <select id="f-prog"><option value="">Tous</option></select></label>
+    <label>Client <select id="f-client"><option value="">Tous</option></select></label>
+    <button id="f-raz" type="button">Réinitialiser</button>
+    <button id="f-maj" type="button" title="Relire les données Grist">↻ Actualiser</button>
+    <span class="portee" id="portee"></span>
+  </div>
+  <div id="contenu"><div class="charge-msg">Chargement des données…</div></div>
+</div>
+<div id="bulle" role="tooltip"></div>
+
+<script>
+// Lecture seule : l'accès « full » n'est requis que pour docApi.fetchTable sur plusieurs tables.
+grist.ready({ requiredAccess: 'full' });
+
+const TABLES = ['Evaluations', 'Unites_d_oeuvre', 'Examens_ecrits', 'Examens_oraux', 'Propositions_prestation',
+  'Evaluateurs', 'Entreprises', 'Programmes'];
+const J = 86400;
+const MOIS_COURTS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+const MOIS_LONGS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+// Statuts d'évaluation : couleur = slot catégoriel fixe par statut (jamais par rang)
+// Ordre d'affichage = ordre des slots (paires adjacentes validées) ; texte foncé sur le jaune (slot 4).
+const STATUTS = [
+  ['En cours', 'var(--series-1)', false], ['à planifier', 'var(--series-2)', false],
+  ['Terminé', 'var(--series-3)', false], ['En attente devis', 'var(--series-4)', true]];
+const SEUIL_CHARGE = { alerte: 0.8, critique: 1.0 };
+
+let DB = null, chargeEn = 0, filtrerMois = () => {};
+const etat = { periode: 'annee', debut: null, fin: null, mois: null, prog: '', client: '' };
+const moisCourant = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+const versIso = m => `${Math.floor(m / 12)}-${String(m % 12 + 1).padStart(2, '0')}`;
+const lireIso = v => { const x = /^(\d{4})-(\d{2})$/.exec(v || ''); return x ? (+x[1]) * 12 + (+x[2] - 1) : null; };
+
+/* ═════════ Chargement ═════════ */
+async function charger() {
+  $('contenu').classList.add('recharge');
+  const res = await Promise.all(TABLES.map(t => grist.docApi.fetchTable(t).catch(() => null)));
+  const db = {};
+  TABLES.forEach((t, k) => {
+    const c = res[k];
+    db[t] = c ? c.id.map((id, i) => { const o = {}; for (const key of Object.keys(c)) o[key] = c[key][i]; return o; }) : [];
+    db[t].par = new Map(db[t].map(r => [r.id, r]));
+  });
+  DB = db; chargeEn = Date.now();
+  remplirFiltres();
+  rendre();
+  $('contenu').classList.remove('recharge');
+}
+
+/* ═════════ Utilitaires ═════════ */
+const $ = id => document.getElementById(id);
+const liste = v => Array.isArray(v) ? (v[0] === 'L' ? v.slice(1) : v) : [];
+const num = v => (typeof v === 'number' && isFinite(v)) ? v : 0;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const euros = (v, compact = true) => {
+  const a = Math.abs(v);
+  if (compact && a >= 1e6) return (v / 1e6).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M€';
+  if (compact && a >= 1e4) return Math.round(v / 1e3).toLocaleString('fr-FR') + ' k€';
+  return Math.round(v).toLocaleString('fr-FR') + ' €';
+};
+const nb = (v, d = 1) => Number(v || 0).toLocaleString('fr-FR', { maximumFractionDigits: d });
+const pct = v => isFinite(v) ? Math.round(v * 100) + ' %' : '—';
+// Mois = index absolu (année × 12 + mois), dates Grist en secondes UTC
+const moisDe = s => { const d = new Date(s * 1000); return d.getUTCFullYear() * 12 + d.getUTCMonth(); };
+const debutMois = m => Date.UTC(Math.floor(m / 12), m % 12, 1) / 1000;
+const libMois = (m, long) => long ? `${MOIS_LONGS[m % 12]} ${Math.floor(m / 12)}` : MOIS_COURTS[m % 12];
+const famille = nom => String(nom || '').replace(/_.*$/, '') || 'Sans programme';   // PASSI_2.0 → PASSI
+
+// Jours ouvrés (lun.–ven., hors fériés français) entre deux dates (secondes UTC, fin exclue)
+const feries = new Map();
+function feriesDe(a) {
+  if (feries.has(a)) return feries.get(a);
+  const G = a % 19, C = Math.floor(a / 100), H = (C - Math.floor(C / 4) - Math.floor((8 * C + 13) / 25) + 19 * G + 15) % 30;
+  const I = H - Math.floor(H / 28) * (1 - Math.floor(29 / (H + 1)) * Math.floor((21 - G) / 11));
+  const Jj = (a + Math.floor(a / 4) + I + 2 - C + Math.floor(C / 4)) % 7, L = I - Jj;
+  const mP = 3 + Math.floor((L + 40) / 44), jP = L + 28 - 31 * Math.floor(mP / 4);
+  const paques = Date.UTC(a, mP - 1, jP);
+  const s = new Set([[0, 1], [4, 1], [4, 8], [6, 14], [7, 15], [10, 1], [10, 11], [11, 25]].map(([m, j]) => Date.UTC(a, m, j)));
+  [1, 39, 50].forEach(n => s.add(paques + n * J * 1000));
+  feries.set(a, s); return s;
+}
+function joursOuvres(deb, fin) {
+  let n = 0;
+  for (let t = deb; t < fin; t += J) {
+    const d = new Date(t * 1000), w = d.getUTCDay();
+    if (w !== 0 && w !== 6 && !feriesDe(d.getUTCFullYear()).has(t * 1000)) n++;
+  }
+  return n;
+}
+
+/* ═════════ Filtres ═════════ */
+function bornes() {
+  const auj = new Date(), m0 = auj.getUTCFullYear() * 12 + auj.getUTCMonth();
+  const a = Math.floor(m0 / 12) * 12;
+  switch (etat.periode) {
+    case 'mois': return [m0, m0];
+    case 'un-mois': { const m = lireIso(etat.mois) ?? m0; return [m, m]; }
+    case 'trimestre': { const t = m0 - (m0 % 3); return [t, t + 2]; }
+    case '12m': return [m0 - 11, m0];
+    case 'annee-1': return [a - 12, a - 1];
+    case 'perso': {
+      const lire = v => { const x = /^(\d{4})-(\d{2})$/.exec(v || ''); return x ? (+x[1]) * 12 + (+x[2] - 1) : null; };
+      const d = lire(etat.debut) ?? a, f = lire(etat.fin) ?? m0;
+      return d <= f ? [d, f] : [f, d];
+    }
+    default: return [a, a + 11];
+  }
+}
+function remplirFiltres() {
+  const progs = [...new Set(DB.Programmes.map(p => famille(p.Nom_du_programme)).filter(p => p !== 'Sans programme'))].sort();
+  const sp = $('f-prog');
+  sp.innerHTML = '<option value="">Tous</option>' + progs.map(p => `<option>${esc(p)}</option>`).join('');
+  sp.value = progs.includes(etat.prog) ? etat.prog : '';
+  // Clients ayant une activité (évaluation, examen ou proposition)
+  const ids = new Set([...DB.Evaluations.map(e => e.Entreprise), ...DB.Examens_ecrits.map(e => e.Denomination),
+    ...DB.Examens_oraux.map(e => e.Denomination), ...DB.Propositions_prestation.map(p => p.Denomination)].filter(Boolean));
+  const cl = [...ids].map(id => DB.Entreprises.par.get(id)).filter(Boolean)
+    .sort((a, b) => String(a.Denomination).localeCompare(String(b.Denomination), 'fr'));
+  const sc = $('f-client');
+  sc.innerHTML = '<option value="">Tous</option>' + cl.map(e => `<option value="${e.id}">${esc(String(e.Denomination).trim())}</option>`).join('');
+  sc.value = etat.client && ids.has(+etat.client) ? etat.client : '';
+}
+function brancherFiltres() {
+  const maj = () => { rendre(); try { localStorage.setItem('tdb-filtres', JSON.stringify(etat)); } catch {} };
+  $('f-periode').onchange = e => { etat.periode = e.target.value; if (etat.periode === 'un-mois' && !etat.mois) etat.mois = moisCourant(); appliquerEtat(); maj(); };
+  $('f-mois').onchange = e => { etat.mois = e.target.value || moisCourant(); maj(); };
+  const decaler = n => { etat.mois = versIso((lireIso(etat.mois) ?? lireIso(moisCourant())) + n); $('f-mois').value = etat.mois; maj(); };
+  $('f-prec').onclick = () => decaler(-1);
+  $('f-suiv').onclick = () => decaler(1);
+  // Clic sur une colonne d'un graphique mensuel : filtre sur ce mois
+  $('contenu').addEventListener('click', e => {
+    const el = e.target.closest('[data-mois]'); if (!el) return;
+    etat.periode = 'un-mois'; etat.mois = versIso(+el.dataset.mois); appliquerEtat(); maj();
+  });
+  filtrerMois = m => { etat.periode = 'un-mois'; etat.mois = versIso(m); appliquerEtat(); maj(); };
+  $('f-debut').onchange = e => { etat.debut = e.target.value; maj(); };
+  $('f-fin').onchange = e => { etat.fin = e.target.value; maj(); };
+  $('f-prog').onchange = e => { etat.prog = e.target.value; maj(); };
+  $('f-client').onchange = e => { etat.client = e.target.value; maj(); };
+  $('f-raz').onclick = () => { Object.assign(etat, { periode: 'annee', debut: null, fin: null, mois: null, prog: '', client: '' }); appliquerEtat(); maj(); };
+  $('f-maj').onclick = () => charger();
+  try { Object.assign(etat, JSON.parse(localStorage.getItem('tdb-filtres') || '{}')); } catch {}
+  appliquerEtat();
+}
+function appliquerEtat() {
+  if (![...$('f-periode').options].some(o => o.value === etat.periode)) etat.periode = 'annee';
+  $('f-periode').value = etat.periode; $('l-perso').hidden = etat.periode !== 'perso'; $('l-mois').hidden = etat.periode !== 'un-mois';
+  $('f-mois').value = etat.mois || moisCourant();
+  const auj = new Date();
+  $('f-debut').value = etat.debut || `${auj.getFullYear()}-01`;
+  $('f-fin').value = etat.fin || `${auj.getFullYear()}-${String(auj.getMonth() + 1).padStart(2, '0')}`;
+  $('f-prog').value = etat.prog; $('f-client').value = etat.client;
+}
+
+/* ═════════ Calcul des indicateurs ═════════ */
+function calculer() {
+  const [m1, m2] = bornes();
+  const t1 = debutMois(m1), t2 = debutMois(m2 + 1);
+  const dans = s => s && s >= t1 && s < t2;
+  const now = Date.now() / 1000;
+  const progNom = id => famille((DB.Programmes.par.get(id) || {}).Nom_du_programme);
+  const okProg = id => !etat.prog || progNom(id) === etat.prog;
+  const okClient = id => !etat.client || id === +etat.client;
+  const ev = DB.Evaluations.filter(e => okProg(e.Programme) && okClient(e.Entreprise));
+  const evIds = new Set(ev.map(e => e.id));
+  const evPar = DB.Evaluations.par;
+  const uos = DB.Unites_d_oeuvre.filter(u => evIds.has(u.Evaluation));
+  const ecrits = DB.Examens_ecrits.filter(x => okProg(x.Programme) && okClient(x.Denomination));
+  const oraux = DB.Examens_oraux.filter(x => okProg(x.Programme) && okClient(x.Denomination));
+  const pps = DB.Propositions_prestation.filter(p => okProg(p.Programme) && okClient(p.Denomination));
+
+  // Jours-homme d'une UO : jours × nombre d'évaluateurs (RE, ETA, ETM ; OBS exclus), comme Evaluations.JH
+  const jhUo = u => num(u.Jours) * Math.max(liste(u.evaluateurs).length, 0);
+
+  /* Facturation : évaluations facturées (date de facture) + examens facturés */
+  const factEv = ev.filter(e => dans(e.Facture_date));
+  const factEcr = ecrits.filter(x => dans(x.Facture));
+  const factOra = oraux.filter(x => dans(x.Facture2));
+  const caEv = factEv.reduce((s, e) => s + num(e.Montant_Eval_Devis), 0);
+  const caEcr = factEcr.reduce((s, x) => s + num(x.Montant), 0);
+  const caOra = factOra.reduce((s, x) => s + num(x.Montant), 0);
+  const caTotal = caEv + caEcr + caOra;
+
+  // Même durée juste avant : base de comparaison
+  const n = m2 - m1 + 1, p1 = debutMois(m1 - n), p2 = t1;
+  const dansP = s => s && s >= p1 && s < p2;
+  const caPrec = ev.filter(e => dansP(e.Facture_date)).reduce((s, e) => s + num(e.Montant_Eval_Devis), 0)
+    + ecrits.filter(x => dansP(x.Facture)).reduce((s, x) => s + num(x.Montant), 0)
+    + oraux.filter(x => dansP(x.Facture2)).reduce((s, x) => s + num(x.Montant), 0);
+
+  /* Production (planning) : réalisé = UO passées, planifié = UO à venir, dans la période */
+  const uoPer = uos.filter(u => dans(u.date_debut_incluse));
+  const real = uoPer.filter(u => u.date_debut_incluse < now), avenir = uoPer.filter(u => u.date_debut_incluse >= now);
+  const somme = (l, f) => l.reduce((s, u) => s + num(f(u)), 0);
+  const prod = { jh: somme(real, jhUo), ca: somme(real, u => u.Montant_total), cout: somme(real, u => u.Cout_total) };
+  const plan = { jh: somme(avenir, jhUo), ca: somme(avenir, u => u.Montant_total) };
+  const prodPrec = somme(uos.filter(u => dansP(u.date_debut_incluse) && u.date_debut_incluse < now), u => u.Montant_total);
+
+  /* Carnet : évaluations actives (ni terminées ni annulées) — vendu, planifié, reste à planifier */
+  const actives = ev.filter(e => !['Terminé', 'Annulé'].includes(e.Statut));
+  const jhVendus = e => {
+    const po = DB.Propositions_prestation.par.get(e.PO);
+    const tjm = po ? num(po.Montant_Jour_HT) : 0;
+    return tjm ? num(e.Montant_Eval_Devis) / tjm : 0;
+  };
+  const uoParEval = new Map();
+  for (const u of uos) { if (!uoParEval.has(u.Evaluation)) uoParEval.set(u.Evaluation, []); uoParEval.get(u.Evaluation).push(u); }
+  const avancement = e => {
+    const l = uoParEval.get(e.id) || [];
+    const fait = somme(l.filter(u => u.date_debut_incluse && u.date_debut_incluse < now), jhUo);
+    const total = somme(l, jhUo);
+    return { fait, total, vendu: jhVendus(e) };
+  };
+  const carnet = actives.reduce((a, e) => {
+    const x = avancement(e);
+    a.montant += num(e.Montant_Eval_Devis); a.vendus += x.vendu; a.planifies += x.total; a.faits += x.fait;
+    a.resteAPlanifier += Math.max(x.vendu - x.total, 0);
+    return a;
+  }, { montant: 0, vendus: 0, planifies: 0, faits: 0, resteAPlanifier: 0 });
+
+  /* Mensuel : 12 mois se terminant à la fin de la période (mois hors période atténués) */
+  const mois = Array.from({ length: Math.max(12, n) }, (_, i) => m2 - Math.max(12, n) + 1 + i);
+  const parMois = mois.map(m => {
+    const a = debutMois(m), b = debutMois(m + 1), d = s => s && s >= a && s < b;
+    const lu = uos.filter(u => d(u.date_debut_incluse));
+    return {
+      m, dansPeriode: m >= m1 && m <= m2,
+      ev: ev.filter(e => d(e.Facture_date)).reduce((s, e) => s + num(e.Montant_Eval_Devis), 0),
+      ecr: ecrits.filter(x => d(x.Facture)).reduce((s, x) => s + num(x.Montant), 0),
+      ora: oraux.filter(x => d(x.Facture2)).reduce((s, x) => s + num(x.Montant), 0),
+      jhReal: somme(lu.filter(u => u.date_debut_incluse < now), jhUo),
+      jhPlan: somme(lu.filter(u => u.date_debut_incluse >= now), jhUo),
+    };
+  });
+
+  /* Statuts des évaluations (portefeuille actuel, hors période) */
+  const statuts = STATUTS.map(([s, c, fonce]) => {
+    const l = ev.filter(e => e.Statut === s);
+    return { s, c, fonce, n: l.length, montant: l.reduce((x, e) => x + num(e.Montant_Eval_Devis), 0) };
+  });
+
+  /* Évaluations en cours : avancement en jours-homme */
+  const enCours = ev.filter(e => e.Statut === 'En cours').map(e => {
+    const x = avancement(e);
+    const ent = DB.Entreprises.par.get(e.Entreprise) || {};
+    const m = num(e.Montant_Eval_Devis), c = num(e.Cout_total);
+    // Sans planning, le coût est nul : la marge n'a pas de sens
+    return { e, client: String(ent.Denomination || '?').trim(), prog: progNom(e.Programme), ...x, montant: m, marge: m && x.total ? (m - c) / m : NaN };
+  }).sort((a, b) => b.montant - a.montant);
+
+  /* Charge des évaluateurs dans la période (RE, ETA, ETM ; OBS à part) */
+  const ouvres = joursOuvres(t1, t2);
+  const charge = new Map();
+  for (const u of uoPer) {
+    const qui = new Set([u.RE, ...liste(u.ETA), ...liste(u.ETM)].filter(Boolean));
+    for (const id of qui) { const c = charge.get(id) || { j: 0, obs: 0 }; c.j += num(u.Jours); charge.set(id, c); }
+    for (const id of liste(u.OBS)) if (!qui.has(id)) { const c = charge.get(id) || { j: 0, obs: 0 }; c.obs += num(u.Jours); charge.set(id, c); }
+  }
+  const evaluateurs = [...charge.entries()].map(([id, c]) => {
+    const e = DB.Evaluateurs.par.get(id) || {};
+    return { id, tri: e.Evaluateur_Trigramme || '?', nom: `${e.Evaluateur_Prenom || ''} ${e.Evaluateur_Nom || ''}`.trim(),
+      interne: /certi-trust/i.test(e.Employeur || ''), j: c.j, obs: c.obs, taux: ouvres ? c.j / ouvres : 0 };
+  }).filter(x => x.j > 0).sort((a, b) => b.taux - a.taux);
+  const internes = evaluateurs.filter(x => x.interne);
+  const nbInternes = DB.Evaluateurs.filter(e => /certi-trust/i.test(e.Employeur || '') && e.planning).length;
+  const tauxInternes = nbInternes && ouvres ? internes.reduce((s, x) => s + x.j, 0) / (nbInternes * ouvres) : NaN;
+
+  /* Examens de la période */
+  const ecrPer = ecrits.filter(x => dans(x.date_heure) && x.date_heure < now);
+  const oraPer = oraux.filter(x => dans(x.date_heure) && x.date_heure < now);
+  const ok = ecrPer.filter(x => x.succes_echec === 'Succès').length, ko = ecrPer.filter(x => x.succes_echec === 'Échec').length;
+  const exam = { ecrits: ecrPer.length, oraux: oraPer.length, reussite: ok + ko ? ok / (ok + ko) : NaN, corriges: ok + ko,
+    ca: ecrPer.reduce((s, x) => s + num(x.Montant), 0) + oraPer.reduce((s, x) => s + num(x.Montant), 0) };
+
+  /* Répartitions : CA facturé + production par programme et par client */
+  const repartir = cle => {
+    const m = new Map();
+    const add = (k, v) => { if (v) m.set(k, (m.get(k) || 0) + v); };
+    factEv.forEach(e => add(cle(e.Programme, e.Entreprise), num(e.Montant_Eval_Devis)));
+    factEcr.forEach(x => add(cle(x.Programme, x.Denomination), num(x.Montant)));
+    factOra.forEach(x => add(cle(x.Programme, x.Denomination), num(x.Montant)));
+    return [...m.entries()].map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v);
+  };
+  const parProg = repartir(p => progNom(p));
+  const parClient = repartir((p, c) => String((DB.Entreprises.par.get(c) || {}).Denomination || '?').trim());
+
+  /* Points d'attention (état actuel, filtres programme/client) */
+  const aFacturerEv = ev.filter(e => e.Statut === 'Terminé' && !e.Facture_date);
+  const examAFact = [...ecrits.filter(x => x.date_heure && x.date_heure < now && !x.Facture && num(x.Montant)),
+    ...oraux.filter(x => x.date_heure && x.date_heure < now && !x.Facture2 && num(x.Montant))];
+  const margeNeg = actives.concat(ev.filter(e => e.Statut === 'Terminé')).filter(e => num(e.Montant_Eval_Devis) && num(e.Cout_total) > num(e.Montant_Eval_Devis));
+  const sansMontant = ev.filter(e => !num(e.Montant_Eval_Devis) && e.Statut !== 'Annulé');
+  const uoSansEval = uos.filter(u => u.date_debut_incluse >= now && !liste(u.evaluateurs).length);
+  const surcharges = evaluateurs.filter(x => x.taux > SEUIL_CHARGE.critique);
+
+  return { m1, m2, n, caTotal, caEv, caEcr, caOra, caPrec, factEv, prod, plan, prodPrec, carnet, mois: parMois, statuts, enCours,
+    evaluateurs, tauxInternes, nbInternes, ouvres, exam, parProg, parClient,
+    alertes: { aFacturerEv, examAFact, margeNeg, sansMontant, uoSansEval, surcharges } };
+}
+
+/* ═════════ Rendu ═════════ */
+function rendre() {
+  if (!DB) return;
+  const K = calculer();
+  const libPeriode = K.m1 === K.m2 ? libMois(K.m1, true) : `${libMois(K.m1, true)} – ${libMois(K.m2, true)}`;
+  const filtresTxt = [etat.prog && `programme ${etat.prog}`, etat.client && ($('f-client').selectedOptions[0] || {}).textContent].filter(Boolean).join(' · ');
+  $('portee').textContent = `${libPeriode}${filtresTxt ? ' · ' + filtresTxt : ''}`;
+  $('maj').textContent = `Données Grist du ${new Date(chargeEn).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`;
+
+  const margeProd = K.prod.ca ? (K.prod.ca - K.prod.cout) / K.prod.ca : NaN;
+  let h = '<div class="grille">';
+
+  // Rangée 1 : figure principale + tuiles
+  h += `<section class="carte hero s4" aria-label="Chiffre d'affaires facturé">
+      <div class="label">Chiffre d’affaires facturé</div>
+      <div class="valeur">${esc(euros(K.caTotal))}</div>
+      <div>${delta(K.caTotal, K.caPrec)}</div>
+      <div class="detail">Évaluations ${esc(euros(K.caEv))} · Examens écrits ${esc(euros(K.caEcr))} · Examens oraux ${esc(euros(K.caOra))}</div>
+    </section>`;
+  h += `<div class="s8" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+    ${tuile('Production réalisée', euros(K.prod.ca), `${nb(K.prod.jh)} jours-homme consommés`, delta(K.prod.ca, K.prodPrec))}
+    ${tuile('Planifié à venir', `${nb(K.plan.jh)} j·h`, `${euros(K.plan.ca)} sur la période`)}
+    ${tuile('Reste à planifier', `${nb(K.carnet.resteAPlanifier)} j·h`, `sur ${euros(K.carnet.montant)} de commandes actives`)}
+    ${tuile('Marge de production', pct(margeProd), 'sur les jours réalisés (coût évaluateurs)')}
+    ${tuile('Charge évaluateurs internes', pct(K.tauxInternes), `${K.nbInternes} évaluateurs · ${K.ouvres} jours ouvrés`)}
+    ${tuile('Examens passés', nb(K.exam.ecrits + K.exam.oraux, 0), `${K.exam.ecrits} écrits · ${K.exam.oraux} oraux`)}
+    ${tuile('Réussite aux écrits', pct(K.exam.reussite), `${K.exam.corriges} écrits corrigés`)}
+    ${tuile('Évaluations facturées', nb(K.factEv.length, 0), `${euros(K.caEv)} sur la période`)}
+  </div>`;
+
+  // Rangée 2 : facturation mensuelle + jours-homme mensuels
+  h += `<section class="carte s7"><h2>Facturation par mois</h2><div class="sous">Montants facturés, en euros HT · mois hors période en gris · cliquer sur un mois pour filtrer</div>
+    ${legende([['Évaluations', 'var(--series-1)'], ['Examens écrits', 'var(--series-2)'], ['Examens oraux', 'var(--series-3)']])}
+    ${colonnesEmpilees(K.mois, [['ev', 'Évaluations', 'var(--series-1)'], ['ecr', 'Examens écrits', 'var(--series-2)'], ['ora', 'Examens oraux', 'var(--series-3)']], euros)}
+    ${tableDonnees(['Mois', 'Évaluations', 'Écrits', 'Oraux'], K.mois.map(x => [libMois(x.m, true), euros(x.ev, false), euros(x.ecr, false), euros(x.ora, false)]))}
+  </section>`;
+  h += `<section class="carte s5"><h2>Jours-homme par mois</h2><div class="sous">Planning : réalisé et planifié à venir · mois hors période en gris</div>
+    ${legende([['Réalisé', 'var(--series-1)'], ['Planifié', 'var(--seq-light)']])}
+    ${colonnesEmpilees(K.mois, [['jhReal', 'Réalisé', 'var(--series-1)'], ['jhPlan', 'Planifié', 'var(--seq-light)']], v => nb(v) + ' j·h')}
+    ${tableDonnees(['Mois', 'Réalisé (j·h)', 'Planifié (j·h)'], K.mois.map(x => [libMois(x.m, true), nb(x.jhReal), nb(x.jhPlan)]))}
+  </section>`;
+
+  // Rangée 3 : portefeuille d'évaluations + évaluations en cours
+  const totEv = K.statuts.reduce((s, x) => s + x.n, 0);
+  h += `<section class="carte s5"><h2>Portefeuille d’évaluations</h2><div class="sous">Situation actuelle · ${totEv} évaluations</div>
+    ${segments(K.statuts)}
+    ${legende(K.statuts.map(x => [x.s, x.c]))}
+    <table><tr><th>Statut</th><th class="n">Nombre</th><th class="n">Montant commandé</th></tr>
+    ${K.statuts.map(x => `<tr><td><span class="pastille" style="background:transparent;padding:0"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${x.c};margin-right:6px"></i></span>${esc(x.s)}</td><td class="n">${x.n}</td><td class="n">${esc(euros(x.montant, false))}</td></tr>`).join('')}
+    <tr><td><strong>Carnet actif</strong> <small style="color:var(--text-muted)">(hors terminées)</small></td><td class="n"></td><td class="n"><strong>${esc(euros(K.carnet.montant, false))}</strong></td></tr>
+    </table>
+  </section>`;
+  h += `<section class="carte s7"><h2>Évaluations en cours</h2><div class="sous">Avancement en jours-homme réalisés sur planifiés · marge prévue sur le PO</div>
+    ${K.enCours.length ? `<table><tr><th>Client</th><th>Programme</th><th>Avancement</th><th class="n">Montant</th><th class="n">Marge</th></tr>
+      ${K.enCours.slice(0, 10).map(x => {
+        const r = x.total ? Math.min(x.fait / x.total, 1) : 0;
+        if (!x.total) return `<tr><td>${esc(x.client)}</td><td><span class="pastille">${esc(x.prog)}</span></td>
+          <td><span style="color:var(--text-muted);font-size:12px">non planifiée</span></td><td class="n">${esc(euros(x.montant))}</td><td class="n">${margeTxt(NaN)}</td></tr>`;
+        return `<tr><td>${esc(x.client)}</td><td><span class="pastille">${esc(x.prog)}</span></td>
+          <td><span class="mini"><span class="piste" role="img" aria-label="${esc(`${nb(x.fait)} sur ${nb(x.total)} jours-homme`)}"><b style="width:${(r * 100).toFixed(1)}%"></b></span></span><span style="color:var(--text-secondary);font-size:12px">${nb(x.fait)} / ${nb(x.total)} j·h</span></td>
+          <td class="n">${esc(euros(x.montant))}</td><td class="n">${margeTxt(x.marge)}</td></tr>`;
+      }).join('')}</table>${K.enCours.length > 10 ? `<div class="sous" style="margin-top:6px">+ ${K.enCours.length - 10} autres évaluations en cours</div>` : ''}`
+      : '<div class="vide">Aucune évaluation en cours pour ces filtres.</div>'}
+  </section>`;
+
+  // Rangée 4 : charge des évaluateurs + points d'attention
+  h += `<section class="carte s7"><h2>Charge des évaluateurs</h2><div class="sous">Jours positionnés au planning / ${K.ouvres} jours ouvrés de la période · alerte au-delà de ${pct(SEUIL_CHARGE.alerte)}</div>
+    ${K.evaluateurs.length ? `<div class="jauges">${K.evaluateurs.slice(0, 14).map(x => {
+      const niv = x.taux > SEUIL_CHARGE.critique ? 'critical' : x.taux > SEUIL_CHARGE.alerte ? 'warning' : '';
+      const lib = niv === 'critical' ? '▲ surcharge' : niv === 'warning' ? '● chargé' : '';
+      return `<div class="nom" title="${esc(x.nom)}">${esc(x.tri)} <small>${esc(x.nom)}${x.interne ? '' : ' · externe'}</small></div>
+        <div class="piste" role="img" aria-label="${esc(`${x.tri} : ${pct(x.taux)}`)}"><b class="${niv}" style="width:${Math.min(x.taux, 1) * 100}%"></b></div>
+        <div class="chiffre">${nb(x.j)} j · <strong style="color:var(--text-primary)">${pct(x.taux)}</strong>${lib ? ` <span class="etat">${lib}</span>` : ''}</div>`;
+    }).join('')}</div>${K.evaluateurs.length > 14 ? `<div class="sous" style="margin-top:8px">+ ${K.evaluateurs.length - 14} autres évaluateurs</div>` : ''}`
+      : '<div class="vide">Aucun jour positionné au planning sur la période.</div>'}
+    ${tableDonnees(['Évaluateur', 'Jours', 'Taux', 'Observation (j)'], K.evaluateurs.map(x => [`${x.tri} ${x.nom}`, nb(x.j), pct(x.taux), nb(x.obs)]))}
+  </section>`;
+  h += `<section class="carte s5"><h2>Points d’attention</h2><div class="sous">Situation actuelle, selon les filtres programme et client</div>${alertes(K.alertes)}</section>`;
+
+  // Rangée 5 : répartitions
+  h += `<section class="carte s6"><h2>Chiffre d’affaires facturé par programme</h2><div class="sous">Sur la période</div>${barresClassees(K.parProg, 8)}</section>`;
+  h += `<section class="carte s6"><h2>Principaux clients</h2><div class="sous">Chiffre d’affaires facturé sur la période</div>${barresClassees(K.parClient, 8)}</section>`;
+
+  h += '</div>';
+  $('contenu').innerHTML = h;
+  brancherBulles();
+}
+
+/* ═════════ Composants ═════════ */
+function delta(v, ref) {
+  // Référence trop faible (période précédente presque vide) : un pourcentage serait trompeur
+  if (!ref || ref < Math.abs(v) * 0.2) return '<span class="delta flat" style="font-weight:400">sans référence comparable</span>';
+  const d = (v - ref) / ref, cls = Math.abs(d) < 0.005 ? 'flat' : d > 0 ? 'up' : 'down';
+  return `<span class="delta ${cls}">${d > 0 ? '▲ +' : d < 0 ? '▼ ' : ''}${Math.round(d * 100)} %</span> <span class="delta flat" style="font-weight:400">vs période précédente</span>`;
+}
+function tuile(label, valeur, detail, d) {
+  return `<section class="carte tuile"><div class="label">${esc(label)}</div><div class="valeur">${esc(valeur)}</div>${d ? `<div>${d}</div>` : ''}<div class="detail">${esc(detail)}</div></section>`;
+}
+function margeTxt(m) {
+  if (!isFinite(m)) return '<span style="color:var(--text-muted)">—</span>';
+  return m < 0 ? `<span style="color:var(--down);font-weight:600">▼ ${pct(m)}</span>` : esc(pct(m));
+}
+function legende(l) { return `<div class="legende">${l.map(([t, c]) => `<span><i style="background:${c}"></i>${esc(t)}</span>`).join('')}</div>`; }
+function tableDonnees(tetes, lignes) {
+  return `<details class="donnees"><summary>Voir les données</summary><table><tr>${tetes.map((t, i) => `<th class="${i ? 'n' : ''}">${esc(t)}</th>`).join('')}</tr>
+    ${lignes.map(l => `<tr>${l.map((c, i) => `<td class="${i ? 'n' : ''}">${esc(c)}</td>`).join('')}</tr>`).join('')}</table></details>`;
+}
+
+// Colonnes empilées (une baseline, segments séparés de 2 px, coins arrondis au sommet de la pile)
+function colonnesEmpilees(mois, series, fmt) {
+  const W = 640, H = 200, g = 44, b = 22, lp = W - g - 8;
+  const tot = mois.map(x => series.reduce((s, [k]) => s + x[k], 0));
+  // Pas minimal de 1 (pas de graduations fractionnaires) ; axe 0–5 si tout est à zéro
+  const vmax = Math.max(...tot, 0), pas = Math.max(1, pasRond(Math.max(vmax, 5) / 5)), max = Math.max(pas, Math.ceil(vmax / pas) * pas), nPas = Math.round(max / pas);
+  const y = v => H - b - (v / max) * (H - b - 10);
+  const bande = lp / mois.length, larg = Math.min(24, bande * 0.62);
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Graphique en colonnes par mois">`;
+  for (let i = 0; i <= nPas; i++) {
+    const v = pas * i, yy = y(v);
+    s += `<line x1="${g}" x2="${W - 8}" y1="${yy}" y2="${yy}" stroke="var(--${i ? 'grid' : 'axis'})" stroke-width="1"/>`;
+    s += `<text x="${g - 6}" y="${yy + 3.5}" text-anchor="end">${esc(axe(v, fmt))}</text>`;
+  }
+  mois.forEach((x, i) => {
+    const cx = g + bande * i + bande / 2, x0 = cx - larg / 2;
+    let base = y(0);
+    const vis = series.filter(([k]) => x[k] > 0);
+    vis.forEach(([k, , c], j) => {
+      const hgt = Math.max(y(0) - y(x[k]), 0);
+      const top = base - hgt + (j > 0 ? 2 : 0), hh = Math.max(hgt - (j > 0 ? 2 : 0), 0);
+      const dernier = j === vis.length - 1;
+      // Mise en avant : mois de la période en couleur, mois de contexte en gris
+      const f = x.dansPeriode ? c : 'var(--other)';
+      s += dernier ? `<path d="${colArrondie(x0, top, larg, hh)}" fill="${f}"/>`
+        : `<rect x="${x0}" y="${top}" width="${larg}" height="${hh}" fill="${f}"/>`;
+      base -= hgt;
+    });
+    const bulle = [libMois(x.m, true), ...series.map(([k, lib, c]) => [lib, fmt(x[k]), c])];
+    s += `<rect class="mark cliquable" x="${cx - bande / 2}" y="0" width="${bande}" height="${H - b}" fill="transparent" tabindex="0" role="button" aria-label="${esc('Filtrer sur ' + libMois(x.m, true))}" data-mois="${x.m}" data-bulle='${esc(JSON.stringify([...bulle, ['Cliquer pour filtrer sur ce mois', '', 'transparent']]))}'/>`;
+    s += `<text x="${cx}" y="${H - 6}" text-anchor="middle" ${x.dansPeriode ? 'style="fill:var(--text-secondary)"' : ''}>${esc(libMois(x.m))}</text>`;
+  });
+  // Étiquette directe : total du dernier mois de la période (sobre)
+  const iMax = tot.indexOf(Math.max(...tot.filter((_, i) => mois[i].dansPeriode), 0));
+  if (iMax >= 0 && tot[iMax] > 0) s += `<text class="val" x="${g + bande * iMax + bande / 2}" y="${y(tot[iMax]) - 5}" text-anchor="middle">${esc(fmt(tot[iMax]))}</text>`;
+  return s + '</svg>';
+}
+const colArrondie = (x, y, w, h) => {
+  const r = Math.min(4, h, w / 2);
+  return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
+};
+// Pas de graduation « rond » (1, 2, 5 × 10ⁿ) ; l'axe s'arrête au premier multiple au-dessus du maximum
+function pasRond(v) { const p = Math.pow(10, Math.floor(Math.log10(v))); const f = v / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; }
+function axe(v, fmt) {
+  if (fmt === euros) return v >= 1e6 ? `${nb(v / 1e6)} M€` : v >= 1e3 ? `${nb(v / 1e3, 0)} k€` : `${Math.round(v)} €`;
+  return nb(v, 0);
+}
+
+// Barres horizontales classées, une teinte
+function barresClassees(l, max) {
+  if (!l.length) return '<div class="vide">Aucune facturation sur la période pour ces filtres.</div>';
+  const top = l.slice(0, max), reste = l.slice(max);
+  if (reste.length) top.push({ k: `Autres (${reste.length})`, v: reste.reduce((s, x) => s + x.v, 0), autre: true });
+  const m = Math.max(...top.map(x => x.v));
+  return `<div class="jauges">${top.map(x => `<div class="nom" title="${esc(x.k)}">${esc(x.k)}</div>
+    <div class="piste" style="background:transparent" role="img" aria-label="${esc(`${x.k} : ${euros(x.v, false)}`)}"><b style="width:${(x.v / m * 100).toFixed(1)}%;${x.autre ? 'background:var(--other)' : ''}"></b></div>
+    <div class="chiffre">${esc(euros(x.v))}</div>`).join('')}</div>`;
+}
+
+// Barre segmentée haute (une proportion, ≤ 6 parts)
+function segments(parts) {
+  const tot = parts.reduce((s, x) => s + x.n, 0);
+  if (!tot) return '<div class="vide">Aucune évaluation.</div>';
+  return `<div class="seg" role="img" aria-label="${esc(parts.map(x => `${x.s} : ${x.n}`).join(', '))}">${parts.filter(x => x.n).map(x => {
+    const part = x.n / tot;
+    return `<div class="mark ${x.fonce ? 'fonce' : ''}" style="flex:${x.n};background:${x.c}" tabindex="0"
+      data-bulle='${esc(JSON.stringify([x.s, ['Évaluations', String(x.n), x.c], ['Montant', euros(x.montant, false), x.c], ['Part', pct(part), x.c]]))}'>${part >= 0.12 ? x.n : ''}</div>`;
+  }).join('')}</div>`;
+}
+
+function alertes(A) {
+  const l = [];
+  const ligne = (ico, txt, det) => `<div class="alerte"><span class="ico" aria-hidden="true">${ico}</span><span class="txt">${txt}${det ? `<small>${det}</small>` : ''}</span></div>`;
+  const sm = (lst, f) => lst.reduce((s, x) => s + num(f(x)), 0);
+  if (A.aFacturerEv.length) l.push(ligne('⛔', `<strong>${A.aFacturerEv.length}</strong> évaluation(s) terminée(s) non facturée(s) — ${esc(euros(sm(A.aFacturerEv, e => e.Montant_Eval_Devis)))}`,
+    esc(A.aFacturerEv.slice(0, 4).map(e => e.Libelle || e.id).join(', ') + (A.aFacturerEv.length > 4 ? '…' : ''))));
+  if (A.examAFact.length) l.push(ligne('⚠️', `<strong>${A.examAFact.length}</strong> examen(s) passé(s) non facturé(s) — ${esc(euros(sm(A.examAFact, x => x.Montant)))}`));
+  if (A.margeNeg.length) l.push(ligne('▼', `<strong>${A.margeNeg.length}</strong> évaluation(s) à marge négative`,
+    esc(A.margeNeg.slice(0, 4).map(e => `${e.Libelle || e.id} (${euros(num(e.Montant_Eval_Devis) - num(e.Cout_total))})`).join(', '))));
+  if (A.surcharges.length) l.push(ligne('▲', `<strong>${A.surcharges.length}</strong> évaluateur(s) en surcharge sur la période`, esc(A.surcharges.map(x => `${x.tri} ${pct(x.taux)}`).join(', '))));
+  if (A.uoSansEval.length) l.push(ligne('⚠️', `<strong>${A.uoSansEval.length}</strong> intervention(s) à venir sans évaluateur au planning`));
+  if (A.sansMontant.length) l.push(ligne('ℹ️', `<strong>${A.sansMontant.length}</strong> évaluation(s) sans montant de commande`, 'PO absent ou sans montant : exclues du carnet et de la marge'));
+  return l.length ? `<div class="alertes">${l.join('')}</div>` : '<div class="vide">✓ Rien à signaler.</div>';
+}
+
+/* ═════════ Infobulles ═════════ */
+function brancherBulles() {
+  const b = $('bulle');
+  const montrer = (el, x, y) => {
+    let d; try { d = JSON.parse(el.getAttribute('data-bulle')); } catch { return; }
+    b.textContent = '';
+    const t = document.createElement('div'); t.className = 't'; t.textContent = d[0]; b.appendChild(t);
+    for (const [lib, val, c] of d.slice(1)) {
+      const l = document.createElement('div'); l.className = 'l';
+      const g = document.createElement('span'); const i = document.createElement('i'); i.style.background = c; g.append(i, document.createTextNode(lib));
+      const v = document.createElement('strong'); v.textContent = val;
+      l.append(g, v); b.appendChild(l);
+    }
+    b.style.display = 'block';
+    const r = b.getBoundingClientRect();
+    b.style.left = Math.min(x + 14, innerWidth - r.width - 8) + 'px';
+    b.style.top = Math.max(8, y - r.height - 10) + 'px';
+  };
+  document.querySelectorAll('[data-bulle]').forEach(el => {
+    el.addEventListener('pointermove', e => montrer(el, e.clientX, e.clientY));
+    el.addEventListener('pointerleave', () => { b.style.display = 'none'; });
+    el.addEventListener('focus', () => { const r = el.getBoundingClientRect(); montrer(el, r.left + r.width / 2, r.top); });
+    el.addEventListener('blur', () => { b.style.display = 'none'; });
+    if (el.dataset.mois) el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); filtrerMois(+el.dataset.mois); } });
+  });
+}
+
+brancherFiltres();
+charger().catch(e => { $('contenu').innerHTML = `<div class="charge-msg">Erreur de chargement : ${esc(e.message || e)}</div>`; });
+</script>
+</body>
+</html>
