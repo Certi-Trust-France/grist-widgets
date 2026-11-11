@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CR d'examen écrit</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    color: #1e293b;
+    margin: 0;
+    padding: 14px;
+    background: #f8fafc;
+  }
+
+  .empty { padding: 40px 0; text-align: center; color: #94a3b8; font-style: italic; }
+
+  h3 { margin: 0 0 4px; font-size: 15px; color: #1e3a8a; }
+  .recap { font-size: 12px; color: #475569; margin-bottom: 10px; }
+  .recap b { color: #1e293b; }
+  .statut { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .statut.envoye  { background: #d1fae5; color: #065f46; }
+  .statut.attente { background: #fef3c7; color: #78350f; }
+  .statut.modifie { background: #fee2e2; color: #991b1b; }
+
+  .sent-info { font-size: 12px; color: #64748b; margin-top: 6px; }
+
+  .destinataires { font-size: 12px; margin-bottom: 10px; line-height: 1.6; }
+  .destinataires .lbl { color: #64748b; display: inline-block; width: 44px; }
+
+  .msg-list { margin-bottom: 10px; }
+  .msg { padding: 6px 10px; border-radius: 5px; font-size: 12px; margin-bottom: 4px; }
+  .msg.error { background: #fee2e2; color: #991b1b; border-left: 3px solid #dc2626; }
+  .msg.warn  { background: #fef3c7; color: #78350f; border-left: 3px solid #d97706; }
+  .msg.info  { background: #dbeafe; color: #1e3a8a; border-left: 3px solid #2563eb; }
+
+  .preview-frame { width: 100%; height: 420px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; }
+
+  .actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .btn { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font-size: 13px; font-weight: 600; background: #2563eb; color: #fff; }
+  .btn:hover:not(:disabled) { background: #1d4ed8; }
+  .btn:disabled { opacity: .4; cursor: default; }
+
+  .statusbar { font-size: 12px; }
+  .statusbar.ok    { color: #059669; }
+  .statusbar.error { color: #b91c1c; }
+
+  .header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .gear { background: #eee; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1; padding: 4px 7px; opacity: .7; flex-shrink: 0; }
+  .gear:hover { opacity: 1; }
+
+  .config-panel { display: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 12px; }
+  .config-panel input { width: 100%; padding: 5px 7px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 12px; margin: 6px 0 8px; }
+</style>
+</head>
+<body>
+
+<div id="empty" class="empty">Sélectionnez un examen écrit.</div>
+
+<div id="config-panel" class="config-panel">
+  <b>Configuration</b> — URL du flux Power Automate (jamais stockée dans le dépôt Git, seulement dans ce document Grist) :
+  <input id="config-url" type="text" placeholder="https://…invoke?api-version=1&sp=…&sv=1.0&sig=…" />
+  <button id="config-save" class="btn">Enregistrer</button>
+  <button id="config-cancel" class="btn" style="background:#94a3b8">Annuler</button>
+</div>
+
+<div id="main" style="display:none">
+  <div class="header">
+    <h3>Compte rendu d'examen écrit <span id="statut" class="statut"></span></h3>
+    <button id="btn-gear" class="gear" title="Configuration">⚙ Configuration</button>
+  </div>
+  <div id="recap" class="recap"></div>
+
+  <div id="destinataires" class="destinataires"></div>
+  <div id="objet" class="destinataires"></div>
+
+  <div id="messages" class="msg-list"></div>
+
+  <iframe id="preview" class="preview-frame" title="Aperçu du corps de l'e-mail"></iframe>
+
+  <div class="actions">
+    <button id="btn-send" class="btn">✉ Envoyer le CR</button>
+    <span id="status" class="statusbar"></span>
+  </div>
+  <div id="sent-info" class="sent-info"></div>
+</div>
+
+<script>
+// URL du flux Power Automate — stockée dans les options du widget (côté document
+// Grist), jamais en dur ici : ce dépôt est public et l'URL contient un jeton (sig=…).
+// Le flux est le même que celui du CR d'oral (charge utile identique).
+let webhookUrl = '';
+
+const TABLE = 'Examens_ecrits';
+// Colonnes de trace à créer dans Examens_ecrits : sans elles, l'aperçu fonctionne
+// mais l'envoi est bloqué (on ne pourrait pas savoir qu'un CR est déjà parti).
+const COL_DATE = 'date_du_CR_envoye';
+const COL_SIG  = 'contenu_du_CR_envoye';
+
+let currentReqId = 0;
+let current = null;
+
+grist.ready({ requiredAccess: 'full', onEditOptions: openConfigPanel });
+
+grist.onOptions((options) => {
+  webhookUrl = options?.webhookUrl || '';
+  if (current) render();
+});
+
+function openConfigPanel() {
+  document.getElementById('config-url').value = webhookUrl;
+  document.getElementById('config-panel').style.display = 'block';
+}
+
+document.getElementById('btn-gear').addEventListener('click', openConfigPanel);
+document.getElementById('config-cancel').addEventListener('click', () => {
+  document.getElementById('config-panel').style.display = 'none';
+});
+document.getElementById('config-save').addEventListener('click', () => {
+  const val = document.getElementById('config-url').value.trim();
+  grist.setOption('webhookUrl', val);
+  webhookUrl = val;
+  document.getElementById('config-panel').style.display = 'none';
+  if (current) render();
+});
+
+// Le widget est lié au tableau du dessus : seule la ligne sélectionnée arrive ici,
+// le regroupement par candidat se fait en relisant toute la table.
+grist.onRecord(async rec => {
+  const reqId = ++currentReqId;
+  if (!rec?.id) { showEmpty(); return; }
+
+  const data = await loadData(rec.id);
+  if (reqId !== currentReqId) return;
+
+  if (!data) { showEmpty('Examen introuvable.'); return; }
+  current = data;
+  render();
+});
+
+/* ──────────────────────────────────────────
+   Chargement : tous les écrits passés du candidat de la ligne sélectionnée
+────────────────────────────────────────── */
+async function loadData(examId) {
+  const [ecrits, candidats, programmes, qualifs, entreprises, contacts, sessions, centres] = await Promise.all([
+    grist.docApi.fetchTable(TABLE),
+    grist.docApi.fetchTable('Candidats'),
+    grist.docApi.fetchTable('Programmes'),
+    grist.docApi.fetchTable('Qualifications_List'),
+    grist.docApi.fetchTable('Entreprises'),
+    grist.docApi.fetchTable('Contacts'),
+    grist.docApi.fetchTable('Sessions_examens_ecrits'),
+    grist.docApi.fetchTable('Centres_examen'),
+  ]);
+
+  const sel = ecrits.id.indexOf(examId);
+  if (sel === -1) return null;
+
+  const asList = raw => Array.isArray(raw) ? raw.slice(1) : []; // RefList Grist : ['L', v1, v2…]
+  const rowOf  = (table, id) => { const idx = table.id.indexOf(id); return idx === -1 ? null : idx; };
+  const hasTrace = COL_DATE in ecrits && COL_SIG in ecrits;
+
+  const candId = ecrits.Candidat[sel] || 0;
+  const ci = rowOf(candidats, candId);
+  const candidat = ci !== null ? {
+    prenom: String(candidats.First_Name[ci] || ''),
+    nom:    String(candidats.Last_Name[ci]  || ''),
+    email:  String(candidats.Courriel[ci]   || '').trim(),
+  } : null;
+
+  const nowSec = Date.now() / 1000;
+  const lignes = [];
+  let aVenir = 0;
+  for (let k = 0; k < ecrits.id.length; k++) {
+    if (!candId || ecrits.Candidat[k] !== candId) continue;
+    const ts = ecrits.date_heure[k] || 0;
+    // Même règle que la colonne Examen_passe ($date_heure < NOW()), recalculée ici
+    // pour ne pas dépendre du rafraîchissement de NOW() côté Grist.
+    if (!ts || ts >= nowSec) { aVenir++; continue; }
+    lignes.push(k);
+  }
+  lignes.sort((a, b) => (ecrits.date_heure[a] || 0) - (ecrits.date_heure[b] || 0) || ecrits.id[a] - ecrits.id[b]);
+
+  const examens = lignes.map(k => {
+    const qi = rowOf(qualifs, ecrits.Qualification[k] || 0);
+    const pi = rowOf(programmes, ecrits.Programme[k] || 0);
+    const si = rowOf(sessions, ecrits.Sessions_examens_ecrits[k] || 0);
+    const cei = si !== null ? rowOf(centres, sessions.Centre[si] || 0) : null;
+    return {
+      id: ecrits.id[k],
+      progId: ecrits.Programme[k] || 0,
+      entId: ecrits.Denomination[k] || 0,
+      programme: pi !== null ? String(programmes.Nom_du_programme[pi] || '') : '',
+      code: qi !== null ? String(qualifs.Qualification_code[qi] || '') : '',
+      libelle: qi !== null ? String(qualifs.Qualifications[qi] || '') : '',
+      dateHeure: ecrits.date_heure[k] || 0,
+      duree: Number(ecrits.Duree_minutes_[k] || 0),
+      centre: cei !== null
+        ? [centres.Nom_centre_examen[cei], centres.Ville[cei]].filter(Boolean).join(' — ')
+        : '',
+      dateEnvoye: hasTrace ? (ecrits[COL_DATE][k] || null) : null,
+      sigEnvoyee: hasTrace ? String(ecrits[COL_SIG][k] || '') : '',
+    };
+  });
+
+  const programmesList = [...new Set(examens.map(e => e.programme).filter(Boolean))];
+  const entIds = [...new Set(examens.map(e => e.entId).filter(Boolean))];
+  const entreprise = entIds.map(id => {
+    const k = rowOf(entreprises, id);
+    return k !== null ? String(entreprises.Denomination[k] || '') : '';
+  }).filter(Boolean).join(', ');
+
+  // Responsables examens : contact de l'entreprise de l'examen dont Programmes_Examens
+  // contient le programme de cet examen (rapprochement par id). Union sur tous les
+  // examens du CR, dédoublonnée par e-mail.
+  const responsables = [];
+  const couples = new Set(examens.map(e => `${e.entId}|${e.progId}`));
+  for (let k = 0; k < contacts.id.length; k++) {
+    const progs = asList(contacts.Programmes_Examens[k]);
+    if (!progs.some(p => couples.has(`${contacts.Entreprise[k]}|${p}`))) continue;
+    const email = String(contacts.Courriel[k] || '').trim();
+    if (email && responsables.some(r => r.email.toLowerCase() === email.toLowerCase())) continue;
+    responsables.push({ prenom: String(contacts.Prenom[k] || ''), nom: String(contacts.Nom[k] || ''), email });
+  }
+
+  // Empreinte du contenu du CR : un examen ajouté, retiré ou modifié (qualification,
+  // date, durée) rend le CR « à renvoyer ». Stockée à l'identique sur chaque ligne envoyée.
+  const signature = examens.map(e => [e.id, e.code, e.dateHeure, e.duree].join(':')).join(';');
+  const dates = examens.map(e => e.dateEnvoye).filter(Boolean);
+  const dateEnvoye = dates.length ? Math.max(...dates) : null;
+  const isSent = examens.length > 0 && examens.every(e => e.dateEnvoye && e.sigEnvoyee === signature);
+
+  return buildCR({
+    candId, candidat, entreprise, programmesList, examens, responsables, aVenir,
+    hasTrace, signature, dateEnvoye, isSent,
+  });
+}
+
+/* ──────────────────────────────────────────
+   Construction du CR : validations + destinataires + HTML du corps
+────────────────────────────────────────── */
+function buildCR(d) {
+  const errors = [], warnings = [], infos = [];
+
+  if (!d.candidat)              errors.push('Candidat manquant.');
+  else if (!d.candidat.email)   errors.push('E-mail du candidat manquant.');
+  if (!d.examens.length)        errors.push('Aucun examen écrit passé pour ce candidat.');
+  if (d.examens.some(e => !e.code)) errors.push('Qualification manquante sur au moins un examen.');
+  if (d.examens.some(e => !e.programme)) warnings.push('Programme manquant sur au moins un examen.');
+  if (!d.hasTrace)
+    errors.push(`Colonnes ${COL_DATE} (Date/heure) et ${COL_SIG} (Texte) à créer dans ${TABLE} pour pouvoir tracer l’envoi.`);
+  if (!d.responsables.length)
+    warnings.push('Aucun responsable examens trouvé pour l’entreprise et le programme — personne ne sera en copie côté client.');
+  else if (d.responsables.some(r => !r.email))
+    warnings.push('Un responsable examens n’a pas d’e-mail — il ne sera pas en copie.');
+  if (d.aVenir)
+    infos.push(`${d.aVenir} examen(s) écrit(s) pas encore passé(s) pour ce candidat — non inclus dans le CR.`);
+  if (d.dateEnvoye && !d.isSent)
+    infos.push('Le CR a changé depuis le dernier envoi (examen ajouté ou modifié) : le renvoi contiendra l’ensemble des examens.');
+
+  const to = d.candidat?.email || '';
+  const cc = d.responsables.map(r => r.email).filter(Boolean);
+  const objet = `CR d'examen écrit ${d.programmesList.join(' / ') || '?'}`;
+
+  return { to, cc, objet, corpsHtml: renderCorpsHtml(d), errors, warnings, infos, d,
+           signature: d.signature, dateEnvoye: d.dateEnvoye, isSent: d.isSent };
+}
+
+/* ── Corps HTML de l'e-mail (styles inline — compatible Outlook).
+   Volontairement sans notes ni succès/échec : les résultats sont communiqués à part. ── */
+function renderCorpsHtml(d) {
+  const td = 'border:1px solid #999;padding:4px 8px;font-size:13px;';
+  const th = `${td}background:#eee;text-align:left;`;
+  const h  = 'font-family:Segoe UI,Arial,sans-serif;color:#1e3a8a;margin:16px 0 4px;font-size:14px;';
+  const p  = 'font-family:Segoe UI,Arial,sans-serif;color:#1a1a1a;font-size:13px;margin:2px 0;';
+  const plusieursProgs = d.programmesList.length > 1;
+
+  const rows = d.examens.map(e => `
+    <tr>
+      ${plusieursProgs ? `<td style="${td}">${esc(e.programme)}</td>` : ''}
+      <td style="${td}"><b>${esc(e.code)}</b> — ${esc(e.libelle)}</td>
+      <td style="${td}">${fmtDateHeure(e.dateHeure)}</td>
+      <td style="${td}">${e.duree ? `${e.duree} min` : '—'}</td>
+      <td style="${td}">${esc(e.centre || '—')}</td>
+    </tr>`).join('');
+  const nbCols = plusieursProgs ? 5 : 4;
+
+  return `
+<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#1a1a1a;max-width:640px;">
+  <h2 style="font-family:Segoe UI,Arial,sans-serif;color:#1e3a8a;margin:0 0 10px;">Compte rendu d'examen écrit</h2>
+  <p style="${p}"><b>Programme :</b> ${esc(d.programmesList.join(', '))}</p>
+
+  <h3 style="${h}">Informations sur le candidat</h3>
+  <p style="${p}">
+    Prénom : ${esc(d.candidat?.prenom || '')}<br>
+    Nom : ${esc(d.candidat?.nom || '')}<br>
+    Société : ${esc(d.entreprise || '')}
+  </p>
+
+  <h3 style="${h}">Examens écrits passés</h3>
+  <table style="border-collapse:collapse;">
+    <tr>
+      ${plusieursProgs ? `<th style="${th}">Programme</th>` : ''}
+      <th style="${th}">Qualification</th><th style="${th}">Date et heure</th>
+      <th style="${th}">Durée</th><th style="${th}">Centre d'examen</th>
+    </tr>
+    ${rows || `<tr><td style="${td}" colspan="${nbCols}">Aucun examen.</td></tr>`}
+  </table>
+
+  <p style="${p};margin-top:14px;">Les résultats de ces examens vous seront communiqués ultérieurement.</p>
+</div>`;
+}
+
+/* ──────────────────────────────────────────
+   Rendu du widget
+────────────────────────────────────────── */
+function render() {
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('main').style.display = 'block';
+
+  const d = current.d;
+  const statutEl = document.getElementById('statut');
+  if (!current.dateEnvoye)  { statutEl.textContent = 'en attente'; statutEl.className = 'statut attente'; }
+  else if (current.isSent)  { statutEl.textContent = 'envoyé';     statutEl.className = 'statut envoye'; }
+  else                      { statutEl.textContent = 'à renvoyer'; statutEl.className = 'statut modifie'; }
+
+  document.getElementById('recap').innerHTML =
+    `<b>${esc(d.candidat ? `${d.candidat.prenom} ${d.candidat.nom}` : '?')}</b> — ` +
+    `${d.examens.length} examen(s) écrit(s) passé(s) — ${esc(d.programmesList.join(', ') || '?')}`;
+
+  document.getElementById('destinataires').innerHTML =
+    `<span class="lbl">À :</span> ${esc(current.to || '(manquant)')}<br>` +
+    `<span class="lbl">Cc :</span> ${esc(current.cc.join(', ') || '(aucun)')}`;
+
+  document.getElementById('objet').innerHTML = `<span class="lbl">Objet :</span> ${esc(current.objet)}`;
+
+  document.getElementById('messages').innerHTML =
+    current.errors.map(m => `<div class="msg error">⛔ ${esc(m)}</div>`).join('') +
+    current.warnings.map(m => `<div class="msg warn">⚠️ ${esc(m)}</div>`).join('') +
+    current.infos.map(m => `<div class="msg info">ℹ️ ${esc(m)}</div>`).join('') +
+    (webhookUrl ? '' : '<div class="msg warn">⚠️ URL du flux Power Automate non configurée — clique sur ⚙ ci-dessus.</div>');
+
+  document.getElementById('preview').srcdoc = current.corpsHtml;
+
+  const btn = document.getElementById('btn-send');
+  btn.disabled = current.errors.length > 0 || current.isSent || !webhookUrl;
+  btn.textContent = current.isSent ? '✅ CR déjà envoyé'
+    : current.dateEnvoye ? '🔁 Renvoyer le CR'
+    : '✉ Envoyer le CR';
+
+  document.getElementById('sent-info').textContent =
+    current.dateEnvoye ? `Dernier CR envoyé le ${fmtDateHeure(current.dateEnvoye)}` : '';
+
+  document.getElementById('status').textContent = '';
+  document.getElementById('status').className = 'statusbar';
+}
+
+function showEmpty(msg) {
+  document.getElementById('empty').textContent = msg || 'Sélectionnez un examen écrit.';
+  document.getElementById('empty').style.display = 'block';
+  document.getElementById('main').style.display = 'none';
+  current = null;
+}
+
+/* ──────────────────────────────────────────
+   Envoi du CR
+────────────────────────────────────────── */
+document.getElementById('btn-send').addEventListener('click', async () => {
+  if (!current || current.errors.length > 0 || current.isSent || !webhookUrl) return;
+
+  const btn = document.getElementById('btn-send');
+  const status = document.getElementById('status');
+  btn.disabled = true;
+  status.textContent = 'Envoi en cours…';
+  status.className = 'statusbar';
+
+  try {
+    const resp = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'examens@certi-trust.com',
+        to: current.to,
+        cc: current.cc,
+        objet: current.objet,
+        corps_html: current.corpsHtml,
+      }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+    const ids = current.d.examens.map(e => e.id);
+    const now = Math.floor(Date.now() / 1000);
+    await grist.docApi.applyUserActions([
+      ['BulkUpdateRecord', TABLE, ids, {
+        [COL_DATE]: ids.map(() => now),
+        [COL_SIG]:  ids.map(() => current.signature),
+      }],
+    ]);
+
+    const selId = ids[0];
+    const reqId = ++currentReqId;
+    const data = await loadData(selId);
+    if (reqId === currentReqId && data) { current = data; render(); }
+
+    status.textContent = `✅ CR envoyé (${ids.length} examen(s)).`;
+    status.className = 'statusbar ok';
+  } catch (e) {
+    status.textContent = '❌ Échec de l’envoi : ' + e.message;
+    status.className = 'statusbar error';
+    btn.disabled = false;
+  }
+});
+
+/* ──────────────────────────────────────────
+   Utilitaires
+────────────────────────────────────────── */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function fmtDateHeure(ts) {
+  if (!ts) return '(date inconnue)';
+  const parts = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  }).formatToParts(new Date(ts * 1000));
+  const get = t => parts.find(p => p.type === t)?.value ?? '';
+  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}`;
+}
+</script>
+</body>
+</html>
