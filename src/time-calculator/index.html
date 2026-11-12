@@ -198,7 +198,7 @@ const CATALOGUE = [
   { id: 'recevabilite', lot: 1, type: 'commune', lib: 'Étude de recevabilité' },
   { id: 'suivi', lot: 1, type: 'commune', lib: 'Suivi de la prestation' },
   { id: 'anssi', lot: 1, type: 'commune', lib: 'Relation avec l’ANSSI' },
-  { id: 'pilotage', lot: 1, type: 'commune', lib: 'Pilotage de la prestation' },
+  { id: 'pilotage', lot: 1, type: 'commune', lib: 'Réunion de lancement' },
   { id: 'comite', lot: 1, type: 'programme', lib: 'Comité de certification et émission du certificat' },
   { id: 'plan', lot: 1, type: 'programme', lib: 'Plan d’évaluation' },
   { id: 'doc_prestataire', lot: 1, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire applicable au prestataire' },
@@ -765,7 +765,7 @@ function genererJustification(res) {
   let t = 'Justification :\n\n';
   if (amenage) t += 'La charge a été estimée conformément au règlement de certification de Certi-Trust, à la stratégie d’évaluation type élaborée par l’ANSSI et aux référentiels d’exigences applicables, dans le cadre du processus aménagé de qualification d’un service (note ANSSI n°2905/ANSSI/SDE/PSS/BQA du 3 juin 2026). Dans ce cadre, l’ANSSI ne valide ni la stratégie, ni le plan, ni les charges, ni le calendrier d’évaluation, et la décision de certification est prise par un comité de certification au sein duquel elle siège de plein droit avec voix consultative.\n';
   if (passi) t += `La prestation PASSI est conduite sous accréditation, conformément au règlement de certification PASSI de Certi-Trust et au référentiel d’exigences PASSI v${version(prestations.find(x => x.prog.code === 'passi'))}. Le programme PASSI n’entre pas dans le champ du processus aménagé de qualification d’un service.\n`;
-  if (passi && amenage) t += 'Cette offre couvre donc deux régimes distincts. Les travaux mutualisables – pilotage de la prestation, socle documentaire commun et évaluation du système d’information – sont conduits une seule fois ; les livrables et les décisions restent propres à chaque référentiel.\n';
+  if (passi && amenage) t += 'Cette offre couvre donc deux régimes distincts. Les travaux mutualisables – réunion de lancement, socle documentaire commun et évaluation du système d’information – sont conduits une seule fois ; les livrables et les décisions restent propres à chaque référentiel.\n';
   t += '\nCette offre repose sur les éléments transmis par le commanditaire :';
   for (const x of actifs) {
     const codes = x.prog.portees.map(([, c]) => c).filter(c => etat.portees[x.prog.code][c]);
