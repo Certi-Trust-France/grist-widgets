@@ -5,135 +5,54 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CR d'oral</title>
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
+  /* Charte Certi-Trust (reprise du modèle Word, comme plan-evaluation) */
+  :root { --marine:#32406C; --marine-fonce:#262f52; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A; }
   *, *::before, *::after { box-sizing: border-box; }
 
-  body {
-    font-family: system-ui, -apple-system, sans-serif;
-    font-size: 13px;
-    color: #1e293b;
-    margin: 0;
-    padding: 14px;
-    background: #f8fafc;
-  }
+  body { font: 13px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color: var(--txt); margin: 0; padding: 14px; background: #eef0f4; }
 
-  .empty {
-    padding: 40px 0;
-    text-align: center;
-    color: #94a3b8;
-    font-style: italic;
-  }
+  .empty { padding: 40px 0; text-align: center; color: var(--gris); font-style: italic; }
 
-  h3 {
-    margin: 0 0 4px;
-    font-size: 15px;
-    color: #1e3a8a;
-  }
-  .recap {
-    font-size: 12px;
-    color: #475569;
-    margin-bottom: 10px;
-  }
-  .recap b { color: #1e293b; }
-  .statut {
-    display: inline-block;
-    margin-left: 8px;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 11px;
-    font-weight: 600;
-  }
+  .header { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 2px solid var(--marine); }
+  .header .logo { height: 28px; flex-shrink: 0; }
+  h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--marine); flex: 1; }
+  .recap { font-size: 12px; color: var(--gris); margin-bottom: 10px; }
+  .recap b { color: var(--txt); }
+  .statut { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; vertical-align: middle; }
   .statut.envoye  { background: #d1fae5; color: #065f46; }
   .statut.attente { background: #fef3c7; color: #78350f; }
   .statut.modifie { background: #fee2e2; color: #991b1b; }
 
-  .sent-info {
-    font-size: 12px;
-    color: #64748b;
-    margin-top: 6px;
-  }
+  .sent-info { font-size: 12px; color: var(--gris); margin-top: 6px; }
 
-  .destinataires {
-    font-size: 12px;
-    margin-bottom: 10px;
-    line-height: 1.6;
-  }
-  .destinataires .lbl { color: #64748b; display: inline-block; width: 44px; }
+  .destinataires { font-size: 12px; margin-bottom: 10px; line-height: 1.6; }
+  .destinataires .lbl { color: var(--gris); display: inline-block; width: 44px; }
 
   .msg-list { margin-bottom: 10px; }
-  .msg {
-    padding: 6px 10px;
-    border-radius: 5px;
-    font-size: 12px;
-    margin-bottom: 4px;
-  }
-  .msg.error { background: #fee2e2; color: #991b1b; border-left: 3px solid #dc2626; }
-  .msg.warn  { background: #fef3c7; color: #78350f; border-left: 3px solid #d97706; }
-  .msg.info  { background: #dbeafe; color: #1e3a8a; border-left: 3px solid #2563eb; }
+  .msg { padding: 6px 10px; border-radius: 5px; font-size: 12px; margin-bottom: 4px; }
+  .msg.error { background: #fdecec; color: #991b1b; border-left: 3px solid #b91c1c; }
+  .msg.warn  { background: #fff4e0; color: #7a4a00; border-left: 3px solid #d97706; }
+  .msg.info  { background: var(--pale); color: var(--marine); border-left: 3px solid var(--marine); }
 
-  .preview-frame {
-    width: 100%;
-    height: 420px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    background: #fff;
-  }
+  .preview-frame { width: 100%; height: 420px; border: 1px solid var(--bord); border-radius: 6px; background: #fff; }
 
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 10px;
-  }
-  .btn {
-    padding: 8px 16px;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    background: #2563eb;
-    color: #fff;
-  }
-  .btn:hover:not(:disabled) { background: #1d4ed8; }
+  .actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .btn { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; background: var(--marine); color: #fff; }
+  .btn:hover:not(:disabled) { background: var(--marine-fonce); }
   .btn:disabled { opacity: .4; cursor: default; }
+  .btn.secondaire { background: #fff; color: var(--marine); border: 1px solid var(--bord); }
 
   .statusbar { font-size: 12px; }
   .statusbar.ok    { color: #059669; }
   .statusbar.error { color: #b91c1c; }
 
-  .header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .gear {
-    background: #eee;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    line-height: 1;
-    padding: 4px 7px;
-    opacity: .7;
-    flex-shrink: 0;
-  }
-  .gear:hover { opacity: 1; }
+  .gear { background: #fff; color: var(--marine); border: 1px solid var(--bord); border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; line-height: 1; padding: 5px 8px; flex-shrink: 0; }
+  .gear:hover { background: var(--pale); }
 
-  .config-panel {
-    display: none;
-    background: #fff;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    padding: 10px;
-    margin-bottom: 10px;
-    font-size: 12px;
-  }
-  .config-panel input {
-    width: 100%;
-    padding: 5px 7px;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    font-size: 12px;
-    margin: 6px 0 8px;
-    box-sizing: border-box;
-  }
+  .config-panel { display: none; background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 12px; }
+  .config-panel input { width: 100%; padding: 5px 7px; border: 1px solid var(--bord); border-radius: 4px; font: inherit; font-size: 12px; margin: 6px 0 8px; }
 </style>
 </head>
 <body>
@@ -144,11 +63,12 @@
   <b>Configuration</b> — URL du flux Power Automate (jamais stockée dans le dépôt Git, seulement dans ce document Grist) :
   <input id="config-url" type="text" placeholder="https://…invoke?api-version=1&sp=…&sv=1.0&sig=…" />
   <button id="config-save" class="btn">Enregistrer</button>
-  <button id="config-cancel" class="btn" style="background:#94a3b8">Annuler</button>
+  <button id="config-cancel" class="btn secondaire">Annuler</button>
 </div>
 
 <div id="main" style="display:none">
   <div class="header">
+    <img class="logo" src="logo-email.png" alt="Certi-Trust" />
     <h3>Compte rendu d'oral <span id="statut" class="statut"></span></h3>
     <button id="btn-gear" class="gear" title="Configuration">⚙ Configuration</button>
   </div>
@@ -410,10 +330,10 @@ function buildCR(d) {
 /* ── Corps HTML de l'e-mail (styles inline — compatible Outlook) ──
    Modèle : docs/specs/TEM-420_CR_evaluation_Oral_PACS_V5_publipostage.docx */
 function renderCorpsHtml(d) {
-  const td = 'border:1px solid #999;padding:4px 8px;font-size:13px;';
-  const th = `${td}background:#eee;text-align:left;`;
-  const h  = 'font-family:Segoe UI,Arial,sans-serif;color:#1e3a8a;margin:16px 0 4px;font-size:14px;';
-  const p  = 'font-family:Segoe UI,Arial,sans-serif;color:#1a1a1a;font-size:13px;margin:2px 0;';
+  const td = 'border:1px solid #D5DCEA;padding:5px 9px;font-size:13px;color:#262B38;';
+  const th = `${td}background:#EDF0F6;color:#32406C;font-weight:700;text-align:left;`;
+  const h  = 'font-family:Montserrat,Segoe UI,Arial,sans-serif;color:#32406C;margin:18px 0 6px;font-size:14px;font-weight:700;';
+  const p  = 'font-family:Montserrat,Segoe UI,Arial,sans-serif;color:#262B38;font-size:13px;margin:2px 0;';
 
   const noteBadge = note => note
     ? `<span style="background:${NOTE_COLOR[note] || '#eee'};padding:1px 8px;border-radius:3px;">${esc(note)}</span>`
@@ -435,8 +355,11 @@ function renderCorpsHtml(d) {
   const examinateurLigne = ex => ex ? esc(`${ex.prenom} ${ex.nom}`.trim()) : '<span style="color:#b91c1c;">manquant</span>';
 
   return `
-<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#1a1a1a;max-width:640px;">
-  <h2 style="font-family:Segoe UI,Arial,sans-serif;color:#1e3a8a;margin:0 0 10px;">Compte rendu d'évaluation d'examen oral</h2>
+<div style="font-family:Montserrat,Segoe UI,Arial,sans-serif;font-size:13px;color:#262B38;max-width:640px;">
+  <table role="presentation" style="border-collapse:collapse;width:100%;border-bottom:3px solid #32406C;margin:0 0 14px;"><tr>
+    <td style="padding:0 0 10px;"><img src="https://certi-trust-france.github.io/grist-widgets/src/cr-oral/logo-email.png" alt="Certi-Trust" width="160" style="display:block;border:0;width:160px;height:auto;"></td>
+  </tr></table>
+  <h2 style="font-family:Montserrat,Segoe UI,Arial,sans-serif;color:#32406C;font-size:18px;font-weight:700;margin:0 0 10px;">Compte rendu d'évaluation d'examen oral</h2>
   <p style="${p}"><b>Programme :</b> ${esc(d.programme)}</p>
 
   <h3 style="${h}">Informations sur l'examen</h3>
@@ -474,6 +397,7 @@ function renderCorpsHtml(d) {
 
   <h3 style="${h}">Évaluateurs</h3>
   <p style="${p}">${examinateurLigne(d.examinateur1)}<br>${examinateurLigne(d.examinateur2)}</p>
+  <p style="font-family:Montserrat,Segoe UI,Arial,sans-serif;font-size:11px;color:#7A7C7A;margin:22px 0 0;padding-top:8px;border-top:1px solid #D5DCEA;">Certi-Trust FRANCE SAS</p>
 </div>`;
 }
 
