@@ -73,6 +73,9 @@
   .hero .label { color: var(--text-secondary); font-size: 13px; }
   .hero .valeur { font-size: 52px; font-weight: 650; line-height: 1.1; margin: 4px 0; letter-spacing: -0.5px; }
   .hero .detail { color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+  .hero .theo { margin: 6px 0 8px; }
+  .hero .theo .piste { height: 10px; border-radius: 5px; margin-bottom: 4px; }
+  .hero .theo .detail { font-size: 12.5px; line-height: 1.5; }
   .tuile .label { color: var(--text-secondary); font-size: 12px; }
   .tuile .valeur { font-size: 26px; font-weight: 600; margin: 4px 0 2px; }
   .tuile .detail { color: var(--text-muted); font-size: 12px; }
@@ -102,6 +105,8 @@
   .piste { height: 8px; border-radius: 4px; background: var(--track); position: relative; overflow: hidden; }
   .piste b { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--series-1); }
   .piste b.warning { background: var(--warning); } .piste b.critical { background: var(--critical); }
+  .piste.empile b { border-radius: 4px 0 0 4px; } .piste.empile b:only-child, .piste.empile b.ex { border-radius: 0 4px 4px 0; }
+  .piste.empile b:only-child { border-radius: 4px; } .piste.empile b.ex { background: var(--series-2); }
   .etat { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
 
   /* Tableaux */
@@ -178,6 +183,9 @@ const STATUTS = [
   ['En cours', 'var(--series-1)', false], ['à planifier', 'var(--series-2)', false],
   ['Terminé', 'var(--series-3)', false], ['En attente devis', 'var(--series-4)', true]];
 const SEUIL_CHARGE = { alerte: 0.8, critique: 1.0 };
+// Temps d'examen : mêmes hypothèses que le widget synthese-examinateurs (débriefing 10 min ; correction d'un écrit
+// payée au tarif de 10 minutes). Capacité d'un évaluateur : 218 jours par an, au prorata des jours ouvrés.
+const EXAMENS = { debriefOralMin: 10, correctionEcritMin: 10, minutesParJour: 7 * 60, capaciteAnnuelle: 218 };
 
 let DB = null, chargeEn = 0, filtrerMois = () => {};
 const etat = { periode: 'annee', debut: null, fin: null, mois: null, prog: '', client: '' };
@@ -218,6 +226,7 @@ const pct = v => isFinite(v) ? Math.round(v * 100) + ' %' : '—';
 const moisDe = s => { const d = new Date(s * 1000); return d.getUTCFullYear() * 12 + d.getUTCMonth(); };
 const debutMois = m => Date.UTC(Math.floor(m / 12), m % 12, 1) / 1000;
 const libMois = (m, long) => long ? `${MOIS_LONGS[m % 12]} ${Math.floor(m / 12)}` : MOIS_COURTS[m % 12];
+const fmtJour = s => new Date(s * 1000).toLocaleDateString('fr-FR', { timeZone: 'UTC' });
 const famille = nom => String(nom || '').replace(/_.*$/, '') || 'Sans programme';   // PASSI_2.0 → PASSI
 
 // Jours ouvrés (lun.–ven., hors fériés français) entre deux dates (secondes UTC, fin exclue)
@@ -232,6 +241,21 @@ function feriesDe(a) {
   const s = new Set([[0, 1], [4, 1], [4, 8], [6, 14], [7, 15], [10, 1], [10, 11], [11, 25]].map(([m, j]) => Date.UTC(a, m, j)));
   [1, 39, 50].forEach(n => s.add(paques + n * J * 1000));
   feries.set(a, s); return s;
+}
+// Fin d'une unité d'œuvre : n jours ouvrés (lun.–ven.) à partir de sa date ; n = 1 → même jour
+function finOuvree(sec, jours) {
+  let t = sec, reste = Math.max(Math.ceil(jours || 1), 1) - 1;
+  while (reste > 0) { t += J; const w = new Date(t * 1000).getUTCDay(); if (w !== 0 && w !== 6) reste--; }
+  return t;
+}
+// Capacité d'un évaluateur sur les mois m1..m2 : capacité annuelle × part des jours ouvrés de chaque année
+function capaciteDe(m1, m2) {
+  let c = 0;
+  for (let m = m1; m <= m2; m++) {
+    const a = Math.floor(m / 12), an = joursOuvres(Date.UTC(a, 0, 1) / 1000, Date.UTC(a + 1, 0, 1) / 1000);
+    c += EXAMENS.capaciteAnnuelle * joursOuvres(debutMois(m), debutMois(m + 1)) / an;
+  }
+  return c;
 }
 function joursOuvres(deb, fin) {
   let n = 0;
@@ -342,6 +366,33 @@ function calculer() {
     + ecrits.filter(x => dansP(x.Facture)).reduce((s, x) => s + num(x.Montant), 0)
     + oraux.filter(x => dansP(x.Facture2)).reduce((s, x) => s + num(x.Montant), 0);
 
+  /* CA théorique : évaluations dont la réunion de clôture tombe dans la période (à facturer à ce moment-là)
+     + examens passés dans la période. Sans réunion de clôture au planning, la clôture est estimée à la fin de
+     la dernière intervention sur site, sinon de la dernière unité d'œuvre. */
+  const uoParEv = new Map();
+  for (const u of uos) if (u.date_debut_incluse) { if (!uoParEv.has(u.Evaluation)) uoParEv.set(u.Evaluation, []); uoParEv.get(u.Evaluation).push(u); }
+  const SUR_SITE = ['Journée de lancement', 'évaluation siège', 'évaluation prestation témoin'];
+  const finDe = l => l.length ? Math.max(...l.map(u => finOuvree(u.date_debut_incluse, u.Jours))) : null;
+  const cloture = e => {
+    const l = uoParEv.get(e.id) || [];
+    const clo = l.filter(u => u.Unite_d_oeuvre === 'Réunion de clôture');
+    if (clo.length) return { t: finDe(clo), estimee: false };
+    const site = l.filter(u => SUR_SITE.includes(u.Unite_d_oeuvre));
+    const t = finDe(site.length ? site : l);
+    return t ? { t, estimee: true } : null;
+  };
+  const clotures = ev.filter(e => e.Statut !== 'Annulé').map(e => ({ e, c: cloture(e) })).filter(x => x.c);
+  const examPasses = (l, f) => l.filter(x => f(x.date_heure) && x.date_heure < now);
+  const theoDans = f => {
+    const evs = clotures.filter(x => f(x.c.t));
+    const ecr = examPasses(ecrits, f), ora = examPasses(oraux, f);
+    const v = { nbEv: evs.length, estimees: evs.filter(x => x.c.estimee).length, evs,
+      ev: evs.reduce((s, x) => s + num(x.e.Montant_Eval_Devis), 0),
+      ecr: ecr.reduce((s, x) => s + num(x.Montant), 0), ora: ora.reduce((s, x) => s + num(x.Montant), 0) };
+    v.total = v.ev + v.ecr + v.ora; return v;
+  };
+  const theo = theoDans(dans);
+
   /* Production (planning) : réalisé = UO passées, planifié = UO à venir, dans la période */
   const uoPer = uos.filter(u => dans(u.date_debut_incluse));
   const real = uoPer.filter(u => u.date_debut_incluse < now), avenir = uoPer.filter(u => u.date_debut_incluse >= now);
@@ -384,6 +435,7 @@ function calculer() {
       ora: oraux.filter(x => d(x.Facture2)).reduce((s, x) => s + num(x.Montant), 0),
       jhReal: somme(lu.filter(u => u.date_debut_incluse < now), jhUo),
       jhPlan: somme(lu.filter(u => u.date_debut_incluse >= now), jhUo),
+      theo: theoDans(d).total,
     };
   });
 
@@ -402,22 +454,31 @@ function calculer() {
     return { e, client: String(ent.Denomination || '?').trim(), prog: progNom(e.Programme), ...x, montant: m, marge: m && x.total ? (m - c) / m : NaN };
   }).sort((a, b) => b.montant - a.montant);
 
-  /* Charge des évaluateurs dans la période (RE, ETA, ETM ; OBS à part) */
+  /* Charge des évaluateurs dans la période : jours d'évaluation (planning : RE, ETA, ETM ; OBS à part)
+     + temps d'examen (oraux : durée + débriefing ; écrits : correction), rapportés à la capacité annuelle. */
   const ouvres = joursOuvres(t1, t2);
+  const capacite = capaciteDe(m1, m2);
   const charge = new Map();
+  const de = id => { if (!charge.has(id)) charge.set(id, { j: 0, obs: 0, min: 0, nEcr: 0, nOra: 0 }); return charge.get(id); };
   for (const u of uoPer) {
     const qui = new Set([u.RE, ...liste(u.ETA), ...liste(u.ETM)].filter(Boolean));
-    for (const id of qui) { const c = charge.get(id) || { j: 0, obs: 0 }; c.j += num(u.Jours); charge.set(id, c); }
-    for (const id of liste(u.OBS)) if (!qui.has(id)) { const c = charge.get(id) || { j: 0, obs: 0 }; c.obs += num(u.Jours); charge.set(id, c); }
+    for (const id of qui) de(id).j += num(u.Jours);
+    for (const id of liste(u.OBS)) if (!qui.has(id)) de(id).obs += num(u.Jours);
   }
+  for (const x of ecrits.filter(x => dans(x.date_heure)))
+    for (const id of new Set([x.Examinateur_1, x.Examinateur_2].filter(Boolean))) { const c = de(id); c.min += EXAMENS.correctionEcritMin; c.nEcr++; }
+  for (const x of oraux.filter(x => dans(x.date_heure)))
+    for (const id of new Set([x.Examinateur_1, x.Examinateur_2].filter(Boolean))) { const c = de(id); c.min += num(x.Duree) + EXAMENS.debriefOralMin; c.nOra++; }
   const evaluateurs = [...charge.entries()].map(([id, c]) => {
     const e = DB.Evaluateurs.par.get(id) || {};
+    const jExam = c.min / EXAMENS.minutesParJour;
     return { id, tri: e.Evaluateur_Trigramme || '?', nom: `${e.Evaluateur_Prenom || ''} ${e.Evaluateur_Nom || ''}`.trim(),
-      interne: /certi-trust/i.test(e.Employeur || ''), j: c.j, obs: c.obs, taux: ouvres ? c.j / ouvres : 0 };
-  }).filter(x => x.j > 0).sort((a, b) => b.taux - a.taux);
+      interne: /certi-trust/i.test(e.Employeur || ''), j: c.j, obs: c.obs, jExam, nEcr: c.nEcr, nOra: c.nOra,
+      total: c.j + jExam, taux: capacite ? (c.j + jExam) / capacite : 0 };
+  }).filter(x => x.total > 0).sort((a, b) => b.taux - a.taux);
   const internes = evaluateurs.filter(x => x.interne);
   const nbInternes = DB.Evaluateurs.filter(e => /certi-trust/i.test(e.Employeur || '') && e.planning).length;
-  const tauxInternes = nbInternes && ouvres ? internes.reduce((s, x) => s + x.j, 0) / (nbInternes * ouvres) : NaN;
+  const tauxInternes = nbInternes && capacite ? internes.reduce((s, x) => s + x.total, 0) / (nbInternes * capacite) : NaN;
 
   /* Examens de la période */
   const ecrPer = ecrits.filter(x => dans(x.date_heure) && x.date_heure < now);
@@ -446,10 +507,11 @@ function calculer() {
   const sansMontant = ev.filter(e => !num(e.Montant_Eval_Devis) && e.Statut !== 'Annulé');
   const uoSansEval = uos.filter(u => u.date_debut_incluse >= now && !liste(u.evaluateurs).length);
   const surcharges = evaluateurs.filter(x => x.taux > SEUIL_CHARGE.critique);
+  const clotureesNonFact = theo.evs.filter(x => x.c.t < now && !x.e.Facture_date);
 
   return { m1, m2, n, caTotal, caEv, caEcr, caOra, caPrec, factEv, prod, plan, prodPrec, carnet, mois: parMois, statuts, enCours,
-    evaluateurs, tauxInternes, nbInternes, ouvres, exam, parProg, parClient,
-    alertes: { aFacturerEv, examAFact, margeNeg, sansMontant, uoSansEval, surcharges } };
+    evaluateurs, tauxInternes, nbInternes, ouvres, capacite, exam, parProg, parClient,
+    theo, alertes: { aFacturerEv, examAFact, margeNeg, sansMontant, uoSansEval, surcharges, clotureesNonFact } };
 }
 
 /* ═════════ Rendu ═════════ */
@@ -468,6 +530,7 @@ function rendre() {
   h += `<section class="carte hero s4" aria-label="Chiffre d'affaires facturé">
       <div class="label">Chiffre d’affaires facturé</div>
       <div class="valeur">${esc(euros(K.caTotal))}</div>
+      ${theorique(K)}
       <div>${delta(K.caTotal, K.caPrec)}</div>
       <div class="detail">Évaluations ${esc(euros(K.caEv))} · Examens écrits ${esc(euros(K.caEcr))} · Examens oraux ${esc(euros(K.caOra))}</div>
     </section>`;
@@ -476,7 +539,7 @@ function rendre() {
     ${tuile('Planifié à venir', `${nb(K.plan.jh)} j·h`, `${euros(K.plan.ca)} sur la période`)}
     ${tuile('Reste à planifier', `${nb(K.carnet.resteAPlanifier)} j·h`, `sur ${euros(K.carnet.montant)} de commandes actives`)}
     ${tuile('Marge de production', pct(margeProd), 'sur les jours réalisés (coût évaluateurs)')}
-    ${tuile('Charge évaluateurs internes', pct(K.tauxInternes), `${K.nbInternes} évaluateurs · ${K.ouvres} jours ouvrés`)}
+    ${tuile('Charge évaluateurs internes', pct(K.tauxInternes), `${K.nbInternes} évaluateurs · évaluations et examens · base ${EXAMENS.capaciteAnnuelle} j/an`)}
     ${tuile('Examens passés', nb(K.exam.ecrits + K.exam.oraux, 0), `${K.exam.ecrits} écrits · ${K.exam.oraux} oraux`)}
     ${tuile('Réussite aux écrits', pct(K.exam.reussite), `${K.exam.corriges} écrits corrigés`)}
     ${tuile('Évaluations facturées', nb(K.factEv.length, 0), `${euros(K.caEv)} sur la période`)}
@@ -484,9 +547,9 @@ function rendre() {
 
   // Rangée 2 : facturation mensuelle + jours-homme mensuels
   h += `<section class="carte s7"><h2>Facturation par mois</h2><div class="sous">Montants facturés, en euros HT · mois hors période en gris · cliquer sur un mois pour filtrer</div>
-    ${legende([['Évaluations', 'var(--series-1)'], ['Examens écrits', 'var(--series-2)'], ['Examens oraux', 'var(--series-3)']])}
-    ${colonnesEmpilees(K.mois, [['ev', 'Évaluations', 'var(--series-1)'], ['ecr', 'Examens écrits', 'var(--series-2)'], ['ora', 'Examens oraux', 'var(--series-3)']], euros)}
-    ${tableDonnees(['Mois', 'Évaluations', 'Écrits', 'Oraux'], K.mois.map(x => [libMois(x.m, true), euros(x.ev, false), euros(x.ecr, false), euros(x.ora, false)]))}
+    ${legende([['Évaluations', 'var(--series-1)'], ['Examens écrits', 'var(--series-2)'], ['Examens oraux', 'var(--series-3)']], [['Théorique (à facturer)', 'var(--text-primary)']])}
+    ${colonnesEmpilees(K.mois, [['ev', 'Évaluations', 'var(--series-1)'], ['ecr', 'Examens écrits', 'var(--series-2)'], ['ora', 'Examens oraux', 'var(--series-3)']], euros, 'theo')}
+    ${tableDonnees(['Mois', 'Évaluations', 'Écrits', 'Oraux', 'Théorique'], K.mois.map(x => [libMois(x.m, true), euros(x.ev, false), euros(x.ecr, false), euros(x.ora, false), euros(x.theo, false)]))}
   </section>`;
   h += `<section class="carte s5"><h2>Jours-homme par mois</h2><div class="sous">Planning : réalisé et planifié à venir · mois hors période en gris</div>
     ${legende([['Réalisé', 'var(--series-1)'], ['Planifié', 'var(--seq-light)']])}
@@ -518,16 +581,23 @@ function rendre() {
   </section>`;
 
   // Rangée 4 : charge des évaluateurs + points d'attention
-  h += `<section class="carte s7"><h2>Charge des évaluateurs</h2><div class="sous">Jours positionnés au planning / ${K.ouvres} jours ouvrés de la période · alerte au-delà de ${pct(SEUIL_CHARGE.alerte)}</div>
+  h += `<section class="carte s7"><h2>Charge des évaluateurs</h2><div class="sous">Évaluations (planning) + examens, sur une capacité de ${EXAMENS.capaciteAnnuelle} j/an, soit ${nb(K.capacite)} j sur la période · alerte au-delà de ${pct(SEUIL_CHARGE.alerte)}</div>
+    ${legende([['Évaluations', 'var(--series-1)'], ['Examens', 'var(--series-2)']])}
     ${K.evaluateurs.length ? `<div class="jauges">${K.evaluateurs.slice(0, 14).map(x => {
       const niv = x.taux > SEUIL_CHARGE.critique ? 'critical' : x.taux > SEUIL_CHARGE.alerte ? 'warning' : '';
       const lib = niv === 'critical' ? '▲ surcharge' : niv === 'warning' ? '● chargé' : '';
+      const wEv = K.capacite ? x.j / K.capacite : 0, wEx = K.capacite ? x.jExam / K.capacite : 0, k = Math.min(1, 1 / Math.max(wEv + wEx, 1e-9));
       return `<div class="nom" title="${esc(x.nom)}">${esc(x.tri)} <small>${esc(x.nom)}${x.interne ? '' : ' · externe'}</small></div>
-        <div class="piste" role="img" aria-label="${esc(`${x.tri} : ${pct(x.taux)}`)}"><b class="${niv}" style="width:${Math.min(x.taux, 1) * 100}%"></b></div>
-        <div class="chiffre">${nb(x.j)} j · <strong style="color:var(--text-primary)">${pct(x.taux)}</strong>${lib ? ` <span class="etat">${lib}</span>` : ''}</div>`;
+        <div class="piste empile mark" role="img" tabindex="0" aria-label="${esc(`${x.tri} : ${pct(x.taux)} (évaluations ${nb(x.j)} j, examens ${nb(x.jExam)} j)`)}"
+          data-bulle='${esc(JSON.stringify([`${x.tri} ${x.nom}`, ['Évaluations', `${nb(x.j)} j`, 'var(--series-1)'],
+            ['Examens', `${nb(x.jExam)} j (${x.nEcr} écrit(s), ${x.nOra} oral(aux))`, 'var(--series-2)'], ['Taux de charge', pct(x.taux), 'transparent']]))}'>
+          ${wEv ? `<b style="width:${wEv * k * 100}%"></b>` : ''}${wEx ? `<b class="ex" style="left:calc(${wEv * k * 100}% + ${wEv ? 2 : 0}px);width:calc(${wEx * k * 100}% - ${wEv ? 2 : 0}px)"></b>` : ''}</div>
+        <div class="chiffre">${nb(x.total)} j · <strong style="color:var(--text-primary)">${pct(x.taux)}</strong>${lib ? ` <span class="etat">${lib}</span>` : ''}</div>`;
     }).join('')}</div>${K.evaluateurs.length > 14 ? `<div class="sous" style="margin-top:8px">+ ${K.evaluateurs.length - 14} autres évaluateurs</div>` : ''}`
-      : '<div class="vide">Aucun jour positionné au planning sur la période.</div>'}
-    ${tableDonnees(['Évaluateur', 'Jours', 'Taux', 'Observation (j)'], K.evaluateurs.map(x => [`${x.tri} ${x.nom}`, nb(x.j), pct(x.taux), nb(x.obs)]))}
+      : '<div class="vide">Aucune évaluation ni aucun examen sur la période.</div>'}
+    ${tableDonnees(['Évaluateur', 'Évaluations (j)', 'Examens (j)', 'Écrits corrigés', 'Oraux', 'Total (j)', 'Taux', 'Observation (j)'],
+      K.evaluateurs.map(x => [`${x.tri} ${x.nom}`, nb(x.j), nb(x.jExam), String(x.nEcr), String(x.nOra), nb(x.total), pct(x.taux), nb(x.obs)]))}
+    <div class="sous" style="margin-top:6px">Examens : oral = durée + ${EXAMENS.debriefOralMin} min de débriefing par examinateur ; écrit = ${EXAMENS.correctionEcritMin} min de correction par correcteur ; 1 jour = ${EXAMENS.minutesParJour / 60} h.</div>
   </section>`;
   h += `<section class="carte s5"><h2>Points d’attention</h2><div class="sous">Situation actuelle, selon les filtres programme et client</div>${alertes(K.alertes)}</section>`;
 
@@ -554,18 +624,34 @@ function margeTxt(m) {
   if (!isFinite(m)) return '<span style="color:var(--text-muted)">—</span>';
   return m < 0 ? `<span style="color:var(--down);font-weight:600">▼ ${pct(m)}</span>` : esc(pct(m));
 }
-function legende(l) { return `<div class="legende">${l.map(([t, c]) => `<span><i style="background:${c}"></i>${esc(t)}</span>`).join('')}</div>`; }
+function legende(l, lignes = []) {
+  return `<div class="legende">${l.map(([t, c]) => `<span><i style="background:${c}"></i>${esc(t)}</span>`).join('')}`
+    + lignes.map(([t, c]) => `<span><i style="background:${c};height:2px;width:14px;border-radius:1px"></i>${esc(t)}</span>`).join('') + '</div>';
+}
+// Facturé vs théorique : jauge + écart
+function theorique(K) {
+  const T = K.theo;
+  if (!T.total) return '<div class="detail">Aucune facturation théorique sur la période (pas de clôture ni d’examen passé).</div>';
+  const r = K.caTotal / T.total, ecart = T.total - K.caTotal;
+  return `<div class="theo">
+      <div class="piste" role="img" aria-label="${esc(`Facturé ${euros(K.caTotal)} sur ${euros(T.total)} théoriques`)}"><b style="width:${Math.min(r, 1) * 100}%"></b></div>
+      <div class="detail"><strong style="color:var(--text-primary)">${pct(r)}</strong> du théorique <strong style="color:var(--text-primary)">${esc(euros(T.total))}</strong>
+        ${ecart > 0 ? `· reste <strong style="color:var(--text-primary)">${esc(euros(ecart))}</strong> à facturer` : '· théorique atteint'}</div>
+      <div class="detail" style="color:var(--text-muted)">Théorique : ${T.nbEv} évaluation(s) clôturée(s) ${esc(euros(T.ev))}${T.estimees ? ` (dont ${T.estimees} clôture(s) estimée(s), sans réunion de clôture au planning)` : ''} · examens passés ${esc(euros(T.ecr + T.ora))}</div>
+    </div>`;
+}
 function tableDonnees(tetes, lignes) {
   return `<details class="donnees"><summary>Voir les données</summary><table><tr>${tetes.map((t, i) => `<th class="${i ? 'n' : ''}">${esc(t)}</th>`).join('')}</tr>
     ${lignes.map(l => `<tr>${l.map((c, i) => `<td class="${i ? 'n' : ''}">${esc(c)}</td>`).join('')}</tr>`).join('')}</table></details>`;
 }
 
 // Colonnes empilées (une baseline, segments séparés de 2 px, coins arrondis au sommet de la pile)
-function colonnesEmpilees(mois, series, fmt) {
+function colonnesEmpilees(mois, series, fmt, cleRepere) {
   const W = 640, H = 200, g = 44, b = 22, lp = W - g - 8;
   const tot = mois.map(x => series.reduce((s, [k]) => s + x[k], 0));
+  const vRep = mois.map(x => cleRepere ? x[cleRepere] || 0 : 0);
   // Pas minimal de 1 (pas de graduations fractionnaires) ; axe 0–5 si tout est à zéro
-  const vmax = Math.max(...tot, 0), pas = Math.max(1, pasRond(Math.max(vmax, 5) / 5)), max = Math.max(pas, Math.ceil(vmax / pas) * pas), nPas = Math.round(max / pas);
+  const vmax = Math.max(...tot, ...vRep, 0), pas = Math.max(1, pasRond(Math.max(vmax, 5) / 5)), max = Math.max(pas, Math.ceil(vmax / pas) * pas), nPas = Math.round(max / pas);
   const y = v => H - b - (v / max) * (H - b - 10);
   const bande = lp / mois.length, larg = Math.min(24, bande * 0.62);
   let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Graphique en colonnes par mois">`;
@@ -588,7 +674,10 @@ function colonnesEmpilees(mois, series, fmt) {
         : `<rect x="${x0}" y="${top}" width="${larg}" height="${hh}" fill="${f}"/>`;
       base -= hgt;
     });
-    const bulle = [libMois(x.m, true), ...series.map(([k, lib, c]) => [lib, fmt(x[k]), c])];
+    // Repère du théorique : trait horizontal sur la colonne (même unité, même axe)
+    if (cleRepere && vRep[i] > 0) s += `<line x1="${x0 - 5}" x2="${x0 + larg + 5}" y1="${y(vRep[i])}" y2="${y(vRep[i])}" stroke="var(--text-primary)" stroke-width="2" stroke-linecap="round" opacity="${x.dansPeriode ? 1 : 0.4}"/>`;
+    const bulle = [libMois(x.m, true), ...series.map(([k, lib, c]) => [lib, fmt(x[k]), c]),
+      ...(cleRepere ? [['Total facturé', fmt(tot[i]), 'transparent'], ['Théorique (à facturer)', fmt(vRep[i]), 'var(--text-primary)']] : [])];
     s += `<rect class="mark cliquable" x="${cx - bande / 2}" y="0" width="${bande}" height="${H - b}" fill="transparent" tabindex="0" role="button" aria-label="${esc('Filtrer sur ' + libMois(x.m, true))}" data-mois="${x.m}" data-bulle='${esc(JSON.stringify([...bulle, ['Cliquer pour filtrer sur ce mois', '', 'transparent']]))}'/>`;
     s += `<text x="${cx}" y="${H - 6}" text-anchor="middle" ${x.dansPeriode ? 'style="fill:var(--text-secondary)"' : ''}>${esc(libMois(x.m))}</text>`;
   });
@@ -636,6 +725,8 @@ function alertes(A) {
   const sm = (lst, f) => lst.reduce((s, x) => s + num(f(x)), 0);
   if (A.aFacturerEv.length) l.push(ligne('⛔', `<strong>${A.aFacturerEv.length}</strong> évaluation(s) terminée(s) non facturée(s) — ${esc(euros(sm(A.aFacturerEv, e => e.Montant_Eval_Devis)))}`,
     esc(A.aFacturerEv.slice(0, 4).map(e => e.Libelle || e.id).join(', ') + (A.aFacturerEv.length > 4 ? '…' : ''))));
+  if (A.clotureesNonFact.length) l.push(ligne('⛔', `<strong>${A.clotureesNonFact.length}</strong> évaluation(s) clôturée(s) sur la période non facturée(s) — ${esc(euros(sm(A.clotureesNonFact, x => x.e.Montant_Eval_Devis)))}`,
+    esc(A.clotureesNonFact.slice(0, 4).map(x => `${x.e.Libelle || x.e.id} (${fmtJour(x.c.t)}${x.c.estimee ? ', estimée' : ''})`).join(', ') + (A.clotureesNonFact.length > 4 ? '…' : ''))));
   if (A.examAFact.length) l.push(ligne('⚠️', `<strong>${A.examAFact.length}</strong> examen(s) passé(s) non facturé(s) — ${esc(euros(sm(A.examAFact, x => x.Montant)))}`));
   if (A.margeNeg.length) l.push(ligne('▼', `<strong>${A.margeNeg.length}</strong> évaluation(s) à marge négative`,
     esc(A.margeNeg.slice(0, 4).map(e => `${e.Libelle || e.id} (${euros(num(e.Montant_Eval_Devis) - num(e.Cout_total))})`).join(', '))));
