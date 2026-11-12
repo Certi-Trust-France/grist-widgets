@@ -195,11 +195,14 @@ async function muter(fn, { rendu = true } = {}) {
   const etat = etatDe(P, qualSel, g);
   if (fn(etat) === false) { if (rendu) rendre(); return; }
   etat.resultat = resume(calculer(g, etat)); etat.maj = new Date().toISOString();
+  for (const id of jumelles(qualSel)) P.grilles[String(id)] = JSON.parse(JSON.stringify(etat));
   if (rendu || (distant && !enEdition)) rendre(); else rendreSynthese();
   const s = JSON.stringify(P); dernierEnr = s;
   try { await grist.docApi.applyUserActions([['UpdateRecord', 'Examens_oraux', examId, { [COL]: s }]]); toast('Enregistré', 1000); }
   catch (e) { toast('Erreur d’enregistrement : ' + (e.message || e), 5000); }
 }
+// Qualifications de l'oral qui partagent la grille de qualId (ex. GDR et HOM) : un seul entretien, recopié pour chacune
+const jumelles = qualId => { const g = grilleDe(qualId); return ex ? liste(ex.Qualifications).map(refId).filter(id => id !== qualId && g && grilleDe(id) === g) : []; };
 const verrou = etat => { if (etat.cloture) { toast('Entretien clôturé : rouvrez-le pour modifier'); return true; } return false; };
 function cocher(code, i, oui) {
   return muter(etat => {
@@ -312,7 +315,8 @@ function rendre() {
   const ent = parId('Entreprises', refId(ex.Denomination)) || (cand && parId('Entreprises', refId(cand.Entreprise)));
   const exam = [ex.Examinateur_1, ex.Examinateur_2].map(e => nomPers(parId('Evaluateurs', refId(e)), 'Evaluateur_Prenom', 'Evaluateur_Nom')).filter(Boolean);
   const quals = liste(ex.Qualifications).map(refId).map(id => ({ id, q: parId('Qualifications_List', id), g: grilleDe(id) }));
-  const avec = quals.filter(x => x.g), sans = quals.filter(x => !x.g);
+  const sans = quals.filter(x => !x.g), avec = [];
+  for (const x of quals.filter(x => x.g)) { const gr = avec.find(y => y.g === x.g); if (gr) gr.items.push(x); else avec.push({ id: x.id, g: x.g, items: [x] }); }
   if (!avec.some(x => x.id === qualSel)) { qualSel = avec.length ? avec[0].id : null; themeSel = null; }
   const g = qualSel && grilleDe(qualSel);
   const qualLib = q => q ? (q.Qualifications || q.Qualification_code) : '?';
@@ -321,7 +325,7 @@ function rendre() {
       <div><span>Prestataire</span><b>${esc((ent && (ent.Denomination || ent.Nom)) || '—')}</b></div>
       <div><span>Examinateur${exam.length > 1 ? 's' : ''}</span><b>${esc(exam.join(', ') || '—')}</b></div>
       <div><span>Date</span><b>${esc(ex.date_heure ? dateHeure(ex.date_heure) : '—')}</b></div></div>`;
-  html += `<div class="quals">${avec.map(x => `<button data-qual="${x.id}" class="${x.id === qualSel ? 'actif' : ''}">${esc(qualLib(x.q))}${P.grilles[String(x.id)] && P.grilles[String(x.id)].cloture ? ' 🔒' : ''}</button>`).join('')}
+  html += `<div class="quals">${avec.map(x => `<button data-qual="${x.id}" class="${x.id === qualSel ? 'actif' : ''}"${x.items.length > 1 ? ' title="Une seule grille d’entretien pour ces qualifications"' : ''}>${esc(x.items.map(i => qualLib(i.q)).join(' + '))}${P.grilles[String(x.id)] && P.grilles[String(x.id)].cloture ? ' 🔒' : ''}</button>`).join('')}
     ${sans.length ? `<span class="sans">Sans grille d’entretien : ${esc(sans.map(x => qualLib(x.q)).join(', '))}</span>` : ''}</div>`;
   if (!g) { $('doc').innerHTML = html + '<div id="msg">Aucune qualification de cet oral n’a de grille d’entretien PACS.</div>'; majBarre(); return; }
   const etat = P.grilles[String(qualSel)], clos = !!(etat && etat.cloture), r = calculer(g, etat);
