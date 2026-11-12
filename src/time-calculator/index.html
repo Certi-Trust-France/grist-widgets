@@ -139,9 +139,9 @@
 <div id="footer" class="footer">
   <span id="status" class="statusbar"></span>
   <button id="btn-copy-text" class="btn btn-grey" disabled>Copier le devis (texte)</button>
-  <button id="btn-copy-json" class="btn btn-grey" disabled>Copier le JSON TL</button>
+  <button id="btn-copy-json" class="btn btn-grey" disabled title="Json_client : proposition commerciale à envoyer à CPQ">Copier le Json_client (CPQ)</button>
   <button id="btn-update" class="btn btn-primary" style="display:none" disabled>Enregistrer les modifications</button>
-  <button id="btn-create" class="btn btn-success" disabled>Créer les propositions commerciales</button>
+  <button id="btn-create" class="btn btn-success" disabled>Créer la proposition commerciale</button>
 </div>
 
 <script>
@@ -277,7 +277,7 @@ $('sel-entreprise').addEventListener('change', () => { fillTemSelect(); const t 
 $('sel-tem').addEventListener('change', () => selectTem($('sel-tem').value ? Number($('sel-tem').value) : null));
 $('sel-prop').addEventListener('change', () => selectProposition(Number($('sel-prop').value) || null));
 $('btn-copy-text').addEventListener('click', e => copier(texteDevis(), 'Devis copié dans le presse-papiers.', e.currentTarget));
-$('btn-copy-json').addEventListener('click', e => copier(JSON.stringify(jsonTL(), null, 2), 'JSON TL copié dans le presse-papiers.', e.currentTarget));
+$('btn-copy-json').addEventListener('click', e => copier(JSON.stringify(jsonClient(), null, 2), 'Json_client copié dans le presse-papiers.', e.currentTarget));
 $('btn-create').addEventListener('click', creerProposition);
 $('btn-update').addEventListener('click', enregistrerProposition);
 
@@ -311,11 +311,11 @@ const lireTable = async nom => { try { return await grist.docApi.fetchTable(nom)
 
 // Relu avant chaque écriture : numéros et lignes existantes à jour.
 async function lirePropositions() {
-  const [pp, tl] = await Promise.all([lireTable(TABLE_PL), lireTable(TABLE_TL)]);
+  const [pp, tl] = await Promise.all([lireTable(TABLE_CH), lireTable(TABLE_PL)]);
   data.pp = pp ? rows(pp) : [];
   data.ppCols = new Set(pp ? Object.keys(pp) : []);
-  data.tl = tl ? rows(tl) : [];
-  data.tlCols = new Set(tl ? Object.keys(tl) : []);
+  data.pc = tl ? rows(tl) : [];
+  data.pcCols = new Set(tl ? Object.keys(tl) : []);
 }
 
 function fillEntrepriseSelect() {
@@ -340,11 +340,11 @@ function fillTemSelect() {
 
 function fillPropSelect() {
   const temId = etat?.temId;
-  const props = (data.tl || []).filter(t => temId && t.TEM_404 === temId)
-    .sort((a, b) => String(b.Libelle_TL).localeCompare(String(a.Libelle_TL)));
+  const props = (data.pc || []).filter(t => temId && t.TEM_404 === temId)
+    .sort((a, b) => String(b.Libelle_PL).localeCompare(String(a.Libelle_PL)));
   $('sel-prop').innerHTML = '<option value="">— nouvelle —</option>' + props.map(t =>
-    `<option value="${t.id}">${esc(t.Libelle_TL)}${t.Statut ? ' (' + esc(t.Statut) + ')' : ''}</option>`).join('');
-  $('sel-prop').value = etat?.source ? String(etat.source.tlId) : '';
+    `<option value="${t.id}">${esc(t.Libelle_PL)}${t.Statut ? ' (' + esc(t.Statut) + ')' : ''}</option>`).join('');
+  $('sel-prop').value = etat?.source ? String(etat.source.plId) : '';
 }
 
 function selectTem(temId) {
@@ -358,12 +358,12 @@ function selectTem(temId) {
   renderDevis();
 }
 
-function selectProposition(tlId) {
+function selectProposition(plId) {
   const tem = data.tem.find(t => t.id === etat?.temId);
   if (!tem) return;
   etat = etatDepuisTem(tem);
-  if (tlId) {
-    const tl = data.tl.find(t => t.id === tlId);
+  if (plId) {
+    const tl = data.pc.find(t => t.id === plId);
     try { appliquerSaisie(tl); }
     catch (err) { setStatus(`Proposition illisible : ${err.message || err}`, 'error'); etat = etatDepuisTem(tem); }
   }
@@ -374,8 +374,8 @@ function selectProposition(tlId) {
 /* ──────────────────────────────────────────
    Sauvegarde / rechargement de la saisie
 ────────────────────────────────────────── */
-const TABLE_PL = 'Propositions_prestation';
-const TABLE_TL = 'Propositions_commerciales';
+const TABLE_CH = 'Propositions_prestation';
+const TABLE_PL = 'Propositions_commerciales';
 const ANNULEE = 'Annulée';
 const SIGNEE = 'Signée';
 
@@ -385,7 +385,7 @@ const numLibelle = (lib, sigle) => {
 };
 const safeJson = t => { try { return JSON.parse(t); } catch { return null; } };
 // Une colonne Ref lue par fetchTable vaut l'id ; un ancien libellé texte est aussi accepté.
-const refId = v => typeof v === 'number' ? v : (data.tl.find(t => t.Libelle_TL === v)?.id ?? null);
+const refId = v => typeof v === 'number' ? v : (data.pc.find(t => t.Libelle_PL === v)?.id ?? null);
 
 function saisie() {
   return {
@@ -411,16 +411,16 @@ function saisie() {
 // Recharge une proposition enregistrée : la saisie remplace les valeurs lues dans le TEM-404,
 // et le calcul reprend la période de paramètres utilisée à la création.
 function appliquerSaisie(tl) {
-  const j = JSON.parse(tl.Json_TL || '{}');
-  // Les PL annulées sont gardées : si le programme est remis, sa ligne est réactivée avec son numéro.
-  const plRows = data.pp.filter(r => refId(r.Proposition_commerciale) === tl.id)
+  const j = JSON.parse(tl.Json_PL || '{}');
+  // Les CH annulées sont gardées : si le programme est remis, sa ligne est réactivée avec son numéro.
+  const chRows = data.pp.filter(r => refId(r.Proposition_commerciale) === tl.id)
     .sort((a, b) => (a.Statut === ANNULEE) - (b.Statut === ANNULEE)).reverse();
-  const tlNum = numLibelle(tl.Libelle_TL, 'TL');
+  const plNum = numLibelle(tl.Libelle_PL, 'PL');
   etat.source = {
-    tlId: tl.id, libelle: tl.Libelle_TL, annee: tlNum?.annee, tlNum: tlNum?.num,
-    pl: Object.fromEntries(plRows.map(r => {
-      const prog = PROGS.find(p => p.nom === safeJson(r.Charge)?.programme);
-      return prog ? [prog.code, { rowId: r.id, ...numLibelle(r.Libelle_PL, 'PL'), signe: !!r.devis_signe || r.Statut === SIGNEE, annulee: r.Statut === ANNULEE }] : null;
+    plId: tl.id, libelle: tl.Libelle_PL, annee: plNum?.annee, plNum: plNum?.num,
+    ch: Object.fromEntries(chRows.map(r => {
+      const prog = PROGS.find(p => p.nom === safeJson(r.Json_CH)?.programme);
+      return prog ? [prog.code, { rowId: r.id, ...numLibelle(r.Libelle_CH, 'CH'), signe: !!r.devis_signe || r.Statut === SIGNEE, annulee: r.Statut === ANNULEE }] : null;
     }).filter(Boolean)),
     dateCreation: j.date_creation || j.date || null,
     dateModification: j.date_modification || null,
@@ -533,7 +533,7 @@ function calculer() {
   const ctrl = [];
   const add = (niveau, msg) => ctrl.push({ niveau, msg });
   const P = etat.source?.debutParams ? (periodes.find(p => p.debut === etat.source.debutParams) || null) : periodeAu(today());
-  if (etat.source?.sansSaisie) add('verifier', 'Proposition enregistrée sans la saisie détaillée : valeurs relues dans le TEM-404, à vérifier avant d’enregistrer.');
+  if (etat.source?.sansSaisie) add('verifier', 'Proposition commerciale enregistrée sans la saisie détaillée : valeurs relues dans le TEM-404, à vérifier avant d’enregistrer.');
   if (etat.source && signee()) add('verifier', 'Proposition déjà signée : toute modification sera visible par CPQ (date de modification postérieure à la signature).');
 
   if (!etat.jsonOk) add('bloquant', 'Json_Complet absent ou illisible dans ce TEM-404.');
@@ -692,6 +692,12 @@ function calculer() {
     x.remise = r2(x.htBrut * x.reduction / 100);
     x.ht = r2(x.htBrut - x.remise);
     x.parRole = Object.fromEntries(ROLES.map(r => [r.id, r2(sum(x.uos.filter(u => u.appl).map(u => u.ja[r.id])))]));
+    for (const l of x.lots) {
+      l.jhOffert = r2(sum(l.uos.filter(u => u.offerte).map(u => u.jh)));
+      l.htBrut = r2((l.jh - l.jhOffert) * (tjm ?? 0));
+      l.remise = r2(l.htBrut * x.reduction / 100);
+      l.ht = r2(l.htBrut - l.remise);
+    }
   }
   const tot = {
     jh: r2(sum(prestations.map(x => x.jh))),
@@ -718,13 +724,13 @@ function progRef(p) {
 }
 const tetra = p => progRef(p)?.tetragramme || p.nom.slice(0, 4).toUpperCase();
 
-// Prochain numéro = plus grand numéro existant de l'année + 1 (PL et TL numérotées séparément).
+// Prochain numéro = plus grand numéro existant de l'année + 1 (CH et PL numérotées séparément).
 function derniersNumeros(annee) {
   const max = (liste, col, sigle) => Math.max(0, ...liste.map(r => {
     const n = numLibelle(r[col], sigle);
     return n && n.annee === annee ? n.num : 0;
   }));
-  return { pl: max(data.pp, 'Libelle_PL', 'PL'), tl: max(data.tl, 'Libelle_TL', 'TL') };
+  return { ch: max(data.pp, 'Libelle_CH', 'CH'), pl: max(data.pc, 'Libelle_PL', 'PL') };
 }
 
 // En édition, les numéros existants sont conservés ; seules les prestations ajoutées reçoivent un numéro.
@@ -735,17 +741,17 @@ function libelles(res, nouvelle = !etat.source) {
   const code = ent?.code || '????';
   const com = etat.commentaires.trim() ? '_' + etat.commentaires.trim() : '';
   const der = derniersNumeros(annee);
-  let suivant = der.pl;
-  const nums = res.prestations.map(x => src?.pl[x.prog.code]?.num ?? ++suivant);
-  const tlNum = src?.tlNum ?? der.tl + 1;
+  let suivant = der.ch;
+  const nums = res.prestations.map(x => src?.ch[x.prog.code]?.num ?? ++suivant);
+  const plNum = src?.plNum ?? der.pl + 1;
   const pad = n => String(n).padStart(4, '0');
-  const pl = res.prestations.map((x, i) =>
-    `${annee}PL${pad(nums[i])}_${tetra(x.prog)}${TYPE_CODES[x.e.type] || 'XXXX'}_${code}${com}`);
-  const tl = `${annee}TL${pad(tlNum)}_${res.prestations.map(x => tetra(x.prog)).join('')}_${code}${com}`;
-  return { pl, tl };
+  const ch = res.prestations.map((x, i) =>
+    `${annee}CH${pad(nums[i])}_${tetra(x.prog)}${TYPE_CODES[x.e.type] || 'XXXX'}_${code}${com}`);
+  const pl = `${annee}PL${pad(plNum)}_${res.prestations.map(x => tetra(x.prog)).join('')}_${code}${com}`;
+  return { ch, pl };
 }
 
-const signee = () => !!etat.source && (etat.source.statut === SIGNEE || Object.values(etat.source.pl).some(p => p.signe));
+const signee = () => !!etat.source && (etat.source.statut === SIGNEE || Object.values(etat.source.ch).some(p => p.signe));
 const fmtDateHeure = iso => iso ? new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }) : '';
 
 function genererJustification(res) {
@@ -939,7 +945,7 @@ function cardTotaux() {
   if (!prestations.length) return '';
   const lib = libelles(resultat);
   const rows = prestations.map((x, i) => `<tr>
-    <td><span class="libelle">${esc(lib.pl[i])}</span></td>
+    <td><span class="libelle">${esc(lib.ch[i])}</span></td>
     <td class="num">${JH.format(x.jh)}</td>
     <td class="num">${x.jhOffert ? JH.format(x.jhOffert) : ''}</td>
     <td class="num">${EUR2.format(x.htBrut)}</td>
@@ -951,9 +957,9 @@ function cardTotaux() {
       <label>Commentaires <input type="text" id="txt-comment" size="34" value="${esc(etat.commentaires)}" placeholder="fin de libellé"></label>
       <span class="muted">TJM : ${tjm === null || tjm === undefined ? '?' : EUR.format(tjm)}</span>
     </div>
-    <table class="totaux"><thead><tr><th>Prestation (PL)</th><th class="num">JH</th><th class="num">Offerts</th><th class="num">Brut HT</th><th class="num">Remise %</th><th class="num">Remise</th><th class="num">Net HT</th></tr></thead>
+    <table class="totaux"><thead><tr><th>Charge par prestation (CH)</th><th class="num">JH</th><th class="num">Offerts</th><th class="num">Brut HT</th><th class="num">Remise %</th><th class="num">Remise</th><th class="num">Net HT</th></tr></thead>
     <tbody>${rows}
-      <tr class="grand"><td>Total <span class="libelle">${esc(lib.tl)}</span></td><td class="num">${JH.format(tot.jh)}</td>
+      <tr class="grand"><td>Proposition commerciale <span class="libelle">${esc(lib.pl)}</span></td><td class="num">${JH.format(tot.jh)}</td>
         <td class="num">${tot.jhOffert ? JH.format(tot.jhOffert) : ''}</td><td class="num">${EUR2.format(tot.htBrut)}</td><td></td>
         <td class="num">${tot.remise ? '− ' + EUR2.format(tot.remise) : ''}</td><td class="num">${EUR2.format(tot.ht)}</td></tr>
     </tbody></table>
@@ -961,7 +967,7 @@ function cardTotaux() {
       ${etat.source ? '' : 'Numéros provisoires : ils sont attribués définitivement à la création.'}</p>
     ${etat.source ? `<p class="statusbar ${signee() ? 'warn' : 'ok'}">Édition de <span class="libelle">${esc(etat.source.libelle)}</span>
       — créée le ${esc(fmtDateHeure(etat.source.dateCreation))}${etat.source.dateModification ? `, modifiée le ${esc(fmtDateHeure(etat.source.dateModification))}` : ''}${etat.source.statut ? ` — ${esc(etat.source.statut)}` : ''}${signee() ? ' — <b>déjà signée</b>' : ''}.
-      Les numéros sont conservés ; « Créer de nouvelles propositions » en fait une copie avec de nouveaux numéros.</p>` : ''}
+      Les numéros sont conservés ; « Créer une nouvelle proposition commerciale » en fait une copie avec de nouveaux numéros.</p>` : ''}
   </div></div>`;
 }
 
@@ -1014,21 +1020,37 @@ function majBoutons() {
   $('btn-copy-text').disabled = !ok;
   $('btn-copy-json').disabled = !ok;
   $('btn-create').disabled = !ok;
-  $('btn-create').textContent = etat?.source ? 'Créer de nouvelles propositions commerciales' : 'Créer les propositions commerciales';
+  $('btn-create').textContent = etat?.source ? 'Créer une nouvelle proposition commerciale' : 'Créer la proposition commerciale';
   $('btn-update').style.display = etat?.source ? '' : 'none';
   $('btn-update').disabled = !ok;
 }
 
 /* ──────────────────────────────────────────
-   Export : JSON PL / TL et texte
+   Export : Json_CH (charge d'une prestation), Json_PL (proposition commerciale), Json_client (CPQ)
+   Json_CH et Json_PL ont la même structure lots > UO > JA ; le Json_client divise les lots en articles.
 ────────────────────────────────────────── */
-function jsonPL(x, libPL, libTL, dates = datesProposition()) {
-  const res = resultat;
+const uoJson = (u, extra = {}) => ({
+  id: u.key,
+  libelle: u.lib,
+  ...extra,
+  JH: u.jh,
+  offerte: u.offerte,
+  ...(u.partagee ? { comptee_sur: u.partagee } : {}),
+  ja: ROLES.filter(r => u.ja[r.id] > 0 || u.modif[r.id]).map(r => ({ role: r.lib, JH: u.ja[r.id],
+    ...(u.modif[r.id] ? { modifie: true, JH_calcule: u.jaCalc[r.id] } : {}) })),
+});
+const uosFacturees = l => l.uos.filter(u => u.appl && (u.jh > 0 || u.partagee));
+const entrepriseJson = () => {
   const ent = data.entreprises.get(etat.entrepriseId);
+  return { id: etat.entrepriseId, denomination: ent?.Denomination ?? null, code: ent?.code ?? null };
+};
+
+function jsonCH(x, libCH, libPL, dates = datesProposition()) {
+  const res = resultat;
   return {
+    libelle_CH: libCH,
     libelle_PL: libPL,
-    libelle_TL: libTL,
-    entreprise: { id: etat.entrepriseId, denomination: ent?.Denomination ?? null, code: ent?.code ?? null },
+    entreprise: entrepriseJson(),
     tem404: etat.numTem,
     version_params: res.P.debut,
     date_creation: dates.creation,
@@ -1048,15 +1070,11 @@ function jsonPL(x, libPL, libTL, dates = datesProposition()) {
       lot: l.lot.n,
       libelle: l.lot.lib,
       JH: l.jh,
-      uo: l.uos.filter(u => u.appl && (u.jh > 0 || u.partagee)).map(u => ({
-        id: u.key,
-        libelle: u.lib,
-        JH: u.jh,
-        offerte: u.offerte,
-        ...(u.partagee ? { comptee_sur: u.partagee } : {}),
-        ja: ROLES.filter(r => u.ja[r.id] > 0 || u.modif[r.id]).map(r => ({ role: r.lib, JH: u.ja[r.id],
-          ...(u.modif[r.id] ? { modifie: true, JH_calcule: u.jaCalc[r.id] } : {}) })),
-      })),
+      JH_offerts: l.jhOffert,
+      HT_brut: l.htBrut,
+      remise: l.remise,
+      HT: l.ht,
+      uo: uosFacturees(l).map(u => uoJson(u)),
     })),
     entrees: {
       modulateurs: { ...etat.modulateurs },
@@ -1075,23 +1093,64 @@ function datesProposition(nouvelle = !etat.source) {
   return { creation: (!nouvelle && etat.source?.dateCreation) || maintenant, modification: maintenant };
 }
 
-function jsonTL(lib = libelles(resultat), dates = datesProposition()) {
+const enteteProposition = (lib, dates) => ({
+  libelle_PL: lib.pl,
+  entreprise: entrepriseJson(),
+  tem404: etat.numTem,
+  date_creation: dates.creation,
+  date_modification: dates.modification,
+  version_params: resultat.P.debut,
+  commentaires: etat.commentaires.trim(),
+});
+
+// Le n-ième lot de la PL regroupe les n-ièmes lots des CH : montant = somme des lots de même rang.
+const lotsRegroupes = () => LOTS.map((lot, i) => {
+  const ls = resultat.prestations.map(x => x.lots[i]);
+  const tot = k => r2(sum(ls.map(l => l[k])));
+  return { lot, ls, JH: tot('jh'), JH_offerts: tot('jhOffert'), HT_brut: tot('htBrut'), remise: tot('remise'), HT: tot('ht') };
+});
+
+function jsonPL(lib = libelles(resultat), dates = datesProposition()) {
   const res = resultat;
-  const ent = data.entreprises.get(etat.entrepriseId);
   return {
-    libelle_TL: lib.tl,
-    entreprise: { id: etat.entrepriseId, denomination: ent?.Denomination ?? null, code: ent?.code ?? null },
-    tem404: etat.numTem,
-    date_creation: dates.creation,
-    date_modification: dates.modification,
-    version_params: res.P.debut,
-    commentaires: etat.commentaires.trim(),
+    ...enteteProposition(lib, dates),
+    charges: res.prestations.map((x, i) => ({ libelle_CH: lib.ch[i], programme: x.prog.nom, type: x.e.type, niveau: x.e.niveau, reduction_pct: x.reduction, JH: x.jh, HT: x.ht })),
+    tjm: res.tjm,
     reductions_pct: Object.fromEntries(res.prestations.map(x => [x.prog.nom, x.reduction])),
     totaux: { JH: res.tot.jh, JH_offerts: res.tot.jhOffert, HT_brut: res.tot.htBrut, remise: res.tot.remise, HT: res.tot.ht,
-      par_lot: Object.fromEntries(LOTS.map((l, i) => [l.lib, res.tot.parLot[i]])),
       par_role: Object.fromEntries(ROLES.map(r => [r.lib, res.tot.parRole[r.id]])) },
+    lots: lotsRegroupes().map(g => ({
+      lot: g.lot.n,
+      libelle: g.lot.lib,
+      JH: g.JH, JH_offerts: g.JH_offerts, HT_brut: g.HT_brut, remise: g.remise, HT: g.HT,
+      uo: g.ls.flatMap((l, k) => uosFacturees(l).map(u => uoJson(u, { programme: res.prestations[k].prog.nom, libelle_CH: lib.ch[k] }))),
+    })),
     justification: etat.justification,
-    PL: res.prestations.map((x, i) => jsonPL(x, lib.pl[i], lib.tl, dates)),
+  };
+}
+
+// Json_client (envoyé à CPQ) : les lots sont divisés en articles, sans UO ni JA.
+// Par défaut un seul article « Jours-hommes » par lot ; les articles forfaitaires restent à définir.
+function jsonClient(lib = libelles(resultat), dates = datesProposition()) {
+  const res = resultat;
+  const article = (libelle, quantite, pu) => ({ libelle, unite: 'JH', quantite, prix_unitaire: pu, montant: r2(quantite * pu) });
+  return {
+    ...enteteProposition(lib, dates),
+    devise: 'EUR',
+    prestations: res.prestations.map(x => ({ programme: x.prog.nom, version: x.e.version || x.prog.sansVersion, type: x.e.type, niveau: x.e.niveau })),
+    lots: lotsRegroupes().filter(g => g.JH > 0).map(g => ({
+      lot: g.lot.n,
+      libelle: g.lot.lib,
+      articles: [
+        article('Jours-hommes', r2(g.JH - g.JH_offerts), res.tjm),
+        ...(g.JH_offerts > 0 ? [article('Jours-hommes offerts', g.JH_offerts, 0)] : []),
+      ],
+      montant_brut_HT: g.HT_brut,
+      remise: g.remise,
+      montant_HT: g.HT,
+    })),
+    totaux: { JH: res.tot.jh, JH_offerts: res.tot.jhOffert, montant_brut_HT: res.tot.htBrut, remise: res.tot.remise, montant_HT: res.tot.ht },
+    justification: etat.justification,
   };
 }
 
@@ -1099,11 +1158,11 @@ function texteDevis() {
   const res = resultat, lib = libelles(res);
   const ent = data.entreprises.get(etat.entrepriseId);
   const L = [];
-  L.push(`Proposition commerciale ${lib.tl}`);
+  L.push(`Proposition commerciale ${lib.pl}`);
   L.push(`Client : ${ent?.Denomination ?? ''} — TEM-404 ${etat.numTem} — ${frDate(today())}`);
   L.push(`TJM : ${EUR.format(res.tjm)} HT`);
   for (const [i, x] of res.prestations.entries()) {
-    L.push('', `■ ${lib.pl[i]} — ${x.prog.nom} ${x.e.type} ${x.e.niveau} : ${JH.format(x.jh)} j.h — ${EUR2.format(x.ht)} HT${x.reduction ? ` (remise ${x.reduction} %)` : ''}`);
+    L.push('', `■ ${lib.ch[i]} — ${x.prog.nom} ${x.e.type} ${x.e.niveau} : ${JH.format(x.jh)} j.h — ${EUR2.format(x.ht)} HT${x.reduction ? ` (remise ${x.reduction} %)` : ''}`);
     for (const l of x.lots) {
       if (!l.jh && !l.uos.some(u => u.partagee && u.appl)) continue;
       L.push(`  ${l.lot.lib} : ${JH.format(l.jh)} j.h`);
@@ -1156,12 +1215,12 @@ function toast(msg) {
    Création dans Propositions_prestation
 ────────────────────────────────────────── */
 const COLS = {
-  [TABLE_PL]: ['Libelle_PL', 'Proposition_commerciale', 'TEM_404', 'Charge', 'Statut'],
-  [TABLE_TL]: ['Libelle_TL', 'Entreprise', 'TEM_404', 'Json_TL', 'Saisie', 'Montant_HT', 'Date_creation', 'Date_modification', 'Statut'],
+  [TABLE_CH]: ['Libelle_CH', 'Proposition_commerciale', 'TEM_404', 'Json_CH', 'Statut'],
+  [TABLE_PL]: ['Libelle_PL', 'Entreprise', 'TEM_404', 'Json_PL', 'Json_client', 'Saisie', 'Montant_HT', 'Date_creation', 'Date_modification', 'Statut'],
 };
 
 function verifierSchema() {
-  const presentes = { [TABLE_PL]: data.ppCols, [TABLE_TL]: data.tlCols };
+  const presentes = { [TABLE_CH]: data.ppCols, [TABLE_PL]: data.pcCols };
   const manques = Object.entries(COLS).flatMap(([t, cols]) => cols.filter(c => !presentes[t].has(c)).map(c => `${t}.${c}`));
   if (manques.length) { setStatus(`Colonnes absentes : ${manques.join(', ')}.`, 'error'); return false; }
   const ent = data.entreprises.get(etat.entrepriseId);
@@ -1172,7 +1231,7 @@ function verifierSchema() {
 const secondes = iso => Math.floor(new Date(iso).getTime() / 1000);
 const jourSec = iso => secondes(iso.slice(0, 10) + 'T00:00:00Z');
 
-function champsPL(x, i, lib, tlId, dates) {
+function champsCH(x, i, lib, plId, dates) {
   return {
     Denomination: etat.entrepriseId,
     Date: jourSec(dates.creation),
@@ -1181,10 +1240,10 @@ function champsPL(x, i, lib, tlId, dates) {
     Commentaires: etat.commentaires.trim(),
     Montant_Jour_HT: resultat.tjm,
     Montant_PO: x.ht,
-    Libelle_PL: lib.pl[i],
-    Proposition_commerciale: tlId,
+    Libelle_CH: lib.ch[i],
+    Proposition_commerciale: plId,
     TEM_404: etat.temId,
-    Charge: JSON.stringify(jsonPL(x, lib.pl[i], lib.tl, dates)),
+    Json_CH: JSON.stringify(jsonCH(x, lib.ch[i], lib.pl, dates)),
   };
 }
 
@@ -1198,28 +1257,28 @@ async function creerProposition() {
     if (!resultat.prestations.length || resultat.ctrl.some(c => c.niveau === 'bloquant')) { setStatus('Contrôle bloquant : corriger avant d’écrire.', 'error'); return; }
     const lib = libelles(resultat, true);
     const dates = datesProposition(true);
-    const resume = resultat.prestations.map((x, i) => `• ${lib.pl[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT`).join('\n');
-    if (!window.confirm(`Créer les propositions commerciales ${lib.tl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT`)) return;
+    const resume = resultat.prestations.map((x, i) => `• ${lib.ch[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT`).join('\n');
+    if (!window.confirm(`Créer la proposition commerciale ${lib.pl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT`)) return;
 
-    // Le TL doit exister avant les PL qui le référencent : deux envois successifs.
+    // La PL doit exister avant les CH qui la référencent : deux envois successifs.
     const r = await grist.docApi.applyUserActions([
-      ['AddRecord', TABLE_TL, null, {
-        Libelle_TL: lib.tl, Entreprise: etat.entrepriseId, TEM_404: etat.temId,
-        Json_TL: JSON.stringify(jsonTL(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
+      ['AddRecord', TABLE_PL, null, {
+        Libelle_PL: lib.pl, Entreprise: etat.entrepriseId, TEM_404: etat.temId,
+        Json_PL: JSON.stringify(jsonPL(lib, dates)), Json_client: JSON.stringify(jsonClient(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
         Date_creation: jourSec(dates.creation), Date_modification: secondes(dates.modification), Statut: 'Brouillon',
       }],
     ]);
-    const tlId = r.retValues[0];
+    const plId = r.retValues[0];
     const xs = resultat.prestations;
-    const lignes = xs.map((x, i) => ({ ...champsPL(x, i, lib, tlId, dates), Statut: 'Brouillon' }));
+    const lignes = xs.map((x, i) => ({ ...champsCH(x, i, lib, plId, dates), Statut: 'Brouillon' }));
     const cols = Object.fromEntries(Object.keys(lignes[0]).map(k => [k, lignes.map(l => l[k])]));
-    await grist.docApi.applyUserActions([['BulkAddRecord', TABLE_PL, xs.map(() => null), cols]]);
+    await grist.docApi.applyUserActions([['BulkAddRecord', TABLE_CH, xs.map(() => null), cols]]);
 
     await lirePropositions();
     const temId = etat.temId;
-    selectProposition(tlId);
+    selectProposition(plId);
     if (etat.temId !== temId) return;
-    setStatus(`${lib.tl} créée (${xs.length} prestation(s)). Copier le JSON TL ou le devis pour CPQ.`, 'ok');
+    setStatus(`${lib.pl} créée (${xs.length} charge(s) CH). Copier le Json_client pour CPQ.`, 'ok');
   } catch (err) {
     setStatus(`Échec de la création : ${err.message || err}`, 'error');
   } finally {
@@ -1234,39 +1293,39 @@ async function enregistrerProposition() {
     await lirePropositions();
     if (!verifierSchema()) return;
     const src = etat.source;
-    const tl = data.tl.find(t => t.id === src.tlId);
+    const tl = data.pc.find(t => t.id === src.plId);
     if (!tl) { setStatus('La proposition a été supprimée de Grist.', 'error'); return; }
     resultat = calculer();
     if (!resultat.prestations.length || resultat.ctrl.some(c => c.niveau === 'bloquant')) { setStatus('Contrôle bloquant : corriger avant d’écrire.', 'error'); return; }
     const lib = libelles(resultat, false);
     const dates = datesProposition(false);
     const xs = resultat.prestations;
-    const ajouts = xs.filter(x => !src.pl[x.prog.code]);
-    const annulees = Object.entries(src.pl).filter(([code, ex]) => !ex.annulee && !xs.some(x => x.prog.code === code));
-    const resume = xs.map((x, i) => `• ${lib.pl[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT${src.pl[x.prog.code] ? '' : ' (nouvelle)'}`)
-      .concat(annulees.map(([code]) => `• ${PROGS.find(p => p.code === code).nom} : ligne PL marquée « ${ANNULEE} »`)).join('\n');
+    const ajouts = xs.filter(x => !src.ch[x.prog.code]);
+    const annulees = Object.entries(src.ch).filter(([code, ex]) => !ex.annulee && !xs.some(x => x.prog.code === code));
+    const resume = xs.map((x, i) => `• ${lib.ch[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT${src.ch[x.prog.code] ? '' : ' (nouvelle)'}`)
+      .concat(annulees.map(([code]) => `• ${PROGS.find(p => p.code === code).nom} : charge CH marquée « ${ANNULEE} »`)).join('\n');
     const alerte = signee() ? '\n\n⚠ Proposition déjà signée : la modification sera visible par CPQ.' : '';
-    if (!window.confirm(`Enregistrer les modifications de ${lib.tl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT${alerte}`)) return;
+    if (!window.confirm(`Enregistrer les modifications de ${lib.pl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT${alerte}`)) return;
 
-    const actions = [['UpdateRecord', TABLE_TL, src.tlId, {
-      Libelle_TL: lib.tl, Json_TL: JSON.stringify(jsonTL(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
+    const actions = [['UpdateRecord', TABLE_PL, src.plId, {
+      Libelle_PL: lib.pl, Json_PL: JSON.stringify(jsonPL(lib, dates)), Json_client: JSON.stringify(jsonClient(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
       Date_modification: secondes(dates.modification),
     }]];
     xs.forEach((x, i) => {
-      const champs = champsPL(x, i, lib, src.tlId, dates);
-      const ex = src.pl[x.prog.code];
+      const champs = champsCH(x, i, lib, src.plId, dates);
+      const ex = src.ch[x.prog.code];
       if (ex) {
         delete champs.Date;
         if (ex.annulee) champs.Statut = 'Brouillon';
-        actions.push(['UpdateRecord', TABLE_PL, ex.rowId, champs]);
-      } else actions.push(['AddRecord', TABLE_PL, null, { ...champs, Statut: 'Brouillon' }]);
+        actions.push(['UpdateRecord', TABLE_CH, ex.rowId, champs]);
+      } else actions.push(['AddRecord', TABLE_CH, null, { ...champs, Statut: 'Brouillon' }]);
     });
-    for (const [, ex] of annulees) actions.push(['UpdateRecord', TABLE_PL, ex.rowId, { Statut: ANNULEE }]);
+    for (const [, ex] of annulees) actions.push(['UpdateRecord', TABLE_CH, ex.rowId, { Statut: ANNULEE }]);
     await grist.docApi.applyUserActions(actions);
 
     await lirePropositions();
-    selectProposition(src.tlId);
-    setStatus(`${lib.tl} enregistrée${ajouts.length ? `, ${ajouts.length} PL ajoutée(s)` : ''}${annulees.length ? `, ${annulees.length} PL annulée(s)` : ''}.`, 'ok');
+    selectProposition(src.plId);
+    setStatus(`${lib.pl} enregistrée${ajouts.length ? `, ${ajouts.length} CH ajoutée(s)` : ''}${annulees.length ? `, ${annulees.length} CH annulée(s)` : ''}.`, 'ok');
   } catch (err) {
     setStatus(`Échec de l’enregistrement : ${err.message || err}`, 'error');
   } finally {
