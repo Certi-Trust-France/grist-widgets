@@ -147,17 +147,25 @@
 <script>
 // Les valeurs chiffrées (JH par rôle, coefficients, TJM) ne figurent PAS dans ce fichier public :
 // elles sont stockées dans les options du widget (document Grist) sous la forme
-// { periodes: [{ debut:'AAAA-MM-JJ', tjm, bornes:{min,max}, mutualisation:[c1,c2,c3],
+// { periodes: [{ debut:'AAAA-MM-JJ', tjm, bornes:{min,max},
 //   couverture:{Initiale,Surveillance,Renouvellement}, modulateurs:{<critère>:{<choix>:effet %}},
-//   lignes:{<id>:{base:{CE,RE,ET_ORG,ETA,ETM}, eleve:{…}, R,S,Y}} }]
+//   lignes:{<id>:{base:{CE,RE,ET_ORG,ETA,ETM}, eleve:{…}, R,Y}} }]
 // La période appliquée est celle dont le début est le plus récent sans dépasser la date du jour.
 
 const ROLES = [
   { id: 'CE', lib: 'CE', titre: "Chargé d'évaluation" },
   { id: 'RE', lib: 'RE', titre: "Responsable d'évaluation" },
-  { id: 'ET_ORG', lib: 'ET-ORG', titre: 'Évaluateur organisationnel' },
+  { id: 'ET_ORG', lib: 'ORGA&PHY', titre: 'Évaluation organisationnelle et physique, assurée par le RE' },
   { id: 'ETA', lib: 'ETA', titre: 'Évaluateur technique' },
   { id: 'ETM', lib: 'ETM', titre: 'Évaluateur métier' },
+];
+// Rôles des json (colonnes CE, RE, ETA, ETM des tables Evaluations et Unites_d_oeuvre) :
+// ORGA&PHY est assuré par le RE, ses JH sont ajoutés au JA du RE.
+const ROLES_JSON = [
+  { id: 'CE', src: ['CE'] },
+  { id: 'RE', src: ['RE', 'ET_ORG'] },
+  { id: 'ETA', src: ['ETA'] },
+  { id: 'ETM', src: ['ETM'] },
 ];
 
 const LOTS = [
@@ -199,13 +207,13 @@ const CATALOGUE = [
   { id: 'suivi', lot: 1, type: 'commune', lib: 'Suivi de la prestation' },
   { id: 'anssi', lot: 1, type: 'commune', lib: 'Relation avec l’ANSSI' },
   { id: 'pilotage', lot: 1, type: 'commune', lib: 'Réunion de lancement' },
-  { id: 'comite', lot: 1, type: 'programme', lib: 'Comité de certification et émission du certificat' },
+  { id: 'comite', lot: 1, type: 'commune', lib: 'Comité de certification et émission du ou des certificats' },
   { id: 'plan', lot: 1, type: 'programme', lib: 'Plan d’évaluation' },
   { id: 'doc_prestataire', lot: 1, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire applicable au prestataire' },
   { id: 'doc_prestation', lot: 1, type: 'programme', lib: 'Évaluation documentaire applicable à la prestation' },
   { id: 'si_doc', lot: 1, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire technique du système d’information' },
   { id: 'metier_doc', lot: 1, type: 'portee', niveaux: true, lib: 'Évaluation documentaire métier' },
-  { id: 'site_prestataire', lot: 2, type: 'programme', lib: 'Évaluation sur site applicable au prestataire' },
+  { id: 'site_prestataire', lot: 2, type: 'partagee', cond: 'toujours', lib: 'Évaluation sur site applicable au prestataire' },
   { id: 'secu_physique', lot: 2, type: 'site', lib: 'Évaluation sécurité physique' },
   { id: 'si_ii901', lot: 2, type: 'partagee', cond: 'eleve', lib: 'Évaluation SI DR II901' },
   { id: 'si_ghy_renforce', lot: 2, type: 'partagee', cond: 'eleve', lib: 'Évaluation SI DR GHY renforcé' },
@@ -397,7 +405,6 @@ function saisie() {
     sites_nouveaux: etat.sites.filter(s => s.nouveau).map(s => s.n),
     siteSel: { ...etat.siteSel },
     modulateurs: { ...etat.modulateurs },
-    mutualisation: etat.mutualisation,
     appl: { ...etat.appl },
     offert: { ...etat.offert },
     ja: { ...etat.ja },
@@ -433,7 +440,7 @@ function appliquerSaisie(tl) {
   if (s.portees) for (const p of PROGS) Object.assign(etat.portees[p.code], s.portees[p.code] || {});
   for (const site of etat.sites) site.nouveau = (s.sites_nouveaux || []).includes(site.n);
   Object.assign(etat, {
-    siteSel: s.siteSel || {}, modulateurs: { ...etat.modulateurs, ...s.modulateurs }, mutualisation: s.mutualisation ?? true,
+    siteSel: s.siteSel || {}, modulateurs: { ...etat.modulateurs, ...s.modulateurs },
     appl: s.appl || {}, offert: s.offert || {}, ja: s.ja || {}, reduction: { ...etat.reduction, ...s.reduction },
     commentaires: s.commentaires || '', justification: s.justification ?? null, justifEditee: !!s.justifEditee,
   });
@@ -483,7 +490,7 @@ function etatDepuisTem(tem) {
   const modulateurs = Object.fromEntries(MODULATEURS.map(m => [m.id, m.defaut]));
   return {
     temId: tem.id, numTem: tem.NumTEM404, entrepriseId: tem.Entreprise, jsonOk, manques, nonGeres,
-    programmes, portees, sites, modulateurs, mutualisation: true,
+    programmes, portees, sites, modulateurs,
     siteSel: {}, appl: {}, offert: {}, ja: {},
     reduction: Object.fromEntries(PROGS.map(p => [p.code, 0])), commentaires: '', justification: null, justifEditee: false, source: null,
   };
@@ -576,10 +583,6 @@ function calculer() {
   if (bmin === null || bmax === null) add('bloquant', 'Paramètres : bornes des modulateurs manquantes.');
   const moy = effets.some(v => v === null) ? 0 : sum(effets) / effets.length;
   const coefMod = 1 + Math.max(Math.min(moy, bmax ?? 0), bmin ?? 0) / 100;
-  const nProg = progsRet.length;
-  const coefMutRaw = nProg ? parseNum(P.mutualisation?.[Math.min(nProg, 3) - 1]) : 1;
-  if (etat.mutualisation && coefMutRaw === null) add('bloquant', 'Paramètres : coefficient de mutualisation manquant.');
-  const coefMut = etat.mutualisation ? (coefMutRaw ?? 1) : 1;
   const couv = t => parseNum(P.couverture?.[t]);
   for (const p of progsRet) if (TYPES.includes(etat.programmes[p.code].type) && couv(etat.programmes[p.code].type) === null)
     add('bloquant', `Paramètres : couverture « ${etat.programmes[p.code].type} » manquante.`);
@@ -598,7 +601,7 @@ function calculer() {
     const ja = {};
     for (const r of ROLES) {
       const base = parseNum(v[r.id]) ?? 0;
-      ja[r.id] = r05(base * (f.R ? coefMod : 1) * (f.S ? coefMut : 1) * (f.Y ? (coefCouv ?? 1) : 1));
+      ja[r.id] = r05(base * (f.R ? coefMod : 1) * (f.Y ? (coefCouv ?? 1) : 1));
     }
     return ja;
   };
@@ -711,7 +714,7 @@ function calculer() {
   const nbSitesEvalues = etat.sites.filter(s => progsRet.some(p => sel[p.code]?.sites.has(s.n))).length;
   if (prestations.length && tot.jh === 0) add('info', 'Charges nulles : vérifier les paramètres.');
 
-  return { ctrl, prestations, tot, P, tjm, coefMod, coefMut, moy, couvMin, sel, progsRet, principal, anyEleve, nbSitesEvalues };
+  return { ctrl, prestations, tot, P, tjm, coefMod, moy, couvMin, sel, progsRet, principal, anyEleve, nbSitesEvalues };
 }
 
 /* ──────────────────────────────────────────
@@ -765,7 +768,7 @@ function genererJustification(res) {
   let t = 'Justification :\n\n';
   if (amenage) t += 'La charge a été estimée conformément au règlement de certification de Certi-Trust, à la stratégie d’évaluation type élaborée par l’ANSSI et aux référentiels d’exigences applicables, dans le cadre du processus aménagé de qualification d’un service (note ANSSI n°2905/ANSSI/SDE/PSS/BQA du 3 juin 2026). Dans ce cadre, l’ANSSI ne valide ni la stratégie, ni le plan, ni les charges, ni le calendrier d’évaluation, et la décision de certification est prise par un comité de certification au sein duquel elle siège de plein droit avec voix consultative.\n';
   if (passi) t += `La prestation PASSI est conduite sous accréditation, conformément au règlement de certification PASSI de Certi-Trust et au référentiel d’exigences PASSI v${version(prestations.find(x => x.prog.code === 'passi'))}. Le programme PASSI n’entre pas dans le champ du processus aménagé de qualification d’un service.\n`;
-  if (passi && amenage) t += 'Cette offre couvre donc deux régimes distincts. Les travaux mutualisables – réunion de lancement, socle documentaire commun et évaluation du système d’information – sont conduits une seule fois ; les livrables et les décisions restent propres à chaque référentiel.\n';
+  if (passi && amenage) t += 'Cette offre couvre donc deux régimes distincts. Les travaux communs – réunion de lancement, socle documentaire commun et évaluation du système d’information – sont conduits une seule fois ; les livrables et les décisions restent propres à chaque référentiel.\n';
   t += '\nCette offre repose sur les éléments transmis par le commanditaire :';
   for (const x of actifs) {
     const codes = x.prog.portees.map(([, c]) => c).filter(c => etat.portees[x.prog.code][c]);
@@ -893,8 +896,6 @@ function cardModulateurs() {
   return `<div class="card"><h3>Modulateurs de charge</h3><div class="body">
     <table><tbody>${rows}
       <tr><td colspan="2">Coefficient modulateurs</td><td class="num"><b>${r.coefMod ? fmtNum(r2(r.coefMod * 10000) / 10000) : '–'}</b></td></tr>
-      <tr><td colspan="2"><label><input type="checkbox" id="chk-mut" ${etat.mutualisation ? 'checked' : ''}> Appliquer la mutualisation multi-programmes</label></td>
-        <td class="num"><b>${r.coefMut ? fmtNum(r2(r.coefMut * 10000) / 10000) : '–'}</b></td></tr>
     </tbody></table>
     ${P ? `<p class="hint">Paramètres en vigueur depuis le ${frDate(P.debut)}.</p>` : ''}
   </div></div>`;
@@ -1008,7 +1009,6 @@ function bindDevis() {
     });
   });
   on('[data-ja]', 'keydown', e => { if (e.key === 'Enter') e.target.blur(); });
-  $('chk-mut')?.addEventListener('change', e => { etat.mutualisation = e.target.checked; renderDevis(); });
   on('[data-reduction]', 'change', e => { etat.reduction[e.target.dataset.reduction] = Number(e.target.value); renderDevis(); });
   $('txt-comment')?.addEventListener('change', e => { etat.commentaires = e.target.value.replace(/\s+/g, ' '); renderDevis(); });
   $('txt-justif')?.addEventListener('input', e => { etat.justification = e.target.value; etat.justifEditee = true; });
@@ -1036,8 +1036,12 @@ const uoJson = (u, extra = {}) => ({
   JH: u.jh,
   offerte: u.offerte,
   ...(u.partagee ? { comptee_sur: u.partagee } : {}),
-  ja: ROLES.filter(r => u.ja[r.id] > 0 || u.modif[r.id]).map(r => ({ role: r.lib, JH: u.ja[r.id],
-    ...(u.modif[r.id] ? { modifie: true, JH_calcule: u.jaCalc[r.id] } : {}) })),
+  ja: ROLES_JSON.map(r => {
+    const JH = r2(sum(r.src.map(s => u.ja[s]))), modifie = r.src.some(s => u.modif[s]);
+    if (!(JH > 0 || modifie)) return null;
+    return { role: r.id, JH, ...(r.id === 'RE' && u.ja.ET_ORG > 0 ? { dont_ORGA_PHY: u.ja.ET_ORG } : {}),
+      ...(modifie ? { modifie: true, JH_calcule: r2(sum(r.src.map(s => u.jaCalc[s]))) } : {}) };
+  }).filter(Boolean),
 });
 const uosFacturees = l => l.uos.filter(u => u.appl && (u.jh > 0 || u.partagee));
 const entrepriseJson = () => {
@@ -1079,8 +1083,6 @@ function jsonCH(x, libCH, libPL, dates = datesProposition()) {
     entrees: {
       modulateurs: { ...etat.modulateurs },
       coef_modulateurs: r2(res.coefMod * 10000) / 10000,
-      mutualisation: etat.mutualisation,
-      coef_mutualisation: res.coefMut,
       portees: x.prog.portees.map(([, c]) => c).filter(c => etat.portees[x.prog.code][c]),
       sites_evalues: [...(res.sel[x.prog.code]?.sites || [])],
       sites: etat.sites.map(s => ({ n: s.n, nom: s.nom, nouveau: s.nouveau })),
@@ -1118,7 +1120,7 @@ function jsonPL(lib = libelles(resultat), dates = datesProposition()) {
     tjm: res.tjm,
     reductions_pct: Object.fromEntries(res.prestations.map(x => [x.prog.nom, x.reduction])),
     totaux: { JH: res.tot.jh, JH_offerts: res.tot.jhOffert, HT_brut: res.tot.htBrut, remise: res.tot.remise, HT: res.tot.ht,
-      par_role: Object.fromEntries(ROLES.map(r => [r.lib, res.tot.parRole[r.id]])) },
+      par_role: Object.fromEntries(ROLES_JSON.map(r => [r.id, r2(sum(r.src.map(s => res.tot.parRole[s])))])) },
     lots: lotsRegroupes().map(g => ({
       lot: g.lot.n,
       libelle: g.lot.lib,
@@ -1338,10 +1340,10 @@ async function enregistrerProposition() {
 ────────────────────────────────────────── */
 function periodeVide() {
   return {
-    debut: today(), tjm: '', bornes: { min: '', max: '' }, mutualisation: ['', '', ''],
+    debut: today(), tjm: '', bornes: { min: '', max: '' },
     couverture: Object.fromEntries(TYPES.map(t => [t, ''])),
     modulateurs: Object.fromEntries(MODULATEURS.map(m => [m.id, Object.fromEntries(m.choix.map(c => [c, '']))])),
-    lignes: Object.fromEntries(CATALOGUE.map(l => [l.id, { base: {}, eleve: {}, R: false, S: false, Y: false }])),
+    lignes: Object.fromEntries(CATALOGUE.map(l => [l.id, { base: {}, eleve: {}, R: false, Y: false }])),
   };
 }
 
@@ -1351,7 +1353,7 @@ function normaliser(p) {
   const out = { ...v, ...structuredClone(p) };
   out.bornes = { ...v.bornes, ...(p.bornes || {}) };
   out.couverture = { ...v.couverture, ...(p.couverture || {}) };
-  out.mutualisation = [0, 1, 2].map(i => p.mutualisation?.[i] ?? '');
+  delete out.mutualisation;
   out.modulateurs = Object.fromEntries(MODULATEURS.map(m => [m.id, { ...v.modulateurs[m.id], ...(p.modulateurs?.[m.id] || {}) }]));
   out.lignes = Object.fromEntries(CATALOGUE.map(l => [l.id, { ...v.lignes[l.id], ...(p.lignes?.[l.id] || {}) }]));
   return out;
@@ -1386,14 +1388,14 @@ function renderSettings() {
 
   let lignes = '';
   for (const lot of LOTS) {
-    lignes += `<tr><td class="lot" colspan="${ROLES.length + 4}">${esc(lot.lib)}</td></tr>`;
+    lignes += `<tr><td class="lot" colspan="${ROLES.length + 3}">${esc(lot.lib)}</td></tr>`;
     for (const l of CATALOGUE.filter(x => x.lot === lot.n)) {
       const pl = p.lignes[l.id];
-      const flags = ['R', 'S', 'Y'].map(f => `<td><input type="checkbox" data-flag="${l.id}|${f}" ${pl[f] ? 'checked' : ''}></td>`).join('');
+      const flags = ['R', 'Y'].map(f => `<td><input type="checkbox" data-flag="${l.id}|${f}" ${pl[f] ? 'checked' : ''}></td>`).join('');
       lignes += `<tr><td>${esc(l.lib)}${l.niveaux ? ' <span class="muted">(Substantiel)</span>' : ''}</td>
         ${ROLES.map(r => `<td>${inp(`lignes.${l.id}.base.${r.id}`, pl.base?.[r.id])}</td>`).join('')}${flags}</tr>`;
       if (l.niveaux) lignes += `<tr class="eleve"><td>… au niveau Élevé</td>
-        ${ROLES.map(r => `<td>${inp(`lignes.${l.id}.eleve.${r.id}`, pl.eleve?.[r.id])}</td>`).join('')}<td colspan="3"></td></tr>`;
+        ${ROLES.map(r => `<td>${inp(`lignes.${l.id}.eleve.${r.id}`, pl.eleve?.[r.id])}</td>`).join('')}<td colspan="2"></td></tr>`;
     }
   }
 
@@ -1414,15 +1416,14 @@ function renderSettings() {
           <table><tbody>${mods}
             <tr><td>Bornes de la moyenne</td><td>plancher ${inp('bornes.min', p.bornes.min)} % · plafond ${inp('bornes.max', p.bornes.max)} %</td></tr>
           </tbody></table></div></div>
-        <div class="card"><h3>Mutualisation et couverture</h3><div class="body">
+        <div class="card"><h3>Couverture</h3><div class="body">
           <table><tbody>
-            <tr><td>Mutualisation 1 / 2 / 3 programmes</td><td>${[0, 1, 2].map(i => inp(`mutualisation.${i}`, p.mutualisation[i])).join(' ')}</td></tr>
             ${TYPES.map(t => `<tr><td>Couverture ${t}</td><td>${inp(`couverture.${t}`, p.couverture[t])}</td></tr>`).join('')}
           </tbody></table></div></div>
       </div>
       <div class="card"><h3>Charges de base par UO (JH par rôle)</h3><div class="body">
-        <p class="hint">R = appliquer le coefficient modulateurs · S = appliquer la mutualisation · Y = appliquer la couverture.</p>
-        <table class="params-lignes"><thead><tr><th>Unité d’œuvre</th>${ROLES.map(r => `<th title="${esc(r.titre)}">${r.lib}</th>`).join('')}<th>R</th><th>S</th><th>Y</th></tr></thead>
+        <p class="hint">R = appliquer le coefficient modulateurs · Y = appliquer la couverture.</p>
+        <table class="params-lignes"><thead><tr><th>Unité d’œuvre</th>${ROLES.map(r => `<th title="${esc(r.titre)}">${r.lib}</th>`).join('')}<th>R</th><th>Y</th></tr></thead>
         <tbody>${lignes}</tbody></table></div></div>
       <div class="card"><h3>Import / export JSON (toutes les périodes)</h3><div class="body">
         <p class="hint">Glisser-déposer un fichier .json dans la zone, le choisir avec « Charger un fichier », ou coller son contenu puis cliquer sur « Importer ».</p>
@@ -1511,13 +1512,12 @@ async function saveSettings() {
     debut: p.debut,
     tjm: nettoie(p.tjm),
     bornes: { min: nettoie(p.bornes.min), max: nettoie(p.bornes.max) },
-    mutualisation: p.mutualisation.map(nettoie),
     couverture: Object.fromEntries(TYPES.map(t => [t, nettoie(p.couverture[t])])),
     modulateurs: Object.fromEntries(MODULATEURS.map(m => [m.id, Object.fromEntries(m.choix.map(c => [c, nettoie(p.modulateurs[m.id][c])]))])),
     lignes: Object.fromEntries(CATALOGUE.map(l => {
       const pl = p.lignes[l.id] || {};
       const roles = src => Object.fromEntries(ROLES.map(r => [r.id, nettoie(src?.[r.id])]).filter(([, v]) => v !== null));
-      return [l.id, { base: roles(pl.base), ...(l.niveaux ? { eleve: roles(pl.eleve) } : {}), R: !!pl.R, S: !!pl.S, Y: !!pl.Y }];
+      return [l.id, { base: roles(pl.base), ...(l.niveaux ? { eleve: roles(pl.eleve) } : {}), R: !!pl.R, Y: !!pl.Y }];
     })),
   })).sort((a, b) => a.debut.localeCompare(b.debut));
 
