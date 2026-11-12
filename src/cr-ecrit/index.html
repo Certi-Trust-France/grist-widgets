@@ -199,6 +199,7 @@ async function loadData(examId) {
       libelle: qi !== null ? String(qualifs.Qualifications[qi] || '') : '',
       dateHeure: ecrits.date_heure[k] || 0,
       duree: Number(ecrits.Duree_minutes_[k] || 0),
+      resultat: ecrits.succes_echec?.[k] || '',
       centre: cei !== null
         ? [centres.Nom_centre_examen[cei], centres.Ville[cei]].filter(Boolean).join(' — ')
         : '',
@@ -228,8 +229,8 @@ async function loadData(examId) {
   }
 
   // Empreinte du contenu du CR : un examen ajouté, retiré ou modifié (qualification,
-  // date, durée) rend le CR « à renvoyer ». Stockée à l'identique sur chaque ligne envoyée.
-  const signature = examens.map(e => [e.id, e.code, e.dateHeure, e.duree].join(':')).join(';');
+  // date, durée, résultat) rend le CR « à renvoyer ». Stockée à l'identique sur chaque ligne envoyée.
+  const signature = examens.map(e => [e.id, e.code, e.dateHeure, e.duree, mention(e.resultat)].join(':')).join(';');
   const dates = examens.map(e => e.dateEnvoye).filter(Boolean);
   const dateEnvoye = dates.length ? Math.max(...dates) : null;
   const isSent = examens.length > 0 && examens.every(e => e.dateEnvoye && e.sigEnvoyee === signature);
@@ -251,6 +252,9 @@ function buildCR(d) {
   if (!d.examens.length)        errors.push('Aucun examen écrit passé pour ce candidat.');
   if (d.examens.some(e => !e.code)) errors.push('Qualification manquante sur au moins un examen.');
   if (d.examens.some(e => !e.programme)) warnings.push('Programme manquant sur au moins un examen.');
+  const nonCorriges = d.examens.filter(e => !mention(e.resultat)).length;
+  if (nonCorriges)
+    warnings.push(`${nonCorriges} examen(s) non corrigé(s) : le CR indiquera « En cours de correction ».`);
   if (!d.hasTrace)
     errors.push(`Colonnes ${COL_DATE} (Date/heure) et ${COL_SIG} (Texte) à créer dans ${TABLE} pour pouvoir tracer l’envoi.`);
   if (!d.responsables.length)
@@ -260,7 +264,7 @@ function buildCR(d) {
   if (d.aVenir)
     infos.push(`${d.aVenir} examen(s) écrit(s) pas encore passé(s) pour ce candidat — non inclus dans le CR.`);
   if (d.dateEnvoye && !d.isSent)
-    infos.push('Le CR a changé depuis le dernier envoi (examen ajouté ou modifié) : le renvoi contiendra l’ensemble des examens.');
+    infos.push('Le CR a changé depuis le dernier envoi (examen ajouté, modifié ou résultat saisi) : le renvoi contiendra l’ensemble des examens.');
 
   const to = d.candidat?.email || '';
   const cc = d.responsables.map(r => r.email).filter(Boolean);
@@ -270,8 +274,14 @@ function buildCR(d) {
            signature: d.signature, dateEnvoye: d.dateEnvoye, isSent: d.isSent };
 }
 
-/* ── Corps HTML de l'e-mail (styles inline — compatible Outlook).
-   Volontairement sans notes ni succès/échec : les résultats sont communiqués à part. ── */
+// Seule la mention est communiquée, jamais la note (Note_1 / Note_2).
+function mention(succesEchec) {
+  if (succesEchec === 'Succès') return 'REÇU';
+  if (succesEchec === 'Échec')  return 'AJOURNÉ';
+  return '';
+}
+
+/* ── Corps HTML de l'e-mail (styles inline — compatible Outlook). ── */
 function renderCorpsHtml(d) {
   const td = 'border:1px solid #999;padding:4px 8px;font-size:13px;';
   const th = `${td}background:#eee;text-align:left;`;
@@ -286,8 +296,10 @@ function renderCorpsHtml(d) {
       <td style="${td}">${fmtDateHeure(e.dateHeure)}</td>
       <td style="${td}">${e.duree ? `${e.duree} min` : '—'}</td>
       <td style="${td}">${esc(e.centre || '—')}</td>
+      <td style="${td}">${mention(e.resultat) ? `<b>${mention(e.resultat)}</b>` : '<i>En cours de correction</i>'}</td>
     </tr>`).join('');
-  const nbCols = plusieursProgs ? 5 : 4;
+  const nbCols = plusieursProgs ? 6 : 5;
+  const enAttente = d.examens.some(e => !mention(e.resultat));
 
   return `
 <div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#1a1a1a;max-width:640px;">
@@ -307,11 +319,12 @@ function renderCorpsHtml(d) {
       ${plusieursProgs ? `<th style="${th}">Programme</th>` : ''}
       <th style="${th}">Qualification</th><th style="${th}">Date et heure</th>
       <th style="${th}">Durée</th><th style="${th}">Centre d'examen</th>
+      <th style="${th}">Résultat</th>
     </tr>
     ${rows || `<tr><td style="${td}" colspan="${nbCols}">Aucun examen.</td></tr>`}
   </table>
 
-  <p style="${p};margin-top:14px;">Les résultats de ces examens vous seront communiqués ultérieurement.</p>
+  ${enAttente ? `<p style="${p};margin-top:14px;">Les résultats des examens en cours de correction vous seront communiqués ultérieurement.</p>` : ''}
 </div>`;
 }
 
