@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entretien PACS</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  /* Charte Certi-Trust */
+  :root { --marine:#32406C; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A;
+          --ok:#047857; --ok-bg:#e3f5ec; --ko:#b91c1c; --ko-bg:#fdecec; --neutre:#8a93a8; --neutre-bg:#f1f3f7; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color:var(--txt); background:#eef0f4; }
+  button { font:inherit; font-size:12px; padding:5px 10px; border:1px solid var(--bord); border-radius:6px; background:#fff; cursor:pointer; color:var(--txt); }
+  button:hover { background:var(--pale); }
+  button.prim { background:var(--marine); color:#fff; border-color:var(--marine); } button.prim:hover { background:#26325a; }
+  button.danger { background:var(--ko); color:#fff; border-color:var(--ko); }
+  button:disabled { opacity:.5; cursor:default; }
+  .barre { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--bord); padding:8px 14px;
+           display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; }
+  .barre .titre { font-weight:700; color:var(--marine); font-size:13px; margin-right:auto; }
+  .pastille { font-size:11px; padding:2px 9px; border-radius:10px; white-space:nowrap; font-weight:600; }
+  .p-cours { background:var(--pale); color:var(--marine); } .p-clos { background:#fef3c7; color:#78350f; }
+  .p-ok { background:var(--ok-bg); color:var(--ok); } .p-ko { background:var(--ko-bg); color:var(--ko); }
+  #msg { padding:40px 14px; color:var(--gris); text-align:center; }
+  main { max-width:980px; margin:0 auto; padding:10px 12px 40px; }
+  .carte { background:#fff; border:1px solid var(--bord); border-radius:8px; padding:10px 14px; margin-bottom:10px; }
+  .entete { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:4px 16px; }
+  .entete div span { display:block; font-size:10.5px; color:var(--gris); text-transform:uppercase; letter-spacing:.03em; }
+  .entete div b { font-weight:600; }
+  .quals { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .quals button.actif { background:var(--marine); color:#fff; border-color:var(--marine); }
+  .quals .sans { font-size:11px; color:var(--gris); padding:5px 4px; }
+  .clos-info { background:#fef3c7; border:1px solid #f1cf94; color:#6b4300; padding:7px 12px; border-radius:6px; margin-bottom:10px; font-size:12px; }
+  /* Synthèse compacte, collante */
+  .synth { position:sticky; top:41px; z-index:4; display:grid; grid-template-columns:1fr 1fr auto; gap:8px 18px; align-items:center; }
+  .jauge .lib { display:flex; justify-content:space-between; font-size:11.5px; margin-bottom:3px; }
+  .jauge .lib b { font-size:13px; }
+  .barre-j { position:relative; height:9px; background:var(--neutre-bg); border-radius:5px; overflow:visible; }
+  .barre-j i { position:absolute; left:0; top:0; bottom:0; border-radius:5px; background:var(--neutre); }
+  .barre-j.ok i { background:var(--ok); } .barre-j.ko i { background:var(--ko); }
+  .barre-j u { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--txt); }
+  .verdict { font-weight:700; font-size:13px; padding:6px 12px; border-radius:6px; text-align:center; white-space:nowrap; }
+  .verdict.ok { background:var(--ok-bg); color:var(--ok); } .verdict.ko { background:var(--ko-bg); color:var(--ko); }
+  .verdict small { display:block; font-weight:400; font-size:10.5px; }
+  /* Thèmes */
+  .themes { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
+  .themes button { display:flex; flex-direction:column; align-items:flex-start; min-width:96px; padding:4px 9px; border-left:4px solid var(--neutre); }
+  .themes button .n { font-weight:700; font-size:11.5px; }
+  .themes button .s { font-size:11px; color:var(--gris); }
+  .themes button.ok { border-left-color:var(--ok); } .themes button.ok .s { color:var(--ok); }
+  .themes button.ko { border-left-color:var(--ko); } .themes button.ko .s { color:var(--ko); }
+  .themes button.actif { background:var(--pale); outline:2px solid var(--marine); outline-offset:-1px; }
+  .themes .renf { font-size:9.5px; color:var(--marine); font-weight:600; }
+  h2 { font-size:15px; color:var(--marine); margin:4px 0 2px; }
+  .sous-titre { font-size:11.5px; color:var(--gris); margin-bottom:10px; }
+  /* Questions */
+  .q { border:1px solid var(--bord); border-radius:8px; background:#fff; padding:9px 12px; margin-bottom:8px; }
+  .qh { display:flex; gap:8px; align-items:center; margin-bottom:4px; }
+  .qn { font-weight:700; color:var(--marine); }
+  .niv { font-size:10.5px; padding:1px 7px; border-radius:9px; font-weight:600; }
+  .niv.c { background:#e7ecf7; color:var(--marine); } .niv.m { background:#fff1d6; color:#8a5300; } .niv.e { background:#f3e3f7; color:#6d2a85; }
+  .qs { margin-left:auto; font-size:11.5px; color:var(--gris); white-space:nowrap; } .qs b { color:var(--txt); }
+  .qt { font-weight:600; margin-bottom:6px; }
+  label.pt { display:flex; gap:8px; align-items:flex-start; padding:3px 6px; border-radius:5px; cursor:pointer; }
+  label.pt:hover { background:var(--pale); }
+  label.pt input { margin:2px 0 0; width:15px; height:15px; accent-color:var(--marine); cursor:pointer; flex:none; }
+  label.pt.coche { background:#f3f6fc; }
+  .ro label.pt { cursor:default; } .ro label.pt input { cursor:default; }
+  details.rq { margin-top:4px; } details.rq summary { font-size:11px; color:var(--gris); cursor:pointer; }
+  details.rq[open] summary, details.rq.rempli summary { color:var(--marine); }
+  textarea { width:100%; font:inherit; border:1px solid var(--bord); border-radius:5px; padding:5px 7px; resize:vertical; min-height:46px; margin-top:4px; }
+  textarea:focus { outline:none; border-color:var(--marine); }
+  .nav { display:flex; justify-content:space-between; margin-top:6px; }
+  /* Tableau de synthèse */
+  table { width:100%; border-collapse:collapse; margin:4px 0 12px; }
+  td, th { border:1px solid var(--bord); padding:4px 8px; text-align:left; vertical-align:top; }
+  th { background:var(--marine); color:#fff; font-weight:600; }
+  td.c { text-align:center; white-space:nowrap; }
+  td.ok { color:var(--ok); font-weight:700; } td.ko { color:var(--ko); font-weight:700; }
+  .histo { font-size:11.5px; color:var(--gris); }
+  #toast { position:fixed; bottom:12px; right:12px; background:var(--txt); color:#fff; padding:6px 12px; border-radius:6px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:9; }
+  #toast.show { opacity:1; }
+  @media (max-width:640px) { .synth { grid-template-columns:1fr; position:static; } }
+</style>
+</head>
+<body>
+<div class="barre">
+  <span class="titre" id="titre">Entretien PACS</span>
+  <span id="statut"></span>
+  <button id="btn-cloture" style="display:none"></button>
+  <button id="btn-maj" title="Relire les tables Grist (questions, candidats…)">↻ Recharger</button>
+</div>
+<main id="doc"><div id="msg">Sélectionnez un examen oral dans la liste.</div></main>
+<div id="toast"></div>
+<script>
+'use strict';
+/* Entretien oral PACS — grille de points attendus, barème pondéré et règle de décision.
+   Questions : tables Grist Grilles_PACS / Questions_PACS (jamais dans ce dépôt public).
+   Résultats : JSON dans Examens_oraux.Grille_PACS, une grille par qualification de l'oral :
+   { v:1, grilles: { "<id qualification>": { grille, coches:{code:[i…]}, remarques:{code:txt}, commentaire,
+     resultat:{score,max,q5,maxQ5,themes:{num:score},reconnu,echecs:[…]}, maj, cloture:{date}|null, historique:[{action,date}] } } } */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const rows = t => (t && t.id ? t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]]))) : []);
+const liste = v => Array.isArray(v) ? (v[0] === 'L' ? v.slice(1) : v) : (v ? [v] : []);
+const refId = v => typeof v === 'number' ? v : (v && (v.rowId ?? v.id)) || 0;
+const a_ = (o, k) => o && Object.prototype.hasOwnProperty.call(o, k);
+const dateHeure = iso => { const d = typeof iso === 'number' ? new Date(iso * 1000) : new Date(iso); return isNaN(d) ? '' : d.toLocaleString('fr-FR', { timeZone:'Europe/Paris', dateStyle:'short', timeStyle:'short' }); };
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+const taux = (a, b) => b && Number.isInteger(a * 100 / b) ? ` (${a * 100 / b} %)` : '';   // seuils exacts seulement (23/45 n'est pas « 50 % »)
+function toast(m, ms = 2200) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), ms); }
+
+const COL = 'Grille_PACS';
+const NIV = { 'Connaissance':'c', 'Maîtrise':'m', 'Expertise':'e' };
+let T = null;                 // tables Grist (référentiel, personnes)
+let examId = null, ex = null; // examen oral sélectionné
+let P = vierge(), dernierEnr = '', colOk = false;
+let qualSel = null, themeSel = null;   // qualification affichée ; numéro de thème ou 'syn'
+let enEdition = false, minuterie = null, confirmation = null;
+function vierge() { return { v: 1, grilles: {} }; }
+
+/* ═════════ Lecture Grist ═════════ */
+async function chargerTables() {
+  const noms = ['Qualifications_List', 'Candidats', 'Evaluateurs', 'Entreprises', 'Grilles_PACS', 'Questions_PACS'];
+  const res = await Promise.all(noms.map(n => grist.docApi.fetchTable(n).then(rows).catch(() => null)));
+  T = Object.fromEntries(noms.map((n, i) => [n, res[i]]));
+}
+async function lireExamen(id) {
+  try { const r = await grist.fetchSelectedRecord(id, { includeColumns: 'normal', expandRefs: false }); if (r && r.id) return r; } catch { /* repli */ }
+  const t = rows(await grist.docApi.fetchTable('Examens_oraux')); return t.find(x => x.id === id) || null;
+}
+function lireP(brut) {
+  if (!brut) return vierge();
+  try { const p = Object.assign(vierge(), JSON.parse(brut)); p.grilles = p.grilles || {}; return p; }
+  catch { toast('Contenu illisible dans ' + COL + ' : ignoré', 5000); return vierge(); }
+}
+
+/* ═════════ Référentiel ═════════ */
+const parId = (t, id) => (T[t] || []).find(x => x.id === id) || null;
+const grilleDe = qualId => (T.Grilles_PACS || []).find(g => liste(g.Qualifications).map(refId).includes(qualId)) || null;
+const renforces = g => String(g.Themes_renforces ?? '').split(/[^0-9]+/).map(Number).filter(Boolean);
+const points = q => [1, 2, 3, 4, 5].map(i => q['Point' + i]).filter(p => p && String(p).trim());
+function themesDe(g) {
+  const qs = (T.Questions_PACS || []).filter(q => refId(q.Grille) === g.id).sort((a, b) => (a.Theme_num - b.Theme_num) || (a.Num - b.Num));
+  const m = new Map();
+  qs.forEach(q => { if (!m.has(q.Theme_num)) m.set(q.Theme_num, { num: q.Theme_num, nom: q.Theme, ref: q.Reference, qs: [] }); m.get(q.Theme_num).qs.push(q); });
+  return [...m.values()];
+}
+function calculer(g, etat) {
+  const coches = (etat && etat.coches) || {}, ren = renforces(g);
+  let score = 0, max = 0, q5 = 0, maxQ5 = 0;
+  const themes = themesDe(g).map(t => {
+    let s = 0, m = 0, n = 0;
+    t.qs.forEach(q => {
+      const k = (coches[q.Code] || []).length, p = Number(q.Poids) || 0, mq = points(q).length * p;
+      s += k * p; m += mq; n += k;
+      if (Number(q.Num) === 5) { q5 += k * p; maxQ5 += mq; }
+    });
+    score += s; max += m;
+    const renf = ren.includes(t.num), seuil = renf ? Math.max(g.Seuil_renforce || 0, g.Seuil_theme || 0) : (g.Seuil_theme || 0);
+    return { ...t, score: s, max: m, seuil, renf, ok: s >= seuil, touche: n > 0 };
+  });
+  const maxT = themes.length ? themes[0].max : 0;
+  const koT = themes.filter(t => t.score < (g.Seuil_theme || 0));
+  const koR = themes.filter(t => t.renf && t.score < (g.Seuil_renforce || 0));
+  const criteres = [
+    { lib: `Score global ≥ ${g.Seuil_global}/${max}${taux(g.Seuil_global, max)}`, val: `${score}/${max}`, ok: score >= (g.Seuil_global || 0) },
+    { lib: `Chaque thème ≥ ${g.Seuil_theme}/${maxT}${taux(g.Seuil_theme, maxT)}`, val: koT.length ? 'Thème ' + koT.map(t => `${t.num} (${t.score})`).join(', ') : 'tous atteints', ok: !koT.length },
+    { lib: `Thèmes ${ren.join(' et ')} ≥ ${g.Seuil_renforce}/${maxT}${taux(g.Seuil_renforce, maxT)}`, val: themes.filter(t => t.renf).map(t => `T${t.num} : ${t.score}`).join(' · '), ok: !koR.length },
+    { lib: `Total des Q5 ≥ ${g.Seuil_Q5}/${maxQ5}${taux(g.Seuil_Q5, maxQ5)}`, val: `${q5}/${maxQ5}`, ok: q5 >= (g.Seuil_Q5 || 0) },
+  ];
+  return { score, max, q5, maxQ5, themes, criteres, reconnu: criteres.every(c => c.ok) };
+}
+function resume(r) {
+  return { score: r.score, max: r.max, q5: r.q5, maxQ5: r.maxQ5, themes: Object.fromEntries(r.themes.map(t => [t.num, t.score])),
+           reconnu: r.reconnu, echecs: r.criteres.filter(c => !c.ok).map(c => c.lib) };
+}
+
+/* ═════════ Enregistrement (relecture avant écriture : deux examinateurs peuvent saisir en même temps) ═════════ */
+function etatDe(p, qualId, g) {
+  const k = String(qualId);
+  if (!p.grilles[k]) p.grilles[k] = { grille: g.Code, coches: {}, remarques: {}, commentaire: '', resultat: null, maj: null, cloture: null, historique: [] };
+  return p.grilles[k];
+}
+async function muter(fn, { rendu = true } = {}) {
+  if (!colOk) { toast('Non enregistré : la colonne ' + COL + ' n’existe pas dans Examens_oraux', 5000); return; }
+  let distant = false;
+  try { const r = await lireExamen(examId); const brut = r && a_(r, COL) ? (r[COL] || '') : null; if (brut !== null && brut !== dernierEnr) { P = lireP(brut); dernierEnr = brut; distant = true; } }
+  catch { /* on garde l'état local */ }
+  const g = grilleDe(qualSel); if (!g) return;
+  const etat = etatDe(P, qualSel, g);
+  if (fn(etat) === false) { if (rendu) rendre(); return; }
+  etat.resultat = resume(calculer(g, etat)); etat.maj = new Date().toISOString();
+  for (const id of jumelles(qualSel)) P.grilles[String(id)] = JSON.parse(JSON.stringify(etat));
+  if (rendu || (distant && !enEdition)) rendre(); else rendreSynthese();
+  const s = JSON.stringify(P); dernierEnr = s;
+  try { await grist.docApi.applyUserActions([['UpdateRecord', 'Examens_oraux', examId, { [COL]: s }]]); toast('Enregistré', 1000); }
+  catch (e) { toast('Erreur d’enregistrement : ' + (e.message || e), 5000); }
+}
+// Qualifications de l'oral qui partagent la grille de qualId (ex. GDR et HOM) : un seul entretien, recopié pour chacune
+const jumelles = qualId => { const g = grilleDe(qualId); return ex ? liste(ex.Qualifications).map(refId).filter(id => id !== qualId && g && grilleDe(id) === g) : []; };
+const verrou = etat => { if (etat.cloture) { toast('Entretien clôturé : rouvrez-le pour modifier'); return true; } return false; };
+function cocher(code, i, oui) {
+  return muter(etat => {
+    if (verrou(etat)) return false;
+    const l = new Set(etat.coches[code] || []); oui ? l.add(i) : l.delete(i);
+    if (l.size) etat.coches[code] = [...l].sort(); else delete etat.coches[code];
+  }, { rendu: false });
+}
+function noter(code, txt) {
+  return muter(etat => {
+    if (verrou(etat)) return false;
+    if (code === null) etat.commentaire = txt;
+    else if (txt.trim()) etat.remarques[code] = txt; else delete etat.remarques[code];
+  }, { rendu: false });
+}
+function basculerCloture() {
+  const g = grilleDe(qualSel); const etat = P.grilles[String(qualSel)];
+  const fermer = !(etat && etat.cloture);
+  if (!confirmation || confirmation !== qualSel) {
+    confirmation = qualSel; majBarre();
+    setTimeout(() => { if (confirmation === qualSel) { confirmation = null; majBarre(); } }, 5000);
+    return;
+  }
+  confirmation = null;
+  muter(e => {
+    const date = new Date().toISOString();
+    if (fermer) { if (e.cloture) return false; e.cloture = { date }; e.historique.push({ action: 'clôture', date, verdict: calculer(g, e).reconnu ? 'Reconnu compétent' : 'Non reconnu compétent' }); }
+    else { if (!e.cloture) return false; e.cloture = null; e.historique.push({ action: 'réouverture', date }); }
+  });
+}
+
+/* ═════════ Rendu ═════════ */
+function nomPers(p, pre = 'First_Name', nom = 'Last_Name') { return p ? [p[pre], p[nom]].filter(Boolean).join(' ') : ''; }
+function majBarre() {
+  const g = qualSel && grilleDe(qualSel), etat = P.grilles[String(qualSel)], b = $('btn-cloture');
+  if (!g) { $('statut').innerHTML = ''; b.style.display = 'none'; return; }
+  const clos = etat && etat.cloture;
+  $('statut').innerHTML = clos ? `<span class="pastille p-clos">Clôturé le ${esc(dateHeure(clos.date))}</span>` : '<span class="pastille p-cours">En cours</span>';
+  b.style.display = ''; b.disabled = !colOk;
+  const conf = confirmation === qualSel;
+  b.className = conf ? 'danger' : (clos ? '' : 'prim');
+  b.textContent = clos ? (conf ? 'Confirmer la réouverture ?' : 'Rouvrir') : (conf ? 'Confirmer la clôture ?' : 'Clôturer l’entretien');
+  b.title = clos ? 'La réouverture est tracée dans l’historique' : 'Fige la grille (lecture seule) et date la clôture';
+}
+function htmlJauge(lib, val, max, seuil, ok, neutre) {
+  const cl = neutre ? '' : (ok ? 'ok' : 'ko');
+  return `<div class="jauge"><div class="lib"><span>${lib}</span><span><b>${val}</b>/${max} · seuil ${seuil}</span></div>
+    <div class="barre-j ${cl}"><i style="width:${Math.min(100, pct(val, max))}%"></i><u style="left:${pct(seuil, max)}%"></u></div></div>`;
+}
+function htmlSynthese(g, r, clos) {
+  const debut = !r.themes.some(t => t.touche);
+  const ech = r.criteres.filter(c => !c.ok).length;
+  return `${htmlJauge('Score global', r.score, r.max, g.Seuil_global, r.score >= g.Seuil_global, debut && !clos)}
+    ${htmlJauge('Total des Q5', r.q5, r.maxQ5, g.Seuil_Q5, r.q5 >= g.Seuil_Q5, debut && !clos)}
+    <div class="verdict ${r.reconnu ? 'ok' : 'ko'}">${r.reconnu ? 'Reconnu compétent' : 'Non reconnu compétent'}
+      <small>${r.reconnu ? '4 critères sur 4' : `${ech} critère${ech > 1 ? 's' : ''} en échec`}${clos ? '' : ' · provisoire'}</small></div>`;
+}
+function classeTheme(t, clos) { return t.ok ? 'ok' : ((t.touche || clos) ? 'ko' : ''); }
+function rendreSynthese() {
+  const g = grilleDe(qualSel); if (!g || !$('synth')) return;
+  const etat = P.grilles[String(qualSel)], clos = !!(etat && etat.cloture), r = calculer(g, etat);
+  $('synth').innerHTML = htmlSynthese(g, r, clos);
+  r.themes.forEach(t => { const b = document.querySelector(`.themes button[data-t="${t.num}"]`); if (b) { b.className = classeTheme(t, clos) + (themeSel === t.num ? ' actif' : ''); b.querySelector('.s').textContent = `${t.score}/${t.max} · seuil ${t.seuil}`; } });
+  document.querySelectorAll('.q[data-code]').forEach(el => {
+    const q = (T.Questions_PACS || []).find(x => x.Code === el.dataset.code && refId(x.Grille) === g.id); if (!q) return;
+    const k = ((etat && etat.coches[q.Code]) || []).length, p = Number(q.Poids) || 0;
+    el.querySelector('.qs').innerHTML = `${k}/${points(q).length} points · <b>${k * p}</b>/${points(q).length * p}`;
+    el.querySelectorAll('label.pt').forEach(l => l.classList.toggle('coche', l.querySelector('input').checked));
+  });
+  const syn = document.querySelector('.themes button[data-t="syn"]'); if (syn) syn.querySelector('.s').textContent = r.reconnu ? 'Reconnu' : 'Non reconnu';
+  majBarre();
+}
+function htmlQuestion(q, etat, clos) {
+  const c = new Set((etat && etat.coches[q.Code]) || []), rq = (etat && etat.remarques[q.Code]) || '', p = Number(q.Poids) || 0, pts = points(q);
+  return `<div class="q" data-code="${esc(q.Code)}">
+    <div class="qh"><span class="qn">Q${esc(q.Num)}</span><span class="niv ${NIV[q.Niveau] || 'c'}">${esc(q.Niveau)} · ×${p}</span>
+      <span class="qs">${c.size}/${pts.length} points · <b>${c.size * p}</b>/${pts.length * p}</span></div>
+    <div class="qt">${esc(q.Question)}</div>
+    ${pts.map((t, i) => `<label class="pt${c.has(i) ? ' coche' : ''}"><input type="checkbox" data-code="${esc(q.Code)}" data-i="${i}"${c.has(i) ? ' checked' : ''}${clos ? ' disabled' : ''}><span>${esc(t)}</span></label>`).join('')}
+    <details class="rq${rq ? ' rempli' : ''}"${rq ? ' open' : ''}><summary>Remarque de l’examinateur${rq ? '' : ' (facultatif)'}</summary>
+      <textarea data-rq="${esc(q.Code)}"${clos ? ' readonly' : ''} placeholder="Éléments cités hors liste, précisions…">${esc(rq)}</textarea></details>
+  </div>`;
+}
+function htmlTheme(g, r, num, etat, clos) {
+  const t = r.themes.find(x => x.num === num); if (!t) return '';
+  const i = r.themes.indexOf(t), prec = r.themes[i - 1], suiv = r.themes[i + 1];
+  return `<h2>Thème ${t.num} — ${esc(t.nom)}</h2>
+    <div class="sous-titre">Référence ${esc(t.ref || '—')} · seuil ${t.seuil}/${t.max}${t.renf ? ' (thème renforcé)' : ''}</div>
+    <div class="${clos ? 'ro' : ''}">${t.qs.map(q => htmlQuestion(q, etat, clos)).join('')}</div>
+    <div class="nav"><button data-aller="${prec ? prec.num : ''}"${prec ? '' : ' disabled'}>← Thème ${prec ? prec.num : ''}</button>
+      <button data-aller="${suiv ? suiv.num : 'syn'}">${suiv ? 'Thème ' + suiv.num + ' →' : 'Synthèse →'}</button></div>`;
+}
+function htmlBilan(g, r, etat, clos) {
+  const h = (etat && etat.historique) || [];
+  return `<h2>Synthèse — ${esc(g.Libelle || g.Code)}</h2>
+    <table><tr><th>Critère (cumulatif)</th><th style="width:30%">Valeur</th><th style="width:70px">État</th></tr>
+      ${r.criteres.map(c => `<tr><td>${esc(c.lib)}</td><td>${esc(c.val)}</td><td class="c ${c.ok ? 'ok' : 'ko'}">${c.ok ? '✓ atteint' : '✗ échec'}</td></tr>`).join('')}
+      <tr><td colspan="2"><b>Décision</b></td><td class="c ${r.reconnu ? 'ok' : 'ko'}">${r.reconnu ? 'Reconnu' : 'Non reconnu'}</td></tr></table>
+    <table><tr><th style="width:36px">N°</th><th>Thème</th><th style="width:90px">Réf.</th><th style="width:70px">Score</th><th style="width:60px">Seuil</th><th style="width:70px">État</th></tr>
+      ${r.themes.map(t => `<tr><td class="c">${t.num}</td><td>${esc(t.nom)}${t.renf ? ' <b>(renforcé)</b>' : ''}</td><td>${esc(t.ref || '')}</td><td class="c">${t.score}/${t.max}</td><td class="c">${t.seuil}</td><td class="c ${t.ok ? 'ok' : 'ko'}">${t.ok ? '✓' : '✗'}</td></tr>`).join('')}
+      <tr><td></td><td><b>Total</b></td><td></td><td class="c"><b>${r.score}/${r.max}</b></td><td class="c">${g.Seuil_global}</td><td class="c ${r.score >= g.Seuil_global ? 'ok' : 'ko'}">${r.score >= g.Seuil_global ? '✓' : '✗'}</td></tr></table>
+    <div class="carte"><b>Commentaire de l’examinateur</b>
+      <textarea data-com="1"${clos ? ' readonly' : ''} placeholder="Appréciation générale, points forts, axes d’amélioration…">${esc((etat && etat.commentaire) || '')}</textarea></div>
+    ${h.length ? `<div class="histo"><b>Historique :</b> ${h.map(x => `${esc(x.action)} le ${esc(dateHeure(x.date))}${x.verdict ? ' (' + esc(x.verdict) + ')' : ''}`).join(' · ')}</div>` : ''}`;
+}
+function rendre() {
+  if (!ex) return;
+  if (!T.Grilles_PACS || !T.Questions_PACS) { $('doc').innerHTML = '<div id="msg">Les tables <b>Grilles_PACS</b> et <b>Questions_PACS</b> sont absentes du document.</div>'; majBarre(); return; }
+  const cand = parId('Candidats', refId(ex.Candidat));
+  const ent = parId('Entreprises', refId(ex.Denomination)) || (cand && parId('Entreprises', refId(cand.Entreprise)));
+  const exam = [ex.Examinateur_1, ex.Examinateur_2].map(e => nomPers(parId('Evaluateurs', refId(e)), 'Evaluateur_Prenom', 'Evaluateur_Nom')).filter(Boolean);
+  const quals = liste(ex.Qualifications).map(refId).map(id => ({ id, q: parId('Qualifications_List', id), g: grilleDe(id) }));
+  const sans = quals.filter(x => !x.g), avec = [];
+  for (const x of quals.filter(x => x.g)) { const gr = avec.find(y => y.g === x.g); if (gr) gr.items.push(x); else avec.push({ id: x.id, g: x.g, items: [x] }); }
+  if (!avec.some(x => x.id === qualSel)) { qualSel = avec.length ? avec[0].id : null; themeSel = null; }
+  const g = qualSel && grilleDe(qualSel);
+  const qualLib = q => q ? (q.Qualifications || q.Qualification_code) : '?';
+  let html = `<div class="carte entete">
+      <div><span>Candidat</span><b>${esc(nomPers(cand) || '—')}</b></div>
+      <div><span>Prestataire</span><b>${esc((ent && (ent.Denomination || ent.Nom)) || '—')}</b></div>
+      <div><span>Examinateur${exam.length > 1 ? 's' : ''}</span><b>${esc(exam.join(', ') || '—')}</b></div>
+      <div><span>Date</span><b>${esc(ex.date_heure ? dateHeure(ex.date_heure) : '—')}</b></div></div>`;
+  html += `<div class="quals">${avec.map(x => `<button data-qual="${x.id}" class="${x.id === qualSel ? 'actif' : ''}"${x.items.length > 1 ? ' title="Une seule grille d’entretien pour ces qualifications"' : ''}>${esc(x.items.map(i => qualLib(i.q)).join(' + '))}${P.grilles[String(x.id)] && P.grilles[String(x.id)].cloture ? ' 🔒' : ''}</button>`).join('')}
+    ${sans.length ? `<span class="sans">Sans grille d’entretien : ${esc(sans.map(x => qualLib(x.q)).join(', '))}</span>` : ''}</div>`;
+  if (!g) { $('doc').innerHTML = html + '<div id="msg">Aucune qualification de cet oral n’a de grille d’entretien PACS.</div>'; majBarre(); return; }
+  const etat = P.grilles[String(qualSel)], clos = !!(etat && etat.cloture), r = calculer(g, etat);
+  if (!r.themes.length) { $('doc').innerHTML = html + `<div id="msg">Aucune question pour la grille ${esc(g.Code)} dans Questions_PACS.</div>`; majBarre(); return; }
+  if (themeSel !== 'syn' && !r.themes.some(t => t.num === themeSel)) themeSel = r.themes[0].num;
+  if (clos) html += `<div class="clos-info">Entretien clôturé le ${esc(dateHeure(etat.cloture.date))} : grille en lecture seule.</div>`;
+  if (!colOk) html += `<div class="clos-info">La colonne <b>${COL}</b> n’existe pas dans Examens_oraux : rien ne sera enregistré.</div>`;
+  html += `<div class="carte synth" id="synth">${htmlSynthese(g, r, clos)}</div>`;
+  html += `<div class="themes">${r.themes.map(t => `<button data-t="${t.num}" class="${classeTheme(t, clos)}${themeSel === t.num ? ' actif' : ''}" title="${esc(t.nom)}">
+      <span class="n">Thème ${t.num}${t.renf ? ' <span class="renf">renforcé</span>' : ''}</span><span class="s">${t.score}/${t.max} · seuil ${t.seuil}</span></button>`).join('')}
+    <button data-t="syn" class="${themeSel === 'syn' ? 'actif' : ''}"><span class="n">Synthèse</span><span class="s">${r.reconnu ? 'Reconnu' : 'Non reconnu'}</span></button></div>`;
+  html += themeSel === 'syn' ? htmlBilan(g, r, etat, clos) : htmlTheme(g, r, themeSel, etat, clos);
+  $('doc').innerHTML = html;
+  majBarre();
+}
+
+/* ═════════ Événements ═════════ */
+function allerTheme(t) { themeSel = t === 'syn' ? 'syn' : Number(t); rendre(); window.scrollTo(0, 0); }
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.qual) { qualSel = Number(b.dataset.qual); themeSel = null; confirmation = null; rendre(); }
+  else if (b.dataset.t) allerTheme(b.dataset.t);
+  else if (b.dataset.aller) allerTheme(b.dataset.aller);
+});
+document.addEventListener('change', e => {
+  const i = e.target; if (i.type === 'checkbox' && i.dataset.code) cocher(i.dataset.code, Number(i.dataset.i), i.checked);
+});
+document.addEventListener('input', e => {
+  const z = e.target; if (z.tagName !== 'TEXTAREA') return;
+  clearTimeout(minuterie);
+  minuterie = setTimeout(() => noter(z.dataset.com ? null : z.dataset.rq, z.value), 900);
+});
+document.addEventListener('focusin', e => { if (e.target.tagName === 'TEXTAREA') enEdition = true; });
+document.addEventListener('focusout', e => {
+  if (e.target.tagName !== 'TEXTAREA') return;
+  enEdition = false;
+  if (minuterie) { clearTimeout(minuterie); minuterie = null; const z = e.target; noter(z.dataset.com ? null : z.dataset.rq, z.value); }
+});
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') return;
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const g = qualSel && grilleDe(qualSel); if (!g) return;
+  const nums = [...themesDe(g).map(t => t.num), 'syn'], i = nums.indexOf(themeSel);
+  const j = i + (e.key === 'ArrowRight' ? 1 : -1); if (j >= 0 && j < nums.length) allerTheme(nums[j]);
+});
+$('btn-cloture').addEventListener('click', basculerCloture);
+$('btn-maj').addEventListener('click', async () => { await chargerTables(); if (examId) { ex = await lireExamen(examId); prendre(); } rendre(); toast('Données relues'); });
+
+function prendre() {
+  colOk = a_(ex, COL);
+  const brut = colOk ? (ex[COL] || '') : '';
+  P = lireP(brut); dernierEnr = brut;
+}
+grist.ready({ requiredAccess: 'full' });
+grist.onRecord(async rec => {
+  if (!rec || !rec.id) return;
+  if (T && rec.id === examId && (enEdition || (a_(rec, COL) && (rec[COL] || '') === dernierEnr))) return;
+  if (rec.id !== examId) { qualSel = null; themeSel = null; confirmation = null; }
+  examId = rec.id;
+  if (!T) $('doc').innerHTML = '<div id="msg">Chargement…</div>';
+  try {
+    if (!T) await chargerTables();
+    ex = await lireExamen(examId);
+    if (!ex) { $('doc').innerHTML = '<div id="msg">Examen introuvable.</div>'; return; }
+    if (ex.Candidat && !parId('Candidats', refId(ex.Candidat))) await chargerTables();
+    prendre(); rendre();
+  } catch (e) { $('doc').innerHTML = `<div id="msg">Erreur de lecture : ${esc(e.message || e)}</div>`; }
+});
+</script>
+</body>
+</html>
