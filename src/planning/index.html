@@ -239,6 +239,25 @@
       background: repeating-linear-gradient(45deg, #fef9c3 0 4px, #e5e7eb 4px 8px);
     }
     .lot-obs .lot-client { color: #6b7280; font-style: italic; }
+
+    /* Absences et prévisions (table Absences_previsions) : jamais confondues avec un
+       programme ni avec un observateur */
+    .abs-conges    { background: #e5e7eb; border-left-color: #6b7280 !important; }
+    .abs-indispo   { background: #9ca3af; border-left-color: #374151 !important; }
+    .abs-indispo .lot-client { color: #fff; }
+    .abs-prevision { background: #DB2777; border-left-color: #9d174d !important; }
+    .abs-prevision .lot-client { color: #fff; font-weight: 700; }
+
+    /* Compteur en bas du planning, collé au bas de la zone de défilement */
+    #planning-table tfoot td {
+      position: sticky; z-index: 15; height: 21px; padding: 0 4px;
+      background: #f8fafc; border: 1px solid #e5e7eb;
+      text-align: center; font-size: 11px; font-weight: 700; color: #1f2937;
+    }
+    #planning-table tfoot tr:nth-child(1) td { bottom: 42px; border-top: 2px solid #1e3a8a; }
+    #planning-table tfoot tr:nth-child(2) td { bottom: 21px; }
+    #planning-table tfoot tr:nth-child(3) td { bottom: 0; }
+    #planning-table tfoot td.day-label { left: 0; z-index: 25; text-align: left; background: #f8fafc; }
     .week-num {
       font-size: 9px;
       font-weight: 700;
@@ -321,6 +340,7 @@
     .pop-opts .opt small { color: #64748b; display: block; }
     .pop-err { color: #b91c1c; font-size: 11px; min-height: 14px; }
     .pop-ft { padding: 6px 8px; display: flex; gap: 6px; border-top: 1px solid #e2e8f0; }
+    .pop-sub { display: flex; flex-direction: column; gap: 6px; }
   </style>
 </head>
 <body>
@@ -341,6 +361,9 @@
     <span class="legend-item"><span class="legend-dot" style="background:#7C3AED"></span>PDIS</span>
     <span class="legend-item"><span class="legend-dot" style="background:#DC2626"></span>PAMS</span>
     <span class="legend-item"><span class="legend-dot" style="background:#0891B2"></span>SecNumCloud</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#DB2777"></span>Prévision</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#e5e7eb;border:1px solid #6b7280"></span>Congés</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#9ca3af"></span>Indispo</span>
   </div>
 </div>
 
@@ -356,9 +379,13 @@
 <div class="pop" id="pop">
   <div class="pop-hd" id="pop-hd">Modifier</div>
   <div class="pop-bd">
-    <input id="pop-q" type="search" placeholder="Rechercher une évaluation (tetra, client, libellé)…" autocomplete="off">
-    <div class="pop-opts" id="pop-opts"></div>
-    <select id="pop-type" title="Unité d'œuvre"></select>
+    <select id="pop-kind" title="Nature de la case"></select>
+    <div class="pop-sub" id="pop-mission">
+      <input id="pop-q" type="search" placeholder="Rechercher une évaluation (tetra, client, libellé)…" autocomplete="off">
+      <div class="pop-opts" id="pop-opts"></div>
+      <select id="pop-type" title="Unité d'œuvre"></select>
+    </div>
+    <input id="pop-lib" type="text" placeholder="Libellé" autocomplete="off">
     <div class="pop-row">
       <select id="pop-role" title="Rôle de l'évaluateur"></select>
       <select id="pop-duree" title="Durée sur ce jour"></select>
@@ -408,6 +435,37 @@ let uoChoices   = [];        // choix de la colonne Unites_d_oeuvre.Unite_d_oeuv
 
 const T_UO = 'Unites_d_oeuvre';
 
+// Absences et prévisions : table à part pour ne compter ni dans le CA, ni dans la charge,
+// ni dans les équipes (tableau de bord, plan d'évaluation, synthèses lisent Unites_d_oeuvre).
+const T_ABS = 'Absences_previsions';
+const ABS_TYPES = {
+  'Prévision':       { cls: 'abs-prevision', icon: '≈',  court: 'Prévis.' },
+  'Congés':          { cls: 'abs-conges',    icon: '🌴', court: 'Congés' },
+  'Indisponibilité': { cls: 'abs-indispo',   icon: '⛔', court: 'Indispo' },
+};
+let absences = [];   // { id, eid, ds, w, type, libelle }
+let absOk    = false; // la table existe et est lisible
+
+// onRecords ne suit que la table liée (Unites_d_oeuvre) : les absences sont relues
+// à chaque rendu déclenché par onRecords et après chaque écriture dans T_ABS.
+async function loadAbsences() {
+  try {
+    const t = await grist.docApi.fetchTable(T_ABS);
+    absences = t.id.map((id, i) => ({
+      id,
+      eid:     t.Evaluateur?.[i] || 0,
+      ds:      typeof t.Date?.[i] === 'number' ? toDateStr(new Date(t.Date[i] * 1000)) : '',
+      w:       Math.min(1, Number(t.Duree?.[i]) || 1),
+      type:    String(t.Type?.[i] ?? ''),
+      libelle: String(t.Libelle?.[i] ?? ''),
+    })).filter(a => a.eid > 0 && a.ds);
+    absOk = true;
+  } catch {
+    absences = [];
+    absOk = false;
+  }
+}
+
 function readChoices(gTables, gCols, tableId, colId) {
   if (!gTables?.id || !gCols?.id) return [];
   const tIdx = gTables.tableId.indexOf(tableId);
@@ -441,7 +499,7 @@ let _debugFirstRecord = null;
 grist.onRecords(async records => {
   _debugFirstRecord = records[0] ?? null;
   lots = records.map(parseLot);
-  await Promise.all([loadEvaluateurs(), loadRefs()]);
+  await Promise.all([loadEvaluateurs(), loadRefs(), loadAbsences()]);
   buildPlanMap();
   render();
 });
@@ -689,6 +747,18 @@ function buildPlanMap() {
   // Évaluateurs d'abord : une affectation réelle n'est jamais masquée par une observation
   lots.forEach(lot => placeLot(lot, resolveEvalIds(lot), false));
   lots.forEach(lot => placeLot(lot, resolveObsIds(lot), true));
+  // Absences en dernier : une mission déjà posée n'est jamais masquée
+  absences.forEach(placeAbsence);
+}
+
+function placeAbsence(a) {
+  if (isWeekendStr(a.ds)) return;
+  if (!planMap.has(a.eid)) planMap.set(a.eid, new Map());
+  const em = planMap.get(a.eid);
+  const slot = { lot: { id: 'a' + a.id, jours: a.w, abs: a }, isObs: false, eid: a.eid };
+  const existing = em.get(a.ds);
+  if (!existing) em.set(a.ds, [slot]);
+  else if (a.w < 1 && existing.length === 1 && existing[0].lot.jours < 1) em.set(a.ds, [existing[0], slot]);
 }
 
 // Jours ouvrés couverts par une UO, avec leur poids : le dernier porte la fraction (1,5 j = 1 + 0,5).
@@ -1022,6 +1092,7 @@ function render() {
   });
 
   table.appendChild(tbody);
+  if (absOk) table.appendChild(makeCompteur(days, evals, ctEvals.length, extEvals.length));
 
   const keepScroll = !recenter && wrapper.querySelector('#planning-table')
     ? { top: wrapper.scrollTop, left: wrapper.scrollLeft } : null;
@@ -1060,12 +1131,57 @@ function render() {
   const lotsObs   = lots.filter(l => resolveObsIds(l).length > 0).length;
   const prefix = pendingStatus ? pendingStatus + ' · ' : '';
   pendingStatus = '';
-  showStatus(`${prefix}${lotCount} lot(s) dont ${lotsResolus} placés, ${lotsTetra} avec tetra, ${lotsObs} avec OBS · ${countOraux()} affectation(s) d'oral · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
+  const absNote = absOk ? `${absences.length} absence(s)/prévision(s) · ` : `Table ${T_ABS} absente : prévisions et congés désactivés · `;
+  showStatus(`${prefix}${absNote}${lotCount} lot(s) dont ${lotsResolus} placés, ${lotsTetra} avec tetra, ${lotsObs} avec OBS · ${countOraux()} affectation(s) d'oral · ${evalCount} évaluateur(s) (${ctEvals.length} CT, ${extEvals.length} ext) · ${days.length} jours`);
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────
 
+const fmtJ = n => n ? String(+n.toFixed(2)).replace('.', ',') : '';
+
+// Nombre de jours par type sur la période affichée (week-ends exclus)
+function makeCompteur(days, evals, nbCT, nbExt) {
+  const inView = new Set(days.filter(d => !isWeekendDate(d)).map(toDateStr));
+  const tfoot = document.createElement('tfoot');
+  Object.entries(ABS_TYPES).forEach(([type, t]) => {
+    const sums = new Map();
+    absences.forEach(a => {
+      if (a.type === type && inView.has(a.ds)) sums.set(a.eid, (sums.get(a.eid) || 0) + a.w);
+    });
+    const tr = document.createElement('tr');
+    const lab = document.createElement('td');
+    lab.className = 'day-label';
+    lab.textContent = `${t.icon} ${t.court}`;
+    lab.title = `${type} : nombre de jours sur la période affichée (${document.getElementById('period-label').textContent})`;
+    tr.appendChild(lab);
+    evals.forEach((ev, i) => {
+      const td = document.createElement('td');
+      if (i === nbCT && nbExt) td.classList.add('sep-left');
+      td.textContent = fmtJ(sums.get(ev.id) || 0);
+      tr.appendChild(td);
+    });
+    tfoot.appendChild(tr);
+  });
+  return tfoot;
+}
+
+function makeAbsCell(lot, isHalf) {
+  const a = lot.abs;
+  const t = ABS_TYPES[a.type] ?? { cls: 'abs-conges', icon: '?', court: a.type || '?' };
+  const cell = document.createElement('div');
+  cell.className = 'lot-cell ' + t.cls + (isHalf ? ' lot-cell-half' : '');
+  cell.dataset.uo = lot.id;
+  cell.draggable = true;
+  cell.title = `${a.type || 'Type ?'} (${fmtJ(a.w)} j)` + (a.libelle ? `\n${a.libelle}` : '');
+  const txt = document.createElement('span');
+  txt.className = 'lot-client';
+  txt.textContent = `${t.icon} ${a.libelle || t.court}`;
+  cell.appendChild(txt);
+  return cell;
+}
+
 function makeLotCell({ lot, isObs }, isHalf) {
+  if (lot.abs) return makeAbsCell(lot, isHalf);
   const color = progColor(lot.programme);
   const icon  = planEvalIcon(lot.planEval);
   const cell  = document.createElement('div');
@@ -1131,7 +1247,7 @@ let recenter      = true;   // recentrer sur aujourd'hui au prochain rendu
 let renderedDays  = [];
 let renderedEvals = [];
 let pendingStatus = '';     // message d'écriture affiché après le rendu déclenché par onRecords
-let sel     = null;         // { eid, ds, uoId }
+let sel     = null;         // { eid, ds, key } — key = id de l’UO, ou « a<id> » pour une absence
 let clip    = null;         // créneau copié (Ctrl+C)
 let dragSrc = null;         // { slot, ds }
 let writing = false;
@@ -1146,7 +1262,7 @@ const slotsAt = (eid, ds) => planMap.get(eid)?.get(ds) ?? [];
 function selectedSlot() {
   if (!sel) return null;
   const slots = slotsAt(sel.eid, sel.ds);
-  return slots.find(s => s.lot.id === sel.uoId) ?? slots[0] ?? null;
+  return slots.find(s => String(s.lot.id) === sel.key) ?? slots[0] ?? null;
 }
 
 // Fonctionne sur une UO comme sur une évaluation (mêmes champs RE, ETA, ETM, OBS)
@@ -1162,7 +1278,7 @@ function defaultRole(evaluationId, eid) {
 }
 
 const people   = uo => new Set([uo.RE, ...uo.ETA, ...uo.ETM, ...uo.OBS].filter(Boolean));
-const editable = s => Boolean(s?.lot.uo && roleOf(s.lot.uo, s.eid));
+const editable = s => Boolean(s && (s.lot.abs || (s.lot.uo && roleOf(s.lot.uo, s.eid))));
 const isSingle = lot => people(lot.uo).size <= 1 && uoDays(lot).length === 1;
 const dayWeight = (lot, ds) => uoDays(lot).find(d => d.ds === ds)?.w ?? 1;
 
@@ -1251,6 +1367,11 @@ async function apply(actions, msg) {
     await grist.docApi.applyUserActions(actions); // un seul lot d'actions : un seul Ctrl+Z dans Grist
     pendingStatus = msg;
     showStatus(msg);
+    if (actions.some(a => a[1] === T_ABS)) {
+      await loadAbsences();
+      buildPlanMap();
+      render();
+    }
   } catch (e) {
     showStatus("Échec de l'enregistrement : " + (e.message || e), 'error');
   } finally {
@@ -1262,14 +1383,21 @@ function refuse(msg) { showStatus(msg, 'error'); }
 
 const NOT_EDITABLE = "UO non modifiable : l'évaluateur n'est dans aucun rôle RE/ETA/ETM/OBS de l'UO";
 
+const absAction = (abs, w, eid, ds) => ['AddRecord', T_ABS, null, {
+  Evaluateur: eid, Date: secOf(ds), Duree: w, Type: abs.type, Libelle: abs.libelle,
+}];
+
 async function deleteSelected() {
   const s = selectedSlot();
   if (!s) return;
+  if (s.lot.abs) return apply([['RemoveRecord', T_ABS, s.lot.abs.id]], `${s.lot.abs.type || 'Case'} retiré(e)`);
   if (!editable(s)) return refuse(NOT_EDITABLE);
   await apply(removeDayActions(s.lot, s.eid, sel.ds), 'Journée retirée');
 }
 
 function specOf(slot, ds) {
+  const a = slot.lot.abs;
+  if (a) return { abs: { type: a.type, libelle: a.libelle }, w: a.w, eid: slot.eid };
   const uo = slot.lot.uo;
   return { evaluation: uo.evaluation, type: uo.type, extra: uo.extra,
            w: dayWeight(slot.lot, ds), role: roleOf(uo, slot.eid), eid: slot.eid };
@@ -1278,12 +1406,18 @@ function specOf(slot, ds) {
 async function copyTo(spec, eid, ds) {
   const why = fits(eid, ds, spec.w);
   if (why) return refuse(`Impossible : ${why}`);
+  if (spec.abs) return apply([absAction(spec.abs, spec.w, eid, ds)], `${spec.abs.type} copié(e)`);
   const role = eid === spec.eid ? spec.role : defaultRole(spec.evaluation, eid);
   await apply([newUoAction({ ...spec, role }, eid, ds, spec.extra)], 'Journée copiée');
 }
 
 async function moveTo(slot, srcDs, eid, ds) {
   const lot = slot.lot;
+  if (lot.abs) {
+    const why = fits(eid, ds, lot.abs.w, lot.id);
+    if (why) return refuse(`Impossible : ${why}`);
+    return apply([['UpdateRecord', T_ABS, lot.abs.id, { Evaluateur: eid, Date: secOf(ds) }]], `${lot.abs.type} déplacé(e)`);
+  }
   const whole = isSingle(lot);
   const spec = specOf(slot, srcDs);
   const why = fits(eid, ds, spec.w, whole ? lot.id : null);
@@ -1315,7 +1449,7 @@ function paintSelection() {
 function moveSelection(dr, dc) {
   const r = Math.max(0, Math.min(renderedDays.length - 1, renderedDays.indexOf(sel.ds) + dr));
   const c = Math.max(0, Math.min(renderedEvals.length - 1, renderedEvals.indexOf(sel.eid) + dc));
-  sel = { eid: renderedEvals[c], ds: renderedDays[r], uoId: null };
+  sel = { eid: renderedEvals[c], ds: renderedDays[r], key: null };
   paintSelection();
   document.querySelector('td.cell-sel')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
@@ -1353,7 +1487,7 @@ function renderOptions() {
 function pickEval(id) {
   popEval = id;
   // Sur une case vide, le rôle suit celui de la personne sur l'évaluation choisie
-  if (!selectedSlot()) $('pop-role').value = defaultRole(id, sel.eid);
+  if (!selectedSlot()?.lot.uo) $('pop-role').value = defaultRole(id, sel.eid);
   renderOptions();
   $('pop-opts').querySelector('.opt.on')?.scrollIntoView({ block: 'nearest' });
 }
@@ -1366,23 +1500,39 @@ function fillSelect(el, values, current, labelOf = v => v) {
   el.value = current ?? '';
 }
 
+const MISSION = 'Mission';
+
+function showKind() {
+  const mission = $('pop-kind').value === MISSION;
+  $('pop-mission').style.display = mission ? '' : 'none';
+  $('pop-role').style.display    = mission ? '' : 'none';
+  $('pop-lib').style.display     = mission ? 'none' : '';
+  $('pop-lib').placeholder = $('pop-kind').value === 'Prévision' ? 'Libellé (obligatoire)' : 'Libellé (facultatif)';
+  $('pop-err').textContent = '';
+}
+
 function openEditor() {
   if (!sel || isWeekendStr(sel.ds)) return;
   const s = selectedSlot();
   if (s && !editable(s)) return refuse(NOT_EDITABLE);
-  popEval = s?.lot.uo.evaluation || null;
+  const abs = s?.lot.abs ?? null;
+  popEval = s?.lot.uo?.evaluation || null;
   const ev = evaluateurs.find(e => e.id === sel.eid);
   const [y, m, d] = sel.ds.split('-');
   $('pop-hd').textContent = `${ev ? (ev.trigramme || `${ev.prenom} ${ev.nom}`.trim()) : '#' + sel.eid}`
     + ` — ${DAYS_FR[new Date(sel.ds + 'T00:00:00Z').getUTCDay()]} ${d}/${m}/${y}`
-    + (s ? '' : ' (nouvelle UO)');
+    + (s ? '' : ' (case vide)');
+  // Sans la table T_ABS, seule la saisie de missions est proposée
+  fillSelect($('pop-kind'), [MISSION, ...(absOk ? Object.keys(ABS_TYPES) : [])], abs ? abs.type : MISSION,
+             v => v === MISSION ? 'Mission (unité d’œuvre)' : `${ABS_TYPES[v]?.icon ?? ''} ${v}`);
+  $('pop-lib').value = abs?.libelle ?? '';
   $('pop-q').value = '';
-  fillSelect($('pop-type'), ['', ...uoChoices], s?.lot.uo.type ?? '', v => v || "— unité d'œuvre —");
-  fillSelect($('pop-role'), ROLES, s ? roleOf(s.lot.uo, s.eid) : (popEval ? defaultRole(popEval, sel.eid) : 'ETM'));
-  const w = s ? dayWeight(s.lot, sel.ds) : 1;
+  fillSelect($('pop-type'), ['', ...uoChoices], s?.lot.uo?.type ?? '', v => v || "— unité d'œuvre —");
+  fillSelect($('pop-role'), ROLES, s?.lot.uo ? roleOf(s.lot.uo, s.eid) : (popEval ? defaultRole(popEval, sel.eid) : 'ETM'));
+  const w = abs ? abs.w : s ? dayWeight(s.lot, sel.ds) : 1;
   fillSelect($('pop-duree'), DUREES.map(String), String(w), v => `${String(v).replace('.', ',')} j`);
   $('pop-clear').disabled = !s;
-  $('pop-err').textContent = '';
+  showKind();
   renderOptions();
 
   const pop = $('pop');
@@ -1392,12 +1542,14 @@ function openEditor() {
   const pw = pop.offsetWidth, ph = pop.offsetHeight;
   pop.style.left = Math.max(4, Math.min(r.left, innerWidth - pw - 4)) + 'px';
   pop.style.top  = (r.bottom + ph + 4 < innerHeight ? r.bottom + 2 : Math.max(4, r.top - ph - 2)) + 'px';
-  $('pop-q').focus();
+  (abs ? $('pop-lib') : $('pop-q')).focus();
 }
 
 function closeEditor() { $('pop').classList.remove('on'); }
 
 async function validateEditor() {
+  const kind = $('pop-kind').value;
+  if (kind !== MISSION) return validateAbsence(kind);
   if (!popEval) {
     const first = $('pop-opts').querySelector('.opt[data-evid]');
     if (first) popEval = +first.dataset.evid;
@@ -1412,6 +1564,7 @@ async function validateEditor() {
   if (why) { $('pop-err').textContent = `Impossible : ${why}.`; return; }
   closeEditor();
   if (!s) return apply([newUoAction(vals, eid, ds)], 'UO créée');
+  if (s.lot.abs) return apply([['RemoveRecord', T_ABS, s.lot.abs.id], newUoAction(vals, eid, ds)], 'UO créée');
   if (isSingle(s.lot)) {
     return apply([['UpdateRecord', T_UO, s.lot.id, {
       Evaluation: vals.evaluation, Unite_d_oeuvre: vals.type, Jours: vals.w, ...roleFields(vals.role, eid),
@@ -1422,6 +1575,24 @@ async function validateEditor() {
   await apply([...removeDayActions(s.lot, eid, ds), newUoAction(vals, eid, ds, extra)], 'Journée modifiée');
 }
 
+async function validateAbsence(type) {
+  const w = +$('pop-duree').value;
+  const libelle = $('pop-lib').value.trim();
+  if (type === 'Prévision' && !libelle) { $('pop-err').textContent = 'Saisir un libellé pour la prévision.'; return; }
+  const s = selectedSlot();
+  const { eid, ds } = sel;
+  const why = fits(eid, ds, w, s?.lot.id ?? null);
+  if (why) { $('pop-err').textContent = `Impossible : ${why}.`; return; }
+  closeEditor();
+  if (s?.lot.abs) {
+    return apply([['UpdateRecord', T_ABS, s.lot.abs.id, { Type: type, Libelle: libelle, Duree: w }]], `${type} modifié(e)`);
+  }
+  const add = absAction({ type, libelle }, w, eid, ds);
+  // Case occupée par une mission : ce jour est retiré de l'UO pour cet évaluateur
+  await apply(s ? [...removeDayActions(s.lot, eid, ds), add] : [add], `${type} ajouté(e)`);
+}
+
+$('pop-kind').addEventListener('change', showKind);
 $('pop-q').addEventListener('input', () => { popEval = null; renderOptions(); });
 $('pop-opts').addEventListener('click', ev => {
   const o = ev.target.closest('.opt[data-evid]');
@@ -1442,7 +1613,7 @@ const gridWrap = $('table-wrapper');
 gridWrap.addEventListener('click', ev => {
   const td = ev.target.closest('td[data-ev]');
   if (!td) return;
-  sel = { eid: +td.dataset.ev, ds: td.dataset.date, uoId: +ev.target.closest('.lot-cell')?.dataset.uo || null };
+  sel = { eid: +td.dataset.ev, ds: td.dataset.date, key: ev.target.closest('.lot-cell')?.dataset.uo || null };
   paintSelection();
 });
 gridWrap.addEventListener('dblclick', ev => { if (ev.target.closest('td[data-ev]')) openEditor(); });
@@ -1451,7 +1622,7 @@ gridWrap.addEventListener('dragstart', ev => {
   const cell = ev.target.closest?.('.lot-cell');
   const td   = cell?.closest('td[data-ev]');
   if (!td) return;
-  const slot = slotsAt(+td.dataset.ev, td.dataset.date).find(s => s.lot.id === +cell.dataset.uo);
+  const slot = slotsAt(+td.dataset.ev, td.dataset.date).find(s => String(s.lot.id) === cell.dataset.uo);
   if (!editable(slot)) { ev.preventDefault(); return; }
   dragSrc = { slot, ds: td.dataset.date };
   ev.dataTransfer.effectAllowed = 'copyMove';
@@ -1474,7 +1645,7 @@ gridWrap.addEventListener('drop', async ev => {
   dragSrc = null;
   const eid = +td.dataset.ev, ds = td.dataset.date;
   if (eid === slot.eid && ds === srcDs) return;
-  sel = { eid, ds, uoId: null };
+  sel = { eid, ds, key: null };
   paintSelection();
   if (ev.altKey) await copyTo(specOf(slot, srcDs), eid, ds);
   else await moveTo(slot, srcDs, eid, ds);
