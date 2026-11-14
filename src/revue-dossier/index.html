@@ -128,6 +128,8 @@ const JALONS = [
 ];
 const BLOCS_TYPE = { Initiale: 'Initiale', Surveillance: 'Surveillance', Renouvellement: 'Renouvellement' };
 const ETATS = { fait: 'fait', encours: 'en cours', avenir: 'à venir', arret: 'arrêté' };
+const PL_VALIDEES = new Set(['En cours', 'Envoyée', 'Signée']);
+const nomPL = p => p.Libelle_PL || `Brouillon non numéroté${p.Date_modification ? ' du ' + new Intl.DateTimeFormat('fr-FR').format(new Date(p.Date_modification * 1000)) : ''}`;
 
 let docUrl = '';
 let revId = 0;
@@ -239,6 +241,8 @@ const pointsDe = j => D.refs.filter(p => p.jalon === j && !p.titre);
 function etatJalons() {
   const r = D.rev;
   const plSignee = D.pls.some(p => p.Statut === 'Signée');
+  // Proposition validée dans le TEM-400 (statut En cours, Envoyée ou Signée) : la recevabilité est acquise
+  const plValidee = D.pls.some(p => PL_VALIDEES.has(p.Statut));
   const out = {};
   const base = j => {
     const pts = pointsDe(j);
@@ -250,8 +254,9 @@ function etatJalons() {
 
   const rec = base('Recevabilité');
   const recevable = D.cols.recevable ? r.Recevable : (rec.n === rec.total && rec.total ? 'OUI' : '');
-  out['Recevabilité'] = st({ ...rec, date: D.cols.dateRecev && r.Date_recevabilite ? r.Date_recevabilite : rec.date },
-    !!recevable && rec.n === rec.total, !!recevable, recevable === 'NON');
+  const dateValid = Math.max(0, ...D.pls.filter(p => PL_VALIDEES.has(p.Statut)).map(p => p.Date_modification || p.Date_creation || 0)) || null;
+  out['Recevabilité'] = st({ ...rec, date: (D.cols.dateRecev && r.Date_recevabilite) || rec.date || dateValid },
+    plValidee || (!!recevable && rec.n === rec.total), !!recevable, recevable === 'NON' && !plValidee);
   const stop1 = recevable === 'NON';
 
   const pro = base('Proposition commerciale');
@@ -378,15 +383,19 @@ function panneau(j) {
   if (j === 'Proposition commerciale') {
     const lien = D.tem ? pageLink(PAGES.tem400, `#a1.s${SECTION_TEM400}.r${D.tem.id}`) : '';
     const pls = D.pls.length
-      ? `<table class="liste">${D.pls.map(p => `<tr><td><b>${esc(p.Libelle_PL || 'PL ' + p.id)}</b></td><td>${fmtE(p.Montant_HT)}</td>
-          <td><span class="pastille ${p.Statut === 'Signée' ? 'fait' : p.Statut === 'Annulée' ? 'arret' : 'encours'}">${esc(p.Statut || '?')}</span></td>
+      ? `<table class="liste">${D.pls.map(p => `<tr><td><b>${esc(nomPL(p))}</b></td><td>${fmtE(p.Montant_HT)}${PL_VALIDEES.has(p.Statut) ? '' : ' <span class="info">(indicatif)</span>'}</td>
+          <td><span class="pastille ${p.Statut === 'Signée' ? 'fait' : p.Statut === 'Annulée' ? 'arret' : PL_VALIDEES.has(p.Statut) ? 'encours' : 'avenir'}">${esc(p.Statut || '?')}</span></td>
           <td class="info">${p.Date_creation ? 'créée le ' + fmtD(p.Date_creation) : ''}</td></tr>`).join('')}</table>`
       : '<div class="info">Aucune proposition enregistrée par le TEM-400 pour cette demande.</div>';
+    const etatPL = D.pls.some(p => p.Statut === 'Signée') ? '✔ Proposition signée.'
+      : D.pls.some(p => PL_VALIDEES.has(p.Statut)) ? '✔ Proposition validée dans le TEM-400 : en attente de signature.'
+      : D.pls.length ? 'Brouillon en cours dans le TEM-400 : la proposition n’est pas encore validée.' : '';
     return `<div class="livrable"><h3>📄 Proposition commerciale (TEM-400)</h3>
       <div class="ligne"><label class="lbl">Décision d'offre</label>${tog('rev-choix', r.Decision_offre, ['OUI', 'NON'], 'data-col="Decision_offre" data-date="Offre_date"', true)}
         ${champDate('Offre_date', r.Offre_date, 'le')}</div>
       <div class="ligne">${champTexte('Just_offre', r.Just_offre, 'Justification', true)}</div>
       ${pls}
+      ${etatPL ? `<div class="ligne"><span class="${etatPL.startsWith('✔') ? 'info' : 'warn'}">${etatPL}</span></div>` : ''}
       <div class="ligne">${lien ? `<a class="lien" href="${esc(lien)}" target="_blank" rel="noopener">${D.pls.length ? 'Ouvrir' : 'Créer'} la proposition dans le TEM-400 ↗</a>`
         : `<span class="info">${D.tem ? 'Adresse du document à renseigner (⚙) pour le lien vers le TEM-400.' : 'Revue sans TEM-404.'}</span>`}</div>
     </div>`;

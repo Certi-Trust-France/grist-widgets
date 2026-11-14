@@ -140,8 +140,9 @@
   <span id="status" class="statusbar"></span>
   <button id="btn-copy-text" class="btn btn-grey" disabled>Copier le devis (texte)</button>
   <button id="btn-copy-json" class="btn btn-grey" disabled title="Json_client : proposition commerciale à envoyer à CPQ">Copier le Json_client (CPQ)</button>
+  <button id="btn-draft" class="btn btn-grey" disabled title="Conserver la saisie sans numéroter la proposition">Enregistrer le brouillon</button>
   <button id="btn-update" class="btn btn-primary" style="display:none" disabled>Enregistrer les modifications</button>
-  <button id="btn-create" class="btn btn-success" disabled>Créer la proposition commerciale</button>
+  <button id="btn-create" class="btn btn-success" disabled>Valider la proposition</button>
 </div>
 
 <script>
@@ -286,7 +287,8 @@ $('sel-tem').addEventListener('change', () => selectTem($('sel-tem').value ? Num
 $('sel-prop').addEventListener('change', () => selectProposition(Number($('sel-prop').value) || null));
 $('btn-copy-text').addEventListener('click', e => copier(texteDevis(), 'Devis copié dans le presse-papiers.', e.currentTarget));
 $('btn-copy-json').addEventListener('click', e => copier(JSON.stringify(jsonClient(), null, 2), 'Json_client copié dans le presse-papiers.', e.currentTarget));
-$('btn-create').addEventListener('click', creerProposition);
+$('btn-create').addEventListener('click', validerProposition);
+$('btn-draft').addEventListener('click', enregistrerBrouillon);
 $('btn-update').addEventListener('click', enregistrerProposition);
 
 async function load() {
@@ -350,8 +352,9 @@ function fillPropSelect() {
   const temId = etat?.temId;
   const props = (data.pc || []).filter(t => temId && t.TEM_404 === temId)
     .sort((a, b) => String(b.Libelle_PL).localeCompare(String(a.Libelle_PL)));
+  const nom = t => t.Libelle_PL || `Brouillon non numéroté du ${new Date((t.Date_modification || t.Date_creation || 0) * 1000).toLocaleDateString('fr-FR')}`;
   $('sel-prop').innerHTML = '<option value="">— nouvelle —</option>' + props.map(t =>
-    `<option value="${t.id}">${esc(t.Libelle_PL)}${t.Statut ? ' (' + esc(t.Statut) + ')' : ''}</option>`).join('');
+    `<option value="${t.id}">${esc(nom(t))}${t.Statut ? ' (' + esc(t.Statut) + ')' : ''}</option>`).join('');
   $('sel-prop').value = etat?.source ? String(etat.source.plId) : '';
 }
 
@@ -386,6 +389,11 @@ const TABLE_CH = 'Propositions_prestation';
 const TABLE_PL = 'Propositions_commerciales';
 const ANNULEE = 'Annulée';
 const SIGNEE = 'Signée';
+// Cycle d'une proposition : Brouillon (saisie conservée, numéro pas forcément attribué)
+// → En cours (validée : numérotée, CH créées) → Envoyée → Signée. Suivi dans la revue de dossier.
+const BROUILLON = 'Brouillon';
+const EN_COURS = 'En cours';
+const estBrouillon = () => !etat?.source || etat.source.statut === BROUILLON || !etat.source.statut;
 
 const numLibelle = (lib, sigle) => {
   const m = String(lib || '').match(new RegExp(`^(\\d{4})${sigle}(\\d{4})`));
@@ -965,10 +973,11 @@ function cardTotaux() {
         <td class="num">${tot.remise ? '− ' + EUR2.format(tot.remise) : ''}</td><td class="num">${EUR2.format(tot.ht)}</td></tr>
     </tbody></table>
     <p class="hint">Lots : ${LOTS.map((l, i) => `${l.court} ${JH.format(tot.parLot[i])} j.h`).join(' · ')}.
-      ${etat.source ? '' : 'Numéros provisoires : ils sont attribués définitivement à la création.'}</p>
-    ${etat.source ? `<p class="statusbar ${signee() ? 'warn' : 'ok'}">Édition de <span class="libelle">${esc(etat.source.libelle)}</span>
+      ${etat.source?.libelle ? '' : 'Numéros provisoires : ils sont attribués définitivement à la validation.'}</p>
+    ${etat.source && !etat.source.libelle ? `<p class="statusbar ok">Brouillon non numéroté. « Enregistrer le brouillon » conserve la saisie ; « Valider la proposition » lui attribue son numéro et la passe « ${EN_COURS} ».</p>` : ''}
+    ${etat.source?.libelle ? `<p class="statusbar ${signee() ? 'warn' : 'ok'}">Édition de <span class="libelle">${esc(etat.source.libelle)}</span>
       — créée le ${esc(fmtDateHeure(etat.source.dateCreation))}${etat.source.dateModification ? `, modifiée le ${esc(fmtDateHeure(etat.source.dateModification))}` : ''}${etat.source.statut ? ` — ${esc(etat.source.statut)}` : ''}${signee() ? ' — <b>déjà signée</b>' : ''}.
-      Les numéros sont conservés ; « Créer une nouvelle proposition commerciale » en fait une copie avec de nouveaux numéros.</p>` : ''}
+      Les numéros sont conservés${estBrouillon() ? ' ; « Valider la proposition » la passe « ' + EN_COURS + ' »' : ' ; « Créer une nouvelle proposition » en fait une copie avec de nouveaux numéros'}.</p>` : ''}
   </div></div>`;
 }
 
@@ -1019,9 +1028,13 @@ function majBoutons() {
   const ok = !!(resultat && resultat.prestations.length && !resultat.ctrl.some(c => c.niveau === 'bloquant'));
   $('btn-copy-text').disabled = !ok;
   $('btn-copy-json').disabled = !ok;
+  const brouillon = estBrouillon();
+  // Un brouillon s'enregistre même incomplet (contrôles bloquants, code entreprise manquant)
+  $('btn-draft').style.display = brouillon ? '' : 'none';
+  $('btn-draft').disabled = !etat;
   $('btn-create').disabled = !ok;
-  $('btn-create').textContent = etat?.source ? 'Créer une nouvelle proposition commerciale' : 'Créer la proposition commerciale';
-  $('btn-update').style.display = etat?.source ? '' : 'none';
+  $('btn-create').textContent = brouillon ? 'Valider la proposition' : 'Créer une nouvelle proposition';
+  $('btn-update').style.display = brouillon ? 'none' : '';
   $('btn-update').disabled = !ok;
 }
 
@@ -1249,7 +1262,7 @@ function champsCH(x, i, lib, plId, dates) {
   };
 }
 
-async function creerProposition() {
+async function creerProposition(plExistant = null) {
   if (!resultat?.prestations.length) return;
   $('btn-create').disabled = true;
   try {
@@ -1260,19 +1273,21 @@ async function creerProposition() {
     const lib = libelles(resultat, true);
     const dates = datesProposition(true);
     const resume = resultat.prestations.map((x, i) => `• ${lib.ch[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT`).join('\n');
-    if (!window.confirm(`Créer la proposition commerciale ${lib.pl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT`)) return;
+    if (!window.confirm(`Valider la proposition commerciale ${lib.pl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT\n\nElle passera au statut « ${EN_COURS} ».`)) return;
 
     // La PL doit exister avant les CH qui la référencent : deux envois successifs.
+    // Un brouillon non numéroté garde sa ligne : elle reçoit son numéro à la validation.
+    const champsPL = {
+      Libelle_PL: lib.pl, Entreprise: etat.entrepriseId, TEM_404: etat.temId,
+      Json_PL: JSON.stringify(jsonPL(lib, dates)), Json_client: JSON.stringify(jsonClient(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
+      Date_creation: jourSec(dates.creation), Date_modification: secondes(dates.modification), Statut: EN_COURS,
+    };
     const r = await grist.docApi.applyUserActions([
-      ['AddRecord', TABLE_PL, null, {
-        Libelle_PL: lib.pl, Entreprise: etat.entrepriseId, TEM_404: etat.temId,
-        Json_PL: JSON.stringify(jsonPL(lib, dates)), Json_client: JSON.stringify(jsonClient(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
-        Date_creation: jourSec(dates.creation), Date_modification: secondes(dates.modification), Statut: 'Brouillon',
-      }],
+      plExistant ? ['UpdateRecord', TABLE_PL, plExistant, champsPL] : ['AddRecord', TABLE_PL, null, champsPL],
     ]);
-    const plId = r.retValues[0];
+    const plId = plExistant || r.retValues[0];
     const xs = resultat.prestations;
-    const lignes = xs.map((x, i) => ({ ...champsCH(x, i, lib, plId, dates), Statut: 'Brouillon' }));
+    const lignes = xs.map((x, i) => ({ ...champsCH(x, i, lib, plId, dates), Statut: EN_COURS }));
     const cols = Object.fromEntries(Object.keys(lignes[0]).map(k => [k, lignes.map(l => l[k])]));
     await grist.docApi.applyUserActions([['BulkAddRecord', TABLE_CH, xs.map(() => null), cols]]);
 
@@ -1280,7 +1295,7 @@ async function creerProposition() {
     const temId = etat.temId;
     selectProposition(plId);
     if (etat.temId !== temId) return;
-    setStatus(`${lib.pl} créée (${xs.length} charge(s) CH). Copier le Json_client pour CPQ.`, 'ok');
+    setStatus(`${lib.pl} validée, statut « ${EN_COURS} » (${xs.length} charge(s) CH). Copier le Json_client pour CPQ.`, 'ok');
   } catch (err) {
     setStatus(`Échec de la création : ${err.message || err}`, 'error');
   } finally {
@@ -1288,7 +1303,7 @@ async function creerProposition() {
   }
 }
 
-async function enregistrerProposition() {
+async function enregistrerProposition(statut = null) {
   if (!resultat?.prestations.length || !etat.source) return;
   $('btn-update').disabled = true;
   try {
@@ -1307,29 +1322,75 @@ async function enregistrerProposition() {
     const resume = xs.map((x, i) => `• ${lib.ch[i]} : ${JH.format(x.jh)} j.h, ${EUR2.format(x.ht)} HT${src.ch[x.prog.code] ? '' : ' (nouvelle)'}`)
       .concat(annulees.map(([code]) => `• ${PROGS.find(p => p.code === code).nom} : charge CH marquée « ${ANNULEE} »`)).join('\n');
     const alerte = signee() ? '\n\n⚠ Proposition déjà signée : la modification sera visible par CPQ.' : '';
-    if (!window.confirm(`Enregistrer les modifications de ${lib.pl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT${alerte}`)) return;
+    const verbe = statut ? 'Valider' : 'Enregistrer les modifications de';
+    if (!window.confirm(`${verbe} ${lib.pl} ?\n\n${resume}\n\nTotal : ${EUR2.format(resultat.tot.ht)} HT${alerte}${statut ? `\n\nElle passera au statut « ${statut} ».` : ''}`)) return;
 
     const actions = [['UpdateRecord', TABLE_PL, src.plId, {
       Libelle_PL: lib.pl, Json_PL: JSON.stringify(jsonPL(lib, dates)), Json_client: JSON.stringify(jsonClient(lib, dates)), Saisie: JSON.stringify(saisie()), Montant_HT: resultat.tot.ht,
-      Date_modification: secondes(dates.modification),
+      Date_modification: secondes(dates.modification), ...(statut ? { Statut: statut } : {}),
     }]];
     xs.forEach((x, i) => {
       const champs = champsCH(x, i, lib, src.plId, dates);
       const ex = src.ch[x.prog.code];
       if (ex) {
         delete champs.Date;
-        if (ex.annulee) champs.Statut = 'Brouillon';
+        if (ex.annulee) champs.Statut = statut || BROUILLON;
+        else if (statut && !ex.signe) champs.Statut = statut;
         actions.push(['UpdateRecord', TABLE_CH, ex.rowId, champs]);
-      } else actions.push(['AddRecord', TABLE_CH, null, { ...champs, Statut: 'Brouillon' }]);
+      } else actions.push(['AddRecord', TABLE_CH, null, { ...champs, Statut: statut || (estBrouillon() ? BROUILLON : EN_COURS) }]);
     });
     for (const [, ex] of annulees) actions.push(['UpdateRecord', TABLE_CH, ex.rowId, { Statut: ANNULEE }]);
     await grist.docApi.applyUserActions(actions);
 
     await lirePropositions();
     selectProposition(src.plId);
-    setStatus(`${lib.pl} enregistrée${ajouts.length ? `, ${ajouts.length} CH ajoutée(s)` : ''}${annulees.length ? `, ${annulees.length} CH annulée(s)` : ''}.`, 'ok');
+    setStatus(`${lib.pl} ${statut ? `validée, statut « ${statut} »` : 'enregistrée'}${ajouts.length ? `, ${ajouts.length} CH ajoutée(s)` : ''}${annulees.length ? `, ${annulees.length} CH annulée(s)` : ''}.`, 'ok');
   } catch (err) {
     setStatus(`Échec de l’enregistrement : ${err.message || err}`, 'error');
+  } finally {
+    majBoutons();
+  }
+}
+
+// Valider : brouillon numéroté → mise à jour + statut En cours ; brouillon non numéroté →
+// numérotation sur sa ligne ; sinon nouvelle proposition.
+async function validerProposition() {
+  const src = etat?.source;
+  if (src && estBrouillon()) {
+    if (src.libelle) return enregistrerProposition(EN_COURS);
+    return creerProposition(src.plId);
+  }
+  return creerProposition();
+}
+
+// Conserve la saisie (et le montant indicatif) sans numéroter ni créer de CH.
+async function enregistrerBrouillon() {
+  if (!etat) return;
+  $('btn-draft').disabled = true;
+  try {
+    await lirePropositions();
+    const requis = ['Entreprise', 'TEM_404', 'Saisie', 'Montant_HT', 'Date_creation', 'Date_modification', 'Statut'];
+    const manques = requis.filter(c => !data.pcCols.has(c));
+    if (manques.length) { setStatus(`Colonnes absentes : ${manques.map(c => TABLE_PL + '.' + c).join(', ')}.`, 'error'); return; }
+    let ht = 0;
+    try { resultat = calculer(); ht = resultat?.tot?.ht || 0; } catch { /* saisie incomplète : montant inconnu */ }
+    const maintenant = Math.floor(Date.now() / 1000);
+    const champs = { Saisie: JSON.stringify(saisie()), Montant_HT: ht, Date_modification: maintenant };
+    let plId = etat.source?.plId;
+    if (plId) {
+      await grist.docApi.applyUserActions([['UpdateRecord', TABLE_PL, plId, champs]]);
+    } else {
+      const r = await grist.docApi.applyUserActions([['AddRecord', TABLE_PL, null, {
+        ...champs, Libelle_PL: '', Entreprise: etat.entrepriseId, TEM_404: etat.temId,
+        Date_creation: jourSec(new Date().toISOString()), Statut: BROUILLON,
+      }]]);
+      plId = r.retValues[0];
+    }
+    await lirePropositions();
+    selectProposition(plId);
+    setStatus(`Brouillon enregistré (${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}). « Valider la proposition » quand elle est prête.`, 'ok');
+  } catch (err) {
+    setStatus(`Échec de l’enregistrement du brouillon : ${err.message || err}`, 'error');
   } finally {
     majBoutons();
   }
