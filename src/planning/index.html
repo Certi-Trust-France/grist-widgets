@@ -254,9 +254,12 @@
       background: #f8fafc; border: 1px solid #e5e7eb;
       text-align: center; font-size: 11px; font-weight: 700; color: #1f2937;
     }
-    #planning-table tfoot tr:nth-child(1) td { bottom: 42px; border-top: 2px solid #1e3a8a; }
-    #planning-table tfoot tr:nth-child(2) td { bottom: 21px; }
-    #planning-table tfoot tr:nth-child(3) td { bottom: 0; }
+    #planning-table tfoot tr:nth-child(1) td { bottom: 63px; border-top: 2px solid #1e3a8a; background: #e0e7ff; color: #1e3a8a; text-align: left; }
+    #planning-table tfoot tr:nth-child(2) td { bottom: 42px; }
+    #planning-table tfoot tr:nth-child(3) td { bottom: 21px; }
+    #planning-table tfoot tr:nth-child(4) td { bottom: 0; }
+    /* Passage d'année en mode continu */
+    .row-month.row-year td { background: #0f1f5c; border-top: 4px solid #db2777; font-size: 12px; }
     #planning-table tfoot td.day-label { left: 0; z-index: 25; text-align: left; background: #f8fafc; }
     .week-num {
       font-size: 9px;
@@ -312,6 +315,7 @@
     #planning-table { user-select: none; }
     td.cell-edit { cursor: cell; }
     /* outline et non box-shadow : le contenu de la case recouvrirait une ombre interne */
+    td.cell-multi { outline: 2px dashed #2563eb; outline-offset: -2px; background-color: #dbeafe !important; }
     td.cell-sel  { outline: 2px solid #2563eb; outline-offset: -2px; }
     td.drop      { outline: 2px solid #16a34a; outline-offset: -2px; }
     .lot-cell[draggable="true"] { cursor: grab; }
@@ -362,6 +366,7 @@
   <span id="period-label"></span>
   <button class="btn-nav" onclick="navigate(1)"  title="Période suivante">&#8250;</button>
   <select id="view-mode" onchange="setViewMode(this.value)">
+    <option value="cont">Continu</option>
     <option value="year">Année</option>
     <option value="quarter">Trimestre</option>
     <option value="month">Mois</option>
@@ -436,7 +441,8 @@ const DAYS_FR   = ['Di','Lu','Ma','Me','Je','Ve','Sa'];
 
 // ── Navigation state ───────────────────────────────────────────────────────
 
-let viewMode    = 'year';
+// Continu : l'année affichée et la suivante d'un seul tenant (passage déc. → janv. à la molette)
+let viewMode    = 'cont';
 let viewYear    = new Date().getFullYear();
 let viewQuarter = Math.floor(new Date().getMonth() / 3);
 let viewMonth   = new Date().getMonth();
@@ -875,7 +881,10 @@ function isoWeekNumber(d) {
 
 function periodDays() {
   let start, end;
-  if (viewMode === 'year') {
+  if (viewMode === 'cont') {
+    start = new Date(Date.UTC(viewYear, 0,  1));
+    end   = new Date(Date.UTC(viewYear + 1, 11, 31));
+  } else if (viewMode === 'year') {
     start = new Date(Date.UTC(viewYear, 0,  1));
     end   = new Date(Date.UTC(viewYear, 11, 31));
   } else if (viewMode === 'quarter') {
@@ -893,7 +902,9 @@ function periodDays() {
 
 function updatePeriodLabel() {
   const el = document.getElementById('period-label');
-  if (viewMode === 'year') {
+  if (viewMode === 'cont') {
+    el.textContent = `${viewYear} – ${viewYear + 1}`;
+  } else if (viewMode === 'year') {
     el.textContent = String(viewYear);
   } else if (viewMode === 'quarter') {
     el.textContent = `T${viewQuarter + 1} ${viewYear}`;
@@ -904,7 +915,7 @@ function updatePeriodLabel() {
 
 function navigate(dir) {
   recenter = true;
-  if (viewMode === 'year') {
+  if (viewMode === 'year' || viewMode === 'cont') {
     viewYear += dir;
   } else if (viewMode === 'quarter') {
     viewQuarter += dir;
@@ -1040,7 +1051,8 @@ function render() {
     // Month separator row (même structure 2 colonnes que le sticky month)
     if (month !== lastMonth) {
       const tr = document.createElement('tr');
-      tr.className = 'row-month';
+      tr.className = 'row-month' + (viewMode === 'cont' && month === 0 ? ' row-year' : '');
+      tr.dataset.year = day.getUTCFullYear();
       const dateTd = document.createElement('td');
       dateTd.className = 'day-label';
       tr.appendChild(dateTd);
@@ -1109,7 +1121,9 @@ function render() {
   });
 
   table.appendChild(tbody);
-  if (absOk) table.appendChild(makeCompteur(days, evals, ctEvals.length, extEvals.length));
+  compteurArgs = { days, evals, nbCT: ctEvals.length, nbExt: extEvals.length };
+  compteurYear = null;
+  if (absOk) table.appendChild(makeCompteur(viewMode === 'cont' ? viewYear : null));
 
   const keepScroll = !recenter && wrapper.querySelector('#planning-table')
     ? { top: wrapper.scrollTop, left: wrapper.scrollLeft } : null;
@@ -1157,9 +1171,25 @@ function render() {
 const fmtJ = n => n ? String(+n.toFixed(2)).replace('.', ',') : '';
 
 // Nombre de jours par type sur la période affichée (week-ends exclus)
-function makeCompteur(days, evals, nbCT, nbExt) {
-  const inView = new Set(days.filter(d => !isWeekendDate(d)).map(toDateStr));
+// Mode continu : le compteur porte sur l'année du mois en haut de l'écran (voir onPlanningScroll)
+let compteurArgs = null;
+let compteurYear = null;
+
+function makeCompteur(year) {
+  const { days, evals, nbCT, nbExt } = compteurArgs;
+  compteurYear = year;
+  const periode = year ?? document.getElementById('period-label').textContent;
+  const inView = new Set(days.filter(d => !isWeekendDate(d) && (year == null || d.getUTCFullYear() === year)).map(toDateStr));
   const tfoot = document.createElement('tfoot');
+  const hd = document.createElement('tr');
+  const hdLab = document.createElement('td');
+  hdLab.className = 'day-label';
+  hdLab.textContent = 'Total';
+  const hdTxt = document.createElement('td');
+  hdTxt.colSpan = evals.length;
+  hdTxt.textContent = `Jours ${periode}`;
+  hd.append(hdLab, hdTxt);
+  tfoot.appendChild(hd);
   Object.entries(ABS_TYPES).forEach(([type, t]) => {
     const sums = new Map();
     absences.forEach(a => {
@@ -1169,7 +1199,7 @@ function makeCompteur(days, evals, nbCT, nbExt) {
     const lab = document.createElement('td');
     lab.className = 'day-label';
     lab.textContent = `${t.icon} ${t.court}`;
-    lab.title = `${type} : nombre de jours sur la période affichée (${document.getElementById('period-label').textContent})`;
+    lab.title = `${type} : nombre de jours sur ${periode}`;
     tr.appendChild(lab);
     evals.forEach((ev, i) => {
       const td = document.createElement('td');
@@ -1265,7 +1295,9 @@ let renderedDays  = [];
 let renderedEvals = [];
 let pendingStatus = '';     // message d'écriture affiché après le rendu déclenché par onRecords
 let sel     = null;         // { eid, ds, key } — key = id de l’UO, ou « a<id> » pour une absence
-let clip    = null;         // créneau copié (Ctrl+C)
+let clip    = null;         // cases copiées (Ctrl/⌘+C), voir buildClip
+let multi   = new Set();    // sélection multiple : clés « eid|ds » ; vide = sélection simple
+let shiftAnchor = null;     // case de départ d'une sélection Maj+clic
 let dragSrc = null;         // { slot, ds }
 let writing = false;
 
@@ -1448,10 +1480,80 @@ async function moveTo(slot, srcDs, eid, ds) {
                newUoAction({ ...spec, role }, eid, ds, spec.extra)], 'Journée déplacée');
 }
 
+// ── Sélection multiple et copie de groupe ──
+// ⌘/Ctrl+clic ajoute ou retire une case, Maj+clic sélectionne un rectangle de cases.
+// Le groupe se colle à partir de la case cible en gardant les écarts de jours et de colonnes.
+
+const cellKey  = (eid, ds) => `${eid}|${ds}`;
+const parseKey = k => { const [e, ds] = k.split('|'); return { eid: +e, ds }; };
+const dayDiff  = (a, b) => Math.round((secOf(b) - secOf(a)) / 86400);
+const fmtJJMM  = ds => `${ds.slice(8, 10)}/${ds.slice(5, 7)}`;
+
+function selectedCells() {
+  if (multi.size) return [...multi].map(parseKey);
+  return sel ? [{ eid: sel.eid, ds: sel.ds }] : [];
+}
+
+function rangeKeys(a, b) {
+  const [r1, r2] = [renderedDays.indexOf(a.ds), renderedDays.indexOf(b.ds)].sort((x, y) => x - y);
+  const [c1, c2] = [renderedEvals.indexOf(a.eid), renderedEvals.indexOf(b.eid)].sort((x, y) => x - y);
+  if (r1 < 0 || c1 < 0) return [];
+  const keys = [];
+  for (let r = r1; r <= r2; r++) {
+    if (isWeekendStr(renderedDays[r])) continue;
+    for (let c = c1; c <= c2; c++) keys.push(cellKey(renderedEvals[c], renderedDays[r]));
+  }
+  return keys;
+}
+
+// Copie le contenu modifiable de chaque case ; ancre = case en haut à gauche, sauf
+// pour un glisser où c'est la case saisie (elle atterrit sous la souris).
+function buildClip(cells, anchor = null) {
+  if (!cells.length) return null;
+  anchor ??= {
+    eid: renderedEvals[Math.min(...cells.map(c => renderedEvals.indexOf(c.eid)))],
+    ds:  cells.map(c => c.ds).sort()[0],
+  };
+  const a = renderedEvals.indexOf(anchor.eid);
+  const items = cells.map(({ eid, ds }) => ({
+    dEv:   renderedEvals.indexOf(eid) - a,
+    dDays: dayDiff(anchor.ds, ds),
+    specs: slotsAt(eid, ds).filter(editable).map(s => specOf(s, ds)),
+  })).filter(it => it.specs.length);
+  return items.length ? { items } : null;
+}
+
+async function pasteClip(c, eid, ds) {
+  const col0 = renderedEvals.indexOf(eid);
+  const actions = [], skipped = [];
+  let pasted = 0;
+  c.items.forEach(it => {
+    const tEid = renderedEvals[col0 + it.dEv];
+    const tDs  = toDateStr(addDays(new Date(ds + 'T00:00:00Z'), it.dDays));
+    if (tEid == null || isWeekendStr(tDs)) return skipped.push(fmtJJMM(tDs));
+    // Case cible déjà occupée au-delà de ce qui tient : laissée telle quelle
+    const existing = slotsAt(tEid, tDs);
+    const load = existing.reduce((n, s) => n + slotLoad(s), 0) + it.specs.reduce((n, sp) => n + sp.w, 0);
+    if (load > 1 + 1e-9 || existing.length + it.specs.length > MAX_UO_CASE) return skipped.push(fmtJJMM(tDs));
+    it.specs.forEach(sp => actions.push(sp.abs
+      ? absAction(sp.abs, sp.w, tEid, tDs)
+      : newUoAction({ ...sp, role: tEid === sp.eid ? sp.role : defaultRole(sp.evaluation, tEid) }, tEid, tDs, sp.extra)));
+    pasted++;
+  });
+  const ign = skipped.length
+    ? `${skipped.length} jour(s) ignoré(s) : ${skipped.slice(0, 8).join(', ')}${skipped.length > 8 ? '…' : ''}` : '';
+  if (!actions.length) return refuse(`Rien collé${ign ? ' — ' + ign : ''}`);
+  await apply(actions, `${pasted} case(s) collée(s)` + (ign ? ' · ' + ign : ''));
+}
+
 // ── Sélection ──
 
 function paintSelection() {
-  document.querySelectorAll('.cell-sel, .slot-sel').forEach(e => e.classList.remove('cell-sel', 'slot-sel'));
+  document.querySelectorAll('.cell-sel, .slot-sel, .cell-multi').forEach(e => e.classList.remove('cell-sel', 'slot-sel', 'cell-multi'));
+  multi.forEach(k => {
+    const { eid, ds } = parseKey(k);
+    document.querySelector(`td[data-ev="${eid}"][data-date="${ds}"]`)?.classList.add('cell-multi');
+  });
   if (!sel) return;
   const td = document.querySelector(`td[data-ev="${sel.eid}"][data-date="${sel.ds}"]`);
   if (!td) return;
@@ -1466,6 +1568,8 @@ function moveSelection(dr, dc) {
   const r = Math.max(0, Math.min(renderedDays.length - 1, renderedDays.indexOf(sel.ds) + dr));
   const c = Math.max(0, Math.min(renderedEvals.length - 1, renderedEvals.indexOf(sel.eid) + dc));
   sel = { eid: renderedEvals[c], ds: renderedDays[r], key: null };
+  multi = new Set();
+  shiftAnchor = sel;
   paintSelection();
   document.querySelector('td.cell-sel')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
@@ -1713,8 +1817,21 @@ const gridWrap = $('table-wrapper');
 gridWrap.addEventListener('click', ev => {
   const td = ev.target.closest('td[data-ev]');
   if (!td) return;
-  sel = { eid: +td.dataset.ev, ds: td.dataset.date, key: ev.target.closest('.lot-cell')?.dataset.uo || null };
+  const cur = { eid: +td.dataset.ev, ds: td.dataset.date, key: ev.target.closest('.lot-cell')?.dataset.uo || null };
+  if (ev.metaKey || ev.ctrlKey) {
+    if (!multi.size && sel) multi.add(cellKey(sel.eid, sel.ds));
+    const k = cellKey(cur.eid, cur.ds);
+    if (multi.has(k)) multi.delete(k); else multi.add(k);
+    shiftAnchor = cur;
+  } else if (ev.shiftKey && (shiftAnchor || sel)) {
+    multi = new Set(rangeKeys(shiftAnchor || sel, cur));
+  } else {
+    multi = new Set();
+    shiftAnchor = cur;
+  }
+  sel = cur;
   paintSelection();
+  if (multi.size > 1) showStatus(`${multi.size} case(s) sélectionnée(s) : Ctrl/⌘+C pour copier, ou Alt + glisser`);
 });
 gridWrap.addEventListener('dblclick', ev => { if (ev.target.closest('td[data-ev]')) openEditor(); });
 
@@ -1724,7 +1841,9 @@ gridWrap.addEventListener('dragstart', ev => {
   if (!td) return;
   const slot = slotsAt(+td.dataset.ev, td.dataset.date).find(s => String(s.lot.id) === cell.dataset.uo);
   if (!editable(slot)) { ev.preventDefault(); return; }
+  const from = { eid: +td.dataset.ev, ds: td.dataset.date };
   dragSrc = { slot, ds: td.dataset.date };
+  if (multi.size > 1 && multi.has(cellKey(from.eid, from.ds))) dragSrc.group = buildClip(selectedCells(), from);
   ev.dataTransfer.effectAllowed = 'copyMove';
   ev.dataTransfer.setData('text/plain', String(slot.lot.id));
 });
@@ -1741,9 +1860,16 @@ gridWrap.addEventListener('drop', async ev => {
   clearDrop();
   if (!dragSrc || !td) return;
   ev.preventDefault();
-  const { slot, ds: srcDs } = dragSrc;
+  const { slot, ds: srcDs, group } = dragSrc;
   dragSrc = null;
   const eid = +td.dataset.ev, ds = td.dataset.date;
+  if (group) {
+    if (!ev.altKey) return refuse('Plusieurs cases sélectionnées : maintenir Alt pendant le glisser pour les copier');
+    multi = new Set();
+    sel = { eid, ds, key: null };
+    paintSelection();
+    return pasteClip(group, eid, ds);
+  }
   if (eid === slot.eid && ds === srcDs) return;
   sel = { eid, ds, key: null };
   paintSelection();
@@ -1770,19 +1896,18 @@ document.addEventListener('keydown', async ev => {
   if (ev.target.matches('input, select, textarea') || !sel) return;
   const mod = ev.ctrlKey || ev.metaKey;
   const arrows = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
-  if (ev.key === 'Escape') { sel = null; paintSelection(); }
+  if (ev.key === 'Escape') { sel = null; multi = new Set(); paintSelection(); }
   else if (ev.key === 'Enter' || ev.key === 'F2') { ev.preventDefault(); openEditor(); }
   else if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); await deleteSelected(); }
   else if (mod && ev.key.toLowerCase() === 'c') {
-    const s = selectedSlot();
-    if (!s) return;
-    if (!editable(s)) return refuse(NOT_EDITABLE);
-    clip = specOf(s, sel.ds);
-    showStatus('Case copiée : Ctrl+V pour la coller');
     ev.preventDefault();
+    const c = buildClip(selectedCells());
+    if (!c) return refuse('Rien à copier (cases vides ou UO non modifiables)');
+    clip = c;
+    showStatus(`${c.items.length} case(s) copiée(s) : cliquer sur la case de départ, puis Ctrl/⌘+V`);
   } else if (mod && ev.key.toLowerCase() === 'v' && clip) {
     ev.preventDefault();
-    await copyTo(clip, sel.eid, sel.ds);
+    await pasteClip(clip, sel.eid, sel.ds);
   } else if (arrows[ev.key]) {
     ev.preventDefault();
     moveSelection(...arrows[ev.key]);
@@ -1805,6 +1930,16 @@ function onPlanningScroll() {
     if (td.getBoundingClientRect().top <= threshold) currentText = td.textContent;
   });
   label.textContent = currentText;
+
+  // Mode continu : le compteur suit l'année en cours de lecture
+  if (viewMode !== 'cont' || !absOk || !compteurArgs) return;
+  let year = viewYear;
+  wrapper.querySelectorAll('.row-month').forEach(tr => {
+    if (tr.getBoundingClientRect().top <= threshold) year = +tr.dataset.year;
+  });
+  if (year === compteurYear) return;
+  const old = wrapper.querySelector('#planning-table tfoot');
+  if (old) old.replaceWith(makeCompteur(year));
 }
 
 // Listener unique (pas besoin de le recréer à chaque render)
