@@ -84,6 +84,14 @@
   table.pts .qui { font-size: 11px; color: var(--gris); white-space: nowrap; }
   .badge-liv { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--marine); background: var(--pale); border: 1px solid var(--bord); border-radius: 8px; padding: 0 6px; white-space: nowrap; }
 
+  /* Courrier de recevabilité : aperçu modifiable */
+  .courrier { background: #fff; border: 1px solid var(--bord); border-radius: 5px; padding: 10px; margin-top: 8px; }
+  .courrier .ligne { align-items: flex-start; }
+  .courrier label.lbl { padding-top: 4px; }
+  .courrier input[type=text], .courrier textarea { flex: 1; min-width: 200px; }
+  .courrier textarea.corps { min-height: 260px; }
+  .courrier textarea.court { min-height: 46px; }
+
   .statusbar { position: sticky; bottom: 0; margin-top: 8px; padding: 5px 10px; font-size: 11.5px; background: #fff; border: 1px solid var(--bord); border-radius: 5px; color: var(--gris); min-height: 26px; }
   .statusbar.error { color: var(--ko); background: var(--ko-bg); }
   .config { display: none; background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px; margin-bottom: 10px; }
@@ -139,10 +147,14 @@ let writing = false;
 let reqId = 0;
 
 grist.ready({ requiredAccess: 'full', onEditOptions: openConfig });
-grist.onOptions(opts => { docUrl = (opts?.docUrl || '').replace(/\/+$/, ''); if (D) render(); });
+grist.onOptions(opts => {
+  docUrl = (opts?.docUrl || '').replace(/\/+$/, '');
+  signataire = opts?.signataire || '';
+  if (D) render();
+});
 grist.onRecord(async rec => {
   if (!rec?.id) { revId = 0; showEmpty(); return; }
-  if (rec.id !== revId) ouverts = null;
+  if (rec.id !== revId) { ouverts = null; courrier = null; }
   revId = rec.id;
   await reload();
 });
@@ -377,7 +389,8 @@ function panneau(j) {
       ${c.recevable ? `<div class="ligne"><label class="lbl">Dossier recevable</label>${tog('rev-choix', r.Recevable, ['OUI', 'NON'], 'data-col="Recevable" data-date="Date_recevabilite"', true)}
         ${c.dateRecev ? champDate('Date_recevabilite', r.Date_recevabilite, 'le') : ''}</div>`
         : '<div class="warn">Colonnes Recevable / Date_recevabilite à créer dans Revues_de_dossier.</div>'}
-      <div class="ligne"><button class="btn sec2" disabled title="Modèle à fournir">Générer l'avis de recevabilité (à venir)</button></div>
+      <div class="ligne"><button class="btn${courrier ? ' sec2' : ''}" data-act="courrier" ${progsDemandes().length ? '' : 'disabled title="Aucun programme demandé lisible dans le TEM-404"'}>${courrier ? 'Fermer le courrier' : '✉ Préparer le courrier de recevabilité'}</button></div>
+      ${courrier ? editeurCourrier() : ''}
     </div>`;
   }
   if (j === 'Proposition commerciale') {
@@ -438,6 +451,157 @@ function panneau(j) {
     <div class="ligne">${champTexte('Just_finale', r.Just_finale, 'Justification', true)}</div>
     <div class="ligne"><button class="btn sec2" disabled title="À venir">Exporter la revue TEM-16b en PDF (à venir)</button></div>
   </div>`;
+}
+
+// ── Courrier de recevabilité ───────────────────────────────────────────────
+// Texte repris du modèle « Courrier_Recevabilité_PASSI_V2 » ; tout est modifiable avant le PDF.
+// Le signataire est une option du widget (document Grist), pas une donnée du dépôt.
+
+const PROG_NOMS = { passi: 'PASSI', pacs: 'PACS', pris: 'PRIS', pdis: 'PDIS', pams: 'PAMS' };
+const CIVILITES = {
+  M:  { label: 'Monsieur', abr: 'M.',  salut: 'Cher Monsieur,',   apos: 'cher Monsieur' },
+  F:  { label: 'Madame',   abr: 'Mme', salut: 'Chère Madame,',    apos: 'chère Madame' },
+  MF: { label: 'Madame, Monsieur', abr: '', salut: 'Madame, Monsieur,', apos: 'Madame, Monsieur' },
+};
+const EXPEDITEUR = ['CERTI-TRUST France', '33, avenue de Wagram', '75017 Paris – France', 'Tél. : +33 (0)1 86 86 22 08', 'E-mail : contact@certi-trust.com', 'Site : www.certi-trust.com'];
+const PIED = ['Certi-Trust France SAS 33, Avenue de Wagram - 75017 Paris, France', 'Tél. : +33 (0)1 86 86 22 08 – e-mail : administration.france@certi-trust.com'];
+const BLEU = '#3B5BAB';
+let courrier = null;    // { prog, civ, date, dest, objet, salut, corps, signature }
+let signataire = '';    // option du widget
+
+function jsonTem() { try { return JSON.parse(D.tem?.Json_Complet || '{}'); } catch { return {}; } }
+const val = v => (v == null || v === '-' ? '' : String(v).trim());
+function progsDemandes() {
+  const j = jsonTem();
+  return Object.keys(PROG_NOMS).filter(k => j[`b.${k}.demande`] === true);
+}
+
+function texteCourrier(prog, civ) {
+  const j = jsonTem(), c = CIVILITES[civ], P = PROG_NOMS[prog];
+  const version = val(j[`b.${prog}.version`]), niveau = val(j[`b.${prog}.niveau`]);
+  const nom = [val(j['contact.representant_legal.prenom']), val(j['contact.representant_legal.nom'])].filter(Boolean).join(' ');
+  const d = new Date(), p2 = n => String(n).padStart(2, '0');
+  return {
+    prog, civ,
+    date: `Paris, le ${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)}`,
+    dest: [`À l’attention de ${[c.abr, nom].filter(Boolean).join(' ')}`, val(j['demandeur.nom']) || String(D.ent.get(D.tem?.Entreprise)?.Denomination || ''),
+           val(j['demandeur.adresse1']), val(j['demandeur.adresse2']), [val(j['demandeur.code_postal']), val(j['demandeur.ville'])].filter(Boolean).join(' ')]
+           .filter(Boolean).join('\n'),
+    objet: `Attestation de recevabilité administration pour la qualification ${P}${version ? ' ' + version : ''}.`,
+    salut: c.salut,
+    corps: [
+      `Nous avons le plaisir de vous informer de notre décision favorable quant à la recevabilité de votre demande de qualification selon le référentiel ${P}${version ? ' v' + version : ''}${niveau ? ' au niveau ' + niveau : ''}.`,
+      `Par ailleurs, conformément aux termes de notre Règlement de certification, nous vous rappelons que vous disposez d'un délai de douze (12) mois à compter de la décision de recevabilité pour obtenir la qualification ${P}. Passé ce délai, nous serons amenés, le cas échéant, à devoir procéder à une nouvelle étude de recevabilité.`,
+      `Pour ce qui concerne la suite à donner au processus de qualification en cours, nous vous confirmons que notre équipe d’évaluation prendra contact dans les prochains jours avec les représentants de votre organisation pour établir la planification et préparer la réalisation de l'audit siège, de l’observation témoin et des autres étapes jusqu’à la qualification éventuelle.`,
+      `En vous remerciant de votre confiance, nous restons à votre disposition pour répondre à toute question ou remarque de votre part et vous prions d'accepter, ${c.apos}, l’expression de nos meilleures salutations.`,
+    ].join('\n\n'),
+    signature: signataire || 'Le Directeur Cybersécurité,\n[Prénom NOM]',
+  };
+}
+
+function editeurCourrier() {
+  const c = courrier, progs = progsDemandes();
+  const champ = (k, titre, type = 'input', cls = '') => type === 'input'
+    ? `<div class="ligne"><label class="lbl">${titre}</label><input type="text" data-act="cour-txt" data-k="${k}" value="${esc(c[k])}"></div>`
+    : `<div class="ligne"><label class="lbl">${titre}</label><textarea class="${cls}" data-act="cour-txt" data-k="${k}">${esc(c[k])}</textarea></div>`;
+  return `<div class="courrier">
+    <div class="ligne"><label class="lbl">Programme</label><span class="tog large">${progs.map(p =>
+      `<button class="v-OUI${c.prog === p ? ' on' : ''}" data-act="cour-prog" data-v="${p}">${PROG_NOMS[p]}</button>`).join('')}</span></div>
+    <div class="ligne"><label class="lbl">Civilité</label><span class="tog large">${Object.entries(CIVILITES).map(([k, v]) =>
+      `<button class="v-OUI${c.civ === k ? ' on' : ''}" data-act="cour-civ" data-v="${k}">${v.label}</button>`).join('')}</span>
+      <span class="info">Changer le programme ou la civilité regénère le texte.</span></div>
+    ${champ('date', 'Date')}
+    ${champ('dest', 'Destinataire', 'area', 'court')}
+    ${champ('objet', 'Objet')}
+    ${champ('salut', 'Formule d’appel')}
+    ${champ('corps', 'Corps (paragraphes séparés par une ligne vide)', 'area', 'corps')}
+    ${champ('signature', 'Signature', 'area', 'court')}
+    <div class="ligne"><button class="btn" data-act="cour-pdf">📄 Générer le PDF</button>
+      <button class="btn sec2" data-act="cour-sign" title="Mémorise la signature dans ce document Grist">Mémoriser la signature</button></div>
+  </div>`;
+}
+
+function ouvrirCourrier() {
+  if (courrier) { courrier = null; return render(); }
+  const progs = progsDemandes();
+  courrier = texteCourrier(progs[0], 'M');
+  render();
+}
+
+const POLICES = 'https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@v7.222/fonts/ttf/';
+const FICHIERS_POLICE = { normal: 'Montserrat-Regular.ttf', bold: 'Montserrat-Bold.ttf', italics: 'Montserrat-Italic.ttf', bolditalics: 'Montserrat-BoldItalic.ttf' };
+let pdfPret = null;
+const script = src => new Promise((ok, ko) => { const el = document.createElement('script'); el.src = src; el.onload = ok; el.onerror = () => ko(new Error('chargement ' + src)); document.head.appendChild(el); });
+const base64 = buf => { const b = new Uint8Array(buf); let x = ''; for (let i = 0; i < b.length; i += 0x8000) x += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(x); };
+async function preparerPdf() {
+  if (pdfPret) return pdfPret;
+  pdfPret = (async () => {
+    if (!window.pdfMake) await script('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js');
+    const vfs = {}; let fonts, police = 'Montserrat';
+    try {
+      const bufs = await Promise.all(Object.values(FICHIERS_POLICE).map(f => fetch(POLICES + f).then(r => { if (!r.ok) throw new Error(f); return r.arrayBuffer(); })));
+      Object.values(FICHIERS_POLICE).forEach((f, i) => { vfs[f] = base64(bufs[i]); });
+      fonts = { Montserrat: FICHIERS_POLICE };
+    } catch {
+      await script('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.js');
+      Object.assign(vfs, window.pdfMake.vfs || {});
+      fonts = { Roboto: { normal: 'Roboto-Regular.ttf', bold: 'Roboto-Medium.ttf', italics: 'Roboto-Italic.ttf', bolditalics: 'Roboto-MediumItalic.ttf' } };
+      police = 'Roboto';
+    }
+    let logo = null;
+    try { const r = await fetch('logo.png'); if (r.ok) logo = 'data:image/png;base64,' + base64(await r.arrayBuffer()); } catch { /* sans logo */ }
+    return { vfs, fonts, police, logo };
+  })();
+  try { return await pdfPret; } catch (e) { pdfPret = null; throw e; }
+}
+
+function definitionCourrier(c, res) {
+  const filet = (y, x1, x2) => ({ canvas: [{ type: 'line', x1, y1: y, x2, y2: y, lineWidth: 0.6, lineColor: BLEU }] });
+  return {
+    pageSize: 'A4', pageMargins: [62, 118, 62, 78],
+    info: { title: `${c.objet}`, author: 'Certi-Trust France' },
+    defaultStyle: { font: res.police, fontSize: 10, color: '#262B38', lineHeight: 1.2 },
+    header: () => ({ margin: [40, 28, 40, 0], stack: [
+      { columns: [
+        res.logo ? { image: res.logo, width: 120 } : { text: 'Certi-Trust', bold: true, color: BLEU, fontSize: 16 },
+        { text: 'CONFIANCE DANS L’ÈRE NUMÉRIQUE', italics: true, color: BLEU, fontSize: 7.5, alignment: 'right', margin: [0, 30, 0, 0], characterSpacing: 0.6 },
+      ] },
+      filet(6, 0, 515),
+    ] }),
+    footer: () => ({ margin: [40, 18, 40, 0], stack: [
+      filet(0, 0, 515),
+      { text: PIED.join('\n'), alignment: 'center', color: BLEU, fontSize: 8, margin: [0, 6, 0, 0] },
+    ] }),
+    content: [
+      { stack: EXPEDITEUR.map((t, i) => ({ text: t, bold: i === 0, fontSize: i === 0 ? 10 : 9 })) },
+      { text: c.date, alignment: 'right', margin: [0, 8, 0, 0] },
+      { text: c.dest, margin: [250, 26, 0, 0] },
+      { text: [{ text: 'Objet :', decoration: 'underline', bold: true }, ' ' + c.objet], margin: [0, 34, 0, 0] },
+      { text: c.salut, margin: [0, 26, 0, 0] },
+      ...c.corps.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => ({ text: p.replace(/\s*\n\s*/g, ' '), alignment: 'justify', margin: [0, 12, 0, 0] })),
+      { text: c.signature, margin: [0, 40, 0, 0] },
+    ],
+  };
+}
+
+async function genererPdfCourrier(bouton) {
+  const c = courrier;
+  if (!c) return;
+  const lib = bouton.textContent;
+  bouton.disabled = true; bouton.textContent = 'Génération…';
+  try {
+    const res = await preparerPdf();
+    const d = new Date(), p2 = n => String(n).padStart(2, '0');
+    const code = String(D.ent.get(D.tem?.Entreprise)?.code || jsonTem()['demandeur.nom'] || 'CLIENT').replace(/[^\w-]+/g, '_');
+    const nom = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${code}_Courrier_Recevabilite_${PROG_NOMS[c.prog]}.pdf`;
+    const pdf = window.pdfMake.createPdf(definitionCourrier(c, res), null, res.fonts, res.vfs);
+    try { pdf.download(nom); } catch { pdf.open(); }
+    status(`Courrier généré : ${nom}`);
+  } catch (e) {
+    status('Erreur PDF : ' + (e.message || e), 'error');
+  } finally {
+    bouton.disabled = false; bouton.textContent = lib;
+  }
 }
 
 // ── Écritures ──────────────────────────────────────────────────────────────
@@ -534,6 +698,25 @@ main.addEventListener('click', async ev => {
   }
   if (act === 'rapport-auj') return setRev({ Date_livraison_rapport: today() }, 'Rapport marqué livré');
   if (act === 'creer-eval') return creerEval(+b.dataset.ch);
+  if (act === 'courrier') return ouvrirCourrier();
+  if (act === 'cour-prog' || act === 'cour-civ') {
+    const prog = act === 'cour-prog' ? b.dataset.v : courrier.prog, civ = act === 'cour-civ' ? b.dataset.v : courrier.civ;
+    const sig = courrier.signature;
+    courrier = { ...texteCourrier(prog, civ), signature: sig };
+    return render();
+  }
+  if (act === 'cour-pdf') return genererPdfCourrier(b);
+  if (act === 'cour-sign') {
+    signataire = courrier.signature;
+    await grist.setOption('signataire', signataire);
+    return status('Signature mémorisée pour les prochains courriers.');
+  }
+});
+
+// Saisie dans le courrier : mémorisée sans re-rendu (le curseur reste en place)
+main.addEventListener('input', ev => {
+  const el = ev.target;
+  if (el.dataset.act === 'cour-txt' && courrier) courrier[el.dataset.k] = el.value;
 });
 
 main.addEventListener('change', async ev => {
