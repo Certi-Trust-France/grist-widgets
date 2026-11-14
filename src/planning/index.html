@@ -318,7 +318,7 @@
     .lot-cell.slot-sel { box-shadow: inset 0 0 0 1px #2563eb; }
 
     .pop {
-      position: fixed; z-index: 50; width: 340px;
+      position: fixed; z-index: 50; width: 400px; max-height: calc(100vh - 8px);
       display: none; flex-direction: column;
       background: #fff; border: 1px solid #cbd5e1; border-radius: 6px;
       box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
@@ -341,6 +341,18 @@
     .pop-err { color: #b91c1c; font-size: 11px; min-height: 14px; }
     .pop-ft { padding: 6px 8px; display: flex; gap: 6px; border-top: 1px solid #e2e8f0; }
     .pop-sub { display: flex; flex-direction: column; gap: 6px; }
+    .pop-bd { overflow: auto; }
+    .pop-tri  { font-size: 15px; font-weight: 700; color: #1e3a8a; }
+    .pop-date { font-size: 12px; font-weight: 500; color: #475569; }
+    .pop .off { opacity: .35; pointer-events: none; }
+    .grp-t { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+    .grp-t small { text-transform: none; font-weight: 400; letter-spacing: 0; }
+    .chk-line { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+    .chk { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; font-size: 12px; }
+    .chk input { width: auto; margin: 0; cursor: pointer; }
+    .uo-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; padding: 1px 2px; border-radius: 3px; }
+    .uo-row.on { background: #eef2ff; }
+    .uo-row .chk-line { gap: 2px 6px; }
   </style>
 </head>
 <body>
@@ -377,23 +389,28 @@
 <div class="statusbar" id="statusbar"></div>
 
 <div class="pop" id="pop">
-  <div class="pop-hd" id="pop-hd">Modifier</div>
+  <div class="pop-hd">
+    <div class="pop-tri" id="pop-tri"></div>
+    <div class="pop-date" id="pop-date"></div>
+  </div>
   <div class="pop-bd">
-    <select id="pop-kind" title="Nature de la case"></select>
-    <div class="pop-sub" id="pop-mission">
+    <div class="pop-sub" id="pop-search">
       <input id="pop-q" type="search" placeholder="Rechercher une évaluation (tetra, client, libellé)…" autocomplete="off">
       <div class="pop-opts" id="pop-opts"></div>
-      <select id="pop-type" title="Unité d'œuvre"></select>
     </div>
-    <input id="pop-lib" type="text" placeholder="Libellé" autocomplete="off">
-    <div class="pop-row">
-      <select id="pop-role" title="Rôle de l'évaluateur"></select>
-      <select id="pop-duree" title="Durée sur ce jour"></select>
+    <div id="grp-kind"><div class="grp-t">Nature</div><div class="chk-line" id="pop-kind"></div></div>
+    <div class="pop-sub" id="pop-mission">
+      <div><div class="grp-t">Unités d'œuvre et jours <small>(2 au plus, 1 j au total)</small></div><div id="pop-uos"></div></div>
+      <div><div class="grp-t">Fonction</div><div class="chk-line" id="pop-role"></div></div>
+    </div>
+    <div class="pop-sub" id="pop-absbox">
+      <input id="pop-lib" type="text" placeholder="Libellé" autocomplete="off">
+      <div><div class="grp-t">Jours</div><div class="chk-line" id="pop-absw"></div></div>
     </div>
     <div class="pop-err" id="pop-err"></div>
   </div>
   <div class="pop-ft">
-    <button class="danger" id="pop-clear" title="Retirer ce jour pour cet évaluateur">Effacer</button>
+    <button class="danger" id="pop-clear" title="Vider la case pour cet évaluateur">Effacer</button>
     <span style="flex:1"></span>
     <button id="pop-cancel">Annuler</button>
     <button class="primary" id="pop-ok">Valider</button>
@@ -1251,7 +1268,6 @@ let sel     = null;         // { eid, ds, key } — key = id de l’UO, ou « a<
 let clip    = null;         // créneau copié (Ctrl+C)
 let dragSrc = null;         // { slot, ds }
 let writing = false;
-let popEval = null;
 
 const $ = id => document.getElementById(id);
 const L = ids => ['L', ...ids];
@@ -1455,8 +1471,16 @@ function moveSelection(dr, dc) {
 }
 
 // ── Fenêtre d'édition ──
+// La fenêtre édite toute la case (un jour × un évaluateur) : jusqu'à deux UO de la même
+// évaluation, ou une absence/prévision. Uniquement des cases à cocher, aucune liste déroulante.
 
 const popOpen = () => $('pop').classList.contains('on');
+const MISSION = 'Mission';
+const MAX_UO_CASE = 2; // une case affiche au plus deux créneaux
+const slotLoad = s => s.lot.jours < 1 ? s.lot.jours : 1; // même règle que placeLot / fits
+const fmtW = w => `${String(w).replace('.', ',')} j`;
+
+let ed = null; // { kind, evalId, uos: Map(type → w), role, absW }
 
 function evalLabel(e) { return [e.tetra || e.client || '?', e.prog].filter(Boolean).join(' · '); }
 
@@ -1467,12 +1491,12 @@ function renderOptions() {
     .filter(e => !q || `${e.tetra} ${e.client} ${e.prog} ${e.libelle}`.toLowerCase().includes(q))
     .sort((a, b) => evalLabel(a).localeCompare(evalLabel(b), 'fr'))
     .slice(0, 80);
-  if (popEval && !list.some(e => e.id === popEval) && evalInfo.has(popEval)) list.unshift(evalInfo.get(popEval));
+  if (ed.evalId && !list.some(e => e.id === ed.evalId) && evalInfo.has(ed.evalId)) list.unshift(evalInfo.get(ed.evalId));
   const box = $('pop-opts');
   box.innerHTML = '';
   list.forEach(e => {
     const o = document.createElement('div');
-    o.className = 'opt' + (e.id === popEval ? ' on' : '');
+    o.className = 'opt' + (e.id === ed.evalId ? ' on' : '');
     o.dataset.evid = e.id;
     o.style.borderLeftColor = progColor(e.prog);
     o.textContent = evalLabel(e);
@@ -1485,55 +1509,107 @@ function renderOptions() {
 }
 
 function pickEval(id) {
-  popEval = id;
-  // Sur une case vide, le rôle suit celui de la personne sur l'évaluation choisie
-  if (!selectedSlot()?.lot.uo) $('pop-role').value = defaultRole(id, sel.eid);
+  // Sur une case sans mission, la fonction suit celle de la personne sur l'évaluation choisie
+  if (!slotsAt(sel.eid, sel.ds).some(s => s.lot.uo)) ed.role = defaultRole(id, sel.eid);
+  ed.evalId = id;
   renderOptions();
+  renderControls();
   $('pop-opts').querySelector('.opt.on')?.scrollIntoView({ block: 'nearest' });
 }
 
-function fillSelect(el, values, current, labelOf = v => v) {
-  const vals = [...values];
-  if (current !== '' && current != null && !vals.includes(current)) vals.unshift(current);
-  el.innerHTML = '';
-  vals.forEach(v => el.add(new Option(labelOf(v), v)));
-  el.value = current ?? '';
+function chk(label, checked, onChange, title = '') {
+  const l = document.createElement('label');
+  l.className = 'chk';
+  if (title) l.title = title;
+  const i = document.createElement('input');
+  i.type = 'checkbox';
+  i.checked = checked;
+  i.addEventListener('change', () => { onChange(i.checked); renderControls(); });
+  l.append(i, document.createTextNode(label));
+  return l;
 }
 
-const MISSION = 'Mission';
+// Durée par défaut d'une UO cochée : le reste de la journée ; si elle est déjà pleine
+// avec une seule UO, les deux passent à 0,5 j.
+function defaultW() {
+  const ws = [...ed.uos.values()];
+  const rest = 1 - ws.reduce((n, w) => n + w, 0);
+  if (rest > 1e-9) return DUREES.find(d => d <= rest + 1e-9) ?? 0.25;
+  if (ws.length === 1) { const [t] = ed.uos.keys(); ed.uos.set(t, 0.5); return 0.5; }
+  return 0.25;
+}
 
-function showKind() {
-  const mission = $('pop-kind').value === MISSION;
+function renderControls() {
+  const mission = ed.kind === MISSION;
+  $('pop-search').classList.toggle('off', !mission);
   $('pop-mission').style.display = mission ? '' : 'none';
-  $('pop-role').style.display    = mission ? '' : 'none';
-  $('pop-lib').style.display     = mission ? 'none' : '';
-  $('pop-lib').placeholder = $('pop-kind').value === 'Prévision' ? 'Libellé (obligatoire)' : 'Libellé (facultatif)';
-  $('pop-err').textContent = '';
+  $('pop-absbox').style.display  = mission ? 'none' : '';
+  $('grp-kind').style.display    = absOk ? '' : 'none'; // sans la table T_ABS : missions seulement
+  $('pop-lib').placeholder = ed.kind === 'Prévision' ? 'Libellé (obligatoire)' : 'Libellé (facultatif)';
+
+  const kind = $('pop-kind');
+  kind.innerHTML = '';
+  [MISSION, ...Object.keys(ABS_TYPES)].forEach(k => kind.appendChild(
+    chk(k === MISSION ? 'Mission' : `${ABS_TYPES[k].icon} ${k}`, ed.kind === k, on => { if (on) ed.kind = k; })));
+
+  const types = [...uoChoices];
+  ed.uos.forEach((_, t) => { if (!types.includes(t)) types.push(t); });
+  const uos = $('pop-uos');
+  uos.innerHTML = '';
+  types.forEach(t => {
+    const on = ed.uos.has(t);
+    const row = document.createElement('div');
+    row.className = 'uo-row' + (on ? ' on' : '');
+    const icon = planEvalIcon(t);
+    row.appendChild(chk(`${icon ? icon + ' ' : ''}${t}`, on, v => {
+      $('pop-err').textContent = '';
+      if (!v) return ed.uos.delete(t);
+      if (ed.uos.size >= MAX_UO_CASE) { $('pop-err').textContent = `${MAX_UO_CASE} unités d'œuvre au plus par case.`; return; }
+      ed.uos.set(t, defaultW());
+    }));
+    const ws = document.createElement('div');
+    ws.className = 'chk-line';
+    if (on) DUREES.forEach(w => ws.appendChild(chk(fmtW(w).replace(' j', ''), ed.uos.get(t) === w,
+      v => { if (v) ed.uos.set(t, w); }, `${fmtW(w)} sur ce jour`)));
+    row.appendChild(ws);
+    uos.appendChild(row);
+  });
+
+  const role = $('pop-role');
+  role.innerHTML = '';
+  ROLES.forEach(r => role.appendChild(chk(r, ed.role === r, v => { if (v) ed.role = r; })));
+
+  const absw = $('pop-absw');
+  absw.innerHTML = '';
+  DUREES.forEach(w => absw.appendChild(chk(fmtW(w), ed.absW === w, v => { if (v) ed.absW = w; })));
 }
 
 function openEditor() {
   if (!sel || isWeekendStr(sel.ds)) return;
-  const s = selectedSlot();
-  if (s && !editable(s)) return refuse(NOT_EDITABLE);
-  const abs = s?.lot.abs ?? null;
-  popEval = s?.lot.uo?.evaluation || null;
-  const ev = evaluateurs.find(e => e.id === sel.eid);
-  const [y, m, d] = sel.ds.split('-');
-  $('pop-hd').textContent = `${ev ? (ev.trigramme || `${ev.prenom} ${ev.nom}`.trim()) : '#' + sel.eid}`
-    + ` — ${DAYS_FR[new Date(sel.ds + 'T00:00:00Z').getUTCDay()]} ${d}/${m}/${y}`
-    + (s ? '' : ' (case vide)');
-  // Sans la table T_ABS, seule la saisie de missions est proposée
-  fillSelect($('pop-kind'), [MISSION, ...(absOk ? Object.keys(ABS_TYPES) : [])], abs ? abs.type : MISSION,
-             v => v === MISSION ? 'Mission (unité d’œuvre)' : `${ABS_TYPES[v]?.icon ?? ''} ${v}`);
-  $('pop-lib').value = abs?.libelle ?? '';
+  const { eid, ds } = sel;
+  const slots = slotsAt(eid, ds);
+  const miss = slots.filter(s => s.lot.uo);
+  if (miss.some(s => !editable(s))) return refuse(NOT_EDITABLE);
+  const abs = slots.find(s => s.lot.abs)?.lot.abs ?? null;
+  const evalId = miss[0]?.lot.uo.evaluation || null;
+  ed = {
+    kind:   abs && !miss.length && absOk ? abs.type : MISSION,
+    evalId,
+    uos:    new Map(miss.filter(s => s.lot.uo.evaluation === evalId).map(s => [s.lot.uo.type, dayWeight(s.lot, ds)])),
+    role:   miss[0] ? roleOf(miss[0].lot.uo, eid) : (evalId ? defaultRole(evalId, eid) : 'ETM'),
+    absW:   abs?.w ?? 1,
+  };
+  const ev = evaluateurs.find(e => e.id === eid);
+  const day = new Date(ds + 'T00:00:00Z');
+  $('pop-tri').textContent  = ev ? (ev.trigramme || `${ev.prenom} ${ev.nom}`.trim()) : '#' + eid;
+  $('pop-date').textContent = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).format(day);
   $('pop-q').value = '';
-  fillSelect($('pop-type'), ['', ...uoChoices], s?.lot.uo?.type ?? '', v => v || "— unité d'œuvre —");
-  fillSelect($('pop-role'), ROLES, s?.lot.uo ? roleOf(s.lot.uo, s.eid) : (popEval ? defaultRole(popEval, sel.eid) : 'ETM'));
-  const w = abs ? abs.w : s ? dayWeight(s.lot, sel.ds) : 1;
-  fillSelect($('pop-duree'), DUREES.map(String), String(w), v => `${String(v).replace('.', ',')} j`);
-  $('pop-clear').disabled = !s;
-  showKind();
+  $('pop-lib').value = abs?.libelle ?? '';
+  $('pop-clear').disabled = !slots.length;
+  const evals = new Set(miss.map(s => s.lot.uo.evaluation));
+  $('pop-err').textContent = evals.size > 1 ? 'Cette case contient deux évaluations : valider la remplacera par la seule évaluation choisie.' : '';
   renderOptions();
+  renderControls();
 
   const pop = $('pop');
   const td  = document.querySelector('td.cell-sel');
@@ -1541,67 +1617,91 @@ function openEditor() {
   pop.classList.add('on');
   const pw = pop.offsetWidth, ph = pop.offsetHeight;
   pop.style.left = Math.max(4, Math.min(r.left, innerWidth - pw - 4)) + 'px';
-  pop.style.top  = (r.bottom + ph + 4 < innerHeight ? r.bottom + 2 : Math.max(4, r.top - ph - 2)) + 'px';
-  (abs ? $('pop-lib') : $('pop-q')).focus();
+  pop.style.top  = (r.bottom + ph + 4 < innerHeight ? r.bottom + 2 : Math.max(4, Math.min(r.top - ph - 2, innerHeight - ph - 4))) + 'px';
+  (ed.kind === MISSION ? $('pop-q') : $('pop-lib')).focus();
 }
 
 function closeEditor() { $('pop').classList.remove('on'); }
 
+// Vide la case pour cet évaluateur (toutes les UO de ce jour et l'absence)
+function clearCellActions(eid, ds, slots = slotsAt(eid, ds)) {
+  return slots.flatMap(s => s.lot.abs ? [['RemoveRecord', T_ABS, s.lot.abs.id]] : removeDayActions(s.lot, eid, ds));
+}
+
 async function validateEditor() {
-  const kind = $('pop-kind').value;
-  if (kind !== MISSION) return validateAbsence(kind);
-  if (!popEval) {
+  const err = m => { $('pop-err').textContent = m; };
+  const { eid, ds } = sel;
+  const slots = slotsAt(eid, ds);
+  const missSlots = slots.filter(s => s.lot.uo);
+  const absSlots  = slots.filter(s => s.lot.abs);
+
+  if (ed.kind !== MISSION) {
+    const libelle = $('pop-lib').value.trim();
+    if (ed.kind === 'Prévision' && !libelle) return err('Saisir un libellé pour la prévision.');
+    // Les missions du jour restent si elles tiennent avec l'absence, sinon ce jour leur est retiré
+    const missLoad = missSlots.reduce((n, s) => n + slotLoad(s), 0);
+    const keepMiss = missLoad + ed.absW <= 1 + 1e-9 && missSlots.length < MAX_UO_CASE;
+    const actions = keepMiss ? [] : clearCellActions(eid, ds, missSlots);
+    const [first, ...others] = absSlots;
+    actions.push(...clearCellActions(eid, ds, others));
+    const f = { Type: ed.kind, Libelle: libelle, Duree: ed.absW };
+    actions.push(first ? ['UpdateRecord', T_ABS, first.lot.abs.id, f] : absAction({ type: ed.kind, libelle }, ed.absW, eid, ds));
+    closeEditor();
+    return apply(actions, `${ed.kind} enregistré(e)` + (keepMiss || !missSlots.length ? '' : ' — mission retirée de ce jour'));
+  }
+
+  if (!ed.evalId) {
     const first = $('pop-opts').querySelector('.opt[data-evid]');
-    if (first) popEval = +first.dataset.evid;
+    if (first) ed.evalId = +first.dataset.evid;
   }
-  const type = $('pop-type').value;
-  if (!popEval) { $('pop-err').textContent = 'Choisir une évaluation.'; return; }
-  if (!type)    { $('pop-err').textContent = "Choisir une unité d'œuvre."; return; }
-  const vals = { evaluation: popEval, type, role: $('pop-role').value, w: +$('pop-duree').value };
-  const s = selectedSlot();
-  const { eid, ds } = sel;
-  const why = fits(eid, ds, vals.w, s?.lot.id ?? null);
-  if (why) { $('pop-err').textContent = `Impossible : ${why}.`; return; }
+  if (!ed.evalId) return err('Choisir une évaluation.');
+  if (!ed.uos.size) return err("Cocher au moins une unité d'œuvre.");
+  const total = [...ed.uos.values()].reduce((n, w) => n + w, 0);
+  if (total > 1 + 1e-9) return err(`Total ${fmtW(total)} : une case ne peut pas dépasser 1 j.`);
+
+  const want = [...ed.uos].map(([type, w]) => ({ type, w }));
+  const actions = [];
+  // Une absence reste si elle tient avec les missions, sinon elle est retirée
+  const absLoad = absSlots.reduce((n, s) => n + slotLoad(s), 0);
+  if (absSlots.length && (total + absLoad > 1 + 1e-9 || want.length + absSlots.length > MAX_UO_CASE)) {
+    actions.push(...clearCellActions(eid, ds, absSlots));
+  }
+  const extra = missSlots.find(s => s.lot.uo.evaluation === ed.evalId)?.lot.uo.extra ?? {};
+  missSlots.forEach(s => {
+    const uo = s.lot.uo;
+    // Inchangée (même évaluation, UO, fonction et durée) : on n'y touche pas, une UO
+    // de plusieurs jours n'est donc pas découpée pour rien.
+    const same = want.findIndex(x => x.type === uo.type && x.w === dayWeight(s.lot, ds)
+      && uo.evaluation === ed.evalId && roleOf(uo, eid) === ed.role);
+    if (same >= 0) { want.splice(same, 1); return; }
+    if (isSingle(s.lot) && want.length) {
+      const j = Math.max(0, want.findIndex(x => x.type === uo.type));
+      const x = want.splice(j, 1)[0];
+      actions.push(['UpdateRecord', T_UO, s.lot.id, {
+        Evaluation: ed.evalId, Unite_d_oeuvre: x.type, Jours: x.w, ...roleFields(ed.role, eid),
+      }]);
+      return;
+    }
+    actions.push(...removeDayActions(s.lot, eid, ds));
+  });
+  want.forEach(x => actions.push(newUoAction({ evaluation: ed.evalId, type: x.type, role: ed.role, w: x.w }, eid, ds, extra)));
   closeEditor();
-  if (!s) return apply([newUoAction(vals, eid, ds)], 'UO créée');
-  if (s.lot.abs) return apply([['RemoveRecord', T_ABS, s.lot.abs.id], newUoAction(vals, eid, ds)], 'UO créée');
-  if (isSingle(s.lot)) {
-    return apply([['UpdateRecord', T_UO, s.lot.id, {
-      Evaluation: vals.evaluation, Unite_d_oeuvre: vals.type, Jours: vals.w, ...roleFields(vals.role, eid),
-    }]], 'UO modifiée');
-  }
-  // UO multi-jours ou multi-personnes : on détache ce jour pour cette personne
-  const extra = vals.evaluation === s.lot.uo.evaluation ? s.lot.uo.extra : {};
-  await apply([...removeDayActions(s.lot, eid, ds), newUoAction(vals, eid, ds, extra)], 'Journée modifiée');
+  if (!actions.length) return showStatus('Aucun changement');
+  await apply(actions, 'Case enregistrée');
 }
 
-async function validateAbsence(type) {
-  const w = +$('pop-duree').value;
-  const libelle = $('pop-lib').value.trim();
-  if (type === 'Prévision' && !libelle) { $('pop-err').textContent = 'Saisir un libellé pour la prévision.'; return; }
-  const s = selectedSlot();
-  const { eid, ds } = sel;
-  const why = fits(eid, ds, w, s?.lot.id ?? null);
-  if (why) { $('pop-err').textContent = `Impossible : ${why}.`; return; }
-  closeEditor();
-  if (s?.lot.abs) {
-    return apply([['UpdateRecord', T_ABS, s.lot.abs.id, { Type: type, Libelle: libelle, Duree: w }]], `${type} modifié(e)`);
-  }
-  const add = absAction({ type, libelle }, w, eid, ds);
-  // Case occupée par une mission : ce jour est retiré de l'UO pour cet évaluateur
-  await apply(s ? [...removeDayActions(s.lot, eid, ds), add] : [add], `${type} ajouté(e)`);
-}
-
-$('pop-kind').addEventListener('change', showKind);
-$('pop-q').addEventListener('input', () => { popEval = null; renderOptions(); });
+$('pop-q').addEventListener('input', () => { ed.evalId = null; renderOptions(); });
 $('pop-opts').addEventListener('click', ev => {
   const o = ev.target.closest('.opt[data-evid]');
   if (o) pickEval(+o.dataset.evid);
 });
-$('pop-opts').addEventListener('dblclick', ev => { if (ev.target.closest('.opt[data-evid]')) validateEditor(); });
 $('pop-ok').addEventListener('click', validateEditor);
 $('pop-cancel').addEventListener('click', closeEditor);
-$('pop-clear').addEventListener('click', async () => { closeEditor(); await deleteSelected(); });
+$('pop-clear').addEventListener('click', async () => {
+  const { eid, ds } = sel;
+  closeEditor();
+  await apply(clearCellActions(eid, ds), 'Case vidée');
+});
 document.addEventListener('mousedown', ev => {
   if (popOpen() && !ev.target.closest('#pop')) closeEditor();
 });
@@ -1657,11 +1757,11 @@ gridWrap.addEventListener('dragend', () => { dragSrc = null; clearDrop(); });
 document.addEventListener('keydown', async ev => {
   if (popOpen()) {
     if (ev.key === 'Escape') { ev.preventDefault(); closeEditor(); }
-    else if (ev.key === 'Enter' && !ev.target.matches('select')) { ev.preventDefault(); await validateEditor(); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); await validateEditor(); }
     else if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && ev.target.id === 'pop-q') {
       ev.preventDefault();
       const opts = [...$('pop-opts').querySelectorAll('.opt[data-evid]')];
-      let i = opts.findIndex(o => +o.dataset.evid === popEval);
+      let i = opts.findIndex(o => +o.dataset.evid === ed.evalId);
       i = Math.max(0, Math.min(opts.length - 1, i + (ev.key === 'ArrowDown' ? 1 : -1)));
       if (opts[i]) pickEval(+opts[i].dataset.evid);
     }
