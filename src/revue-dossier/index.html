@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Revue de dossier</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Charte Certi-Trust (reprise du modèle Word, comme plan-evaluation) */
+  :root { --marine:#32406C; --marine-fonce:#262f52; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A;
+          --ok:#059669; --ok-bg:#d1fae5; --ko:#b91c1c; --ko-bg:#fdecec; --so:#64748b; --so-bg:#eef0f4; --enc:#9a5b00; --enc-bg:#fff4e0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font: 12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color: var(--txt); margin: 0; padding: 12px; background: #eef0f4; }
+  .empty { padding: 40px 0; text-align: center; color: var(--gris); font-style: italic; }
+  button { font: inherit; cursor: pointer; }
+  input, textarea { font: inherit; color: var(--txt); }
+
+  .entete { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+  .entete h1 { margin: 0; font-size: 15px; color: var(--marine); }
+  .entete .sous { color: var(--gris); font-size: 12px; margin-top: 2px; }
+  .entete .gear { float: right; background: #fff; color: var(--marine); border: 1px solid var(--bord); border-radius: 4px; padding: 3px 7px; font-size: 11px; }
+
+  /* Frise des jalons */
+  .frise { display: flex; gap: 4px; margin: 10px 0 2px; }
+  .jal { flex: 1; min-width: 0; text-align: center; padding: 6px 4px; border-radius: 5px; background: var(--so-bg); color: var(--so);
+         border: 1px solid transparent; cursor: pointer; }
+  .jal b { display: block; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .jal small { display: block; font-size: 10.5px; }
+  .jal.fait    { background: var(--ok-bg); color: #065f46; }
+  .jal.encours { background: var(--enc-bg); color: var(--enc); border-color: #f1cf94; }
+  .jal.arret   { background: var(--ko-bg); color: var(--ko); }
+
+  /* Sections par jalon */
+  details.sec { background: #fff; border: 1px solid var(--bord); border-radius: 6px; margin-bottom: 8px; }
+  details.sec > summary { list-style: none; cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--marine); }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary::before { content: '▸'; color: var(--gris); }
+  details.sec[open] > summary::before { content: '▾'; }
+  details.sec > summary .cpt { margin-left: auto; font-weight: 600; font-size: 11px; color: var(--gris); }
+  .pastille { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 9px; }
+  .pastille.fait { background: var(--ok-bg); color: #065f46; }
+  .pastille.encours { background: var(--enc-bg); color: var(--enc); }
+  .pastille.avenir { background: var(--so-bg); color: var(--so); }
+  .pastille.arret { background: var(--ko-bg); color: var(--ko); }
+  .corps { padding: 0 12px 10px; }
+
+  /* Panneau livrable */
+  .livrable { background: var(--pale); border-left: 3px solid var(--marine); border-radius: 4px; padding: 8px 10px; margin-bottom: 8px; }
+  .livrable h3 { margin: 0 0 6px; font-size: 12px; color: var(--marine); }
+  .ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0; }
+  .ligne label.lbl { color: var(--gris); font-size: 11.5px; min-width: 110px; }
+  .ligne input[type=text], .ligne input[type=date], .ligne textarea { border: 1px solid var(--bord); border-radius: 4px; padding: 3px 6px; background: #fff; }
+  .ligne textarea { width: 100%; min-height: 34px; resize: vertical; }
+  .btn { border: 1px solid var(--marine); background: var(--marine); color: #fff; border-radius: 4px; padding: 4px 10px; font-weight: 600; font-size: 12px; }
+  .btn:hover:not(:disabled) { background: var(--marine-fonce); }
+  .btn.sec2 { background: #fff; color: var(--marine); border-color: var(--bord); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  a.lien { color: var(--marine); font-weight: 600; }
+  .info { color: var(--gris); font-size: 11.5px; }
+  .warn { color: var(--enc); font-size: 11.5px; }
+  .liste { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12px; }
+  .liste td { padding: 3px 6px; border-top: 1px solid var(--bord); }
+
+  /* Choix O / N / SO et OUI / NON : cases à bascule */
+  .tog { display: inline-flex; gap: 2px; }
+  .tog button { border: 1px solid var(--bord); background: #fff; color: var(--gris); border-radius: 3px; padding: 1px 6px; font-size: 11px; font-weight: 600; min-width: 26px; }
+  .tog button.on.v-O, .tog button.on.v-OUI { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .tog button.on.v-N, .tog button.on.v-NON { background: var(--ko); border-color: var(--ko); color: #fff; }
+  .tog button.on.v-SO { background: var(--so); border-color: var(--so); color: #fff; }
+  .tog.large button { padding: 2px 10px; font-size: 12px; }
+
+  /* Points */
+  table.pts { width: 100%; border-collapse: collapse; }
+  table.pts th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--gris); font-weight: 700; padding: 4px 4px; border-bottom: 1px solid var(--bord); }
+  table.pts td { padding: 4px 4px; border-bottom: 1px solid #eef0f4; vertical-align: middle; }
+  table.pts td.lib { width: 40%; }
+  table.pts tr.sous td.lib { padding-left: 18px; }
+  table.pts tr.titre td { font-weight: 700; color: var(--marine); padding-top: 8px; }
+  table.pts tr.bloc td { font-size: 10.5px; font-weight: 700; color: var(--marine); background: var(--pale); text-transform: uppercase; letter-spacing: .04em; }
+  table.pts input.dt { border: 1px solid var(--bord); border-radius: 3px; padding: 1px 3px; font-size: 11px; width: 148px; }
+  table.pts input.com { border: 1px solid transparent; border-radius: 3px; padding: 1px 4px; width: 100%; font-size: 11.5px; background: transparent; }
+  table.pts input.com:hover, table.pts input.com:focus { border-color: var(--bord); background: #fff; }
+  table.pts .qui { font-size: 11px; color: var(--gris); white-space: nowrap; }
+  .badge-liv { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--marine); background: var(--pale); border: 1px solid var(--bord); border-radius: 8px; padding: 0 6px; white-space: nowrap; }
+
+  .statusbar { position: sticky; bottom: 0; margin-top: 8px; padding: 5px 10px; font-size: 11.5px; background: #fff; border: 1px solid var(--bord); border-radius: 5px; color: var(--gris); min-height: 26px; }
+  .statusbar.error { color: var(--ko); background: var(--ko-bg); }
+  .config { display: none; background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+  .config input { width: 100%; border: 1px solid var(--bord); border-radius: 4px; padding: 4px 6px; margin: 6px 0; }
+</style>
+</head>
+<body>
+
+<div id="empty" class="empty">Sélectionnez une revue de dossier.</div>
+
+<div id="config" class="config">
+  <b>Configuration</b> — adresse du document Grist, pour les liens vers les autres pages
+  (stockée dans ce document, jamais dans le dépôt) :
+  <input id="config-url" type="text" placeholder="https://…getgrist.com/…/Evaluations" />
+  <button id="config-save" class="btn">Enregistrer</button>
+  <button id="config-cancel" class="btn sec2">Annuler</button>
+</div>
+
+<div id="main" style="display:none"></div>
+<div id="status" class="statusbar"></div>
+
+<script>
+// Fiche de revue de dossier (TEM-16b) : workflow TEM-404 → recevabilité → proposition
+// commerciale (TEM-400) → planification → réalisation et rapport → décision.
+// Les points viennent de Referentiels_revue (page 67), les réponses vont dans Revues_points.
+
+const T = {
+  REV: 'Revues_de_dossier', REF: 'Referentiels_revue', PTS: 'Revues_points', TEM: 'TEM_404',
+  PL: 'Propositions_commerciales', CH: 'Propositions_prestation', EV: 'Evaluations',
+  ENT: 'Entreprises', PROG: 'Programmes',
+};
+// Pages du document vers lesquelles la fiche renvoie
+const PAGES = { tem400: 81, plan: 87, odm: 89 };
+const SECTION_TEM400 = 365; // section du widget TEM-400 sur la page 81 (pour ouvrir la bonne demande)
+
+const JALONS = [
+  { id: 'Recevabilité',            court: 'Recevabilité' },
+  { id: 'Proposition commerciale', court: 'Proposition' },
+  { id: 'Planification',           court: 'Planification' },
+  { id: 'Réalisation et rapport',  court: 'Réalisation' },
+  { id: 'Décision',                court: 'Décision' },
+];
+const BLOCS_TYPE = { Initiale: 'Initiale', Surveillance: 'Surveillance', Renouvellement: 'Renouvellement' };
+const ETATS = { fait: 'fait', encours: 'en cours', avenir: 'à venir', arret: 'arrêté' };
+
+let docUrl = '';
+let revId = 0;
+let D = null;            // données chargées pour la revue sélectionnée
+let ouverts = null;      // jalons dépliés (Set) ; null = déplier le jalon en cours
+let writing = false;
+let reqId = 0;
+
+grist.ready({ requiredAccess: 'full', onEditOptions: openConfig });
+grist.onOptions(opts => { docUrl = (opts?.docUrl || '').replace(/\/+$/, ''); if (D) render(); });
+grist.onRecord(async rec => {
+  if (!rec?.id) { revId = 0; showEmpty(); return; }
+  if (rec.id !== revId) ouverts = null;
+  revId = rec.id;
+  await reload();
+});
+
+// ── Chargement ─────────────────────────────────────────────────────────────
+
+const rowsOf = t => t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]])));
+const ids = raw => Array.isArray(raw) ? raw.slice(1).filter(x => x != null) : [];   // RefList / ChoiceList : ['L', …]
+const has = (t, col) => Array.isArray(t[col]);
+
+async function reload() {
+  const my = ++reqId;
+  try {
+    const [tabs, gT, gC] = await Promise.all([
+      Promise.all(Object.values(T).map(n => grist.docApi.fetchTable(n).catch(() => null))),
+      grist.docApi.fetchTable('_grist_Tables').catch(() => null),
+      grist.docApi.fetchTable('_grist_Tables_column').catch(() => null),
+    ]);
+    if (my !== reqId) return;
+    const t = Object.fromEntries(Object.keys(T).map((k, i) => [k, tabs[i]]));
+    choixProposition = readChoices(gT, gC, T.REV, 'Proposition');
+    for (const k of ['REV', 'REF', 'PTS']) if (!t[k]) return showEmpty(`Table ${T[k]} introuvable.`);
+    D = build(t);
+    if (!D) return showEmpty('Revue introuvable.');
+    render();
+  } catch (e) {
+    status('Lecture impossible : ' + (e.message || e), 'error');
+  }
+}
+
+let choixProposition = [];
+
+function readChoices(gT, gC, tableId, colId) {
+  if (!gT?.id || !gC?.id) return [];
+  const tRef = gT.id[gT.tableId.indexOf(tableId)];
+  const i = gC.id.findIndex((_, k) => gC.parentId[k] === tRef && gC.colId[k] === colId);
+  try { return i < 0 ? [] : JSON.parse(gC.widgetOptions[i] || '{}').choices || []; } catch { return []; }
+}
+
+// Jalon d'un point quand la colonne Jalon n'existe pas encore (même règle que le pré-remplissage)
+function jalonDefaut(p) {
+  if (p.Etape === 'Etape_1') return 'Recevabilité';
+  if (p.Etape === 'Etape_2') return /^contrat/i.test(p.Libelle || '') ? 'Proposition commerciale' : 'Planification';
+  if (p.Etape === 'Etape_3') return /recevabilit/i.test(p.Libelle || '') ? 'Recevabilité' : 'Réalisation et rapport';
+  return 'Décision';
+}
+
+function build(t) {
+  const rev = rowsOf(t.REV).find(r => r.id === revId);
+  if (!rev) return null;
+  const cols = {
+    jalon: has(t.REF, 'Jalon'), livrable: has(t.REF, 'Livrable'),
+    dateVerif: has(t.PTS, 'Date_verif'), verifiePar: has(t.PTS, 'Verifie_par'),
+    recevable: has(t.REV, 'Recevable'), dateRecev: has(t.REV, 'Date_recevabilite'),
+    dateRapport: has(t.REV, 'Date_livraison_rapport'), lienRapport: has(t.REV, 'Lien_rapport'),
+  };
+  const ent  = t.ENT  ? new Map(rowsOf(t.ENT).map(r => [r.id, r])) : new Map();
+  const prog = t.PROG ? new Map(rowsOf(t.PROG).map(r => [r.id, String(r.Nom_du_programme || '')])) : new Map();
+  const tem  = t.TEM ? rowsOf(t.TEM).find(r => r.id === rev.Demande) ?? null : null;
+  const evRows = t.EV ? rowsOf(t.EV) : [];
+  const evRev  = evRows.find(e => e.id === rev.Evaluation) ?? null;
+
+  const pls = t.PL && tem ? rowsOf(t.PL).filter(p => p.TEM_404 === tem.id) : [];
+  const chById = t.CH ? new Map(rowsOf(t.CH).map(r => [r.id, r])) : new Map();
+  const chs = pls.filter(p => p.Statut !== 'Annulée')
+    .flatMap(p => ids(p.Prestations).map(id => chById.get(id)).filter(Boolean))
+    .filter(c => c.Statut !== 'Annulée');
+  const evals = new Map(chs.map(c => [c.id, evRows.filter(e => e.PO === c.id)]));
+  const evalsLiees = [...new Set([...(evRev ? [evRev] : []), ...[...evals.values()].flat()])];
+
+  const progIds = new Set([...ids(tem?.PROGRAMME), ...chs.map(c => c.Programme), ...evalsLiees.map(e => e.Programme)].filter(Boolean));
+  const types = new Set([...chs, ...evalsLiees].flatMap(x => ids(x.Type_d_evaluation)));
+  const blocs = new Set(['General', 'Rapport', ...[...types].map(x => BLOCS_TYPE[x]).filter(Boolean)]);
+  const blocsConnus = [...types].some(x => BLOCS_TYPE[x]);
+
+  const refs = rowsOf(t.REF)
+    .filter(p => p.Actif !== false)
+    .filter(p => !ids(p.Programmes).length || ids(p.Programmes).some(x => progIds.has(x)))
+    .filter(p => !blocsConnus || blocs.has(p.Bloc || 'General'))
+    .map(p => ({ ...p, jalon: (cols.jalon && p.Jalon) || jalonDefaut(p), titre: /:\s*$/.test(p.Libelle || '') }))
+    .sort((a, b) => (a.Etape || '').localeCompare(b.Etape || '') || blocOrdre(a.Bloc) - blocOrdre(b.Bloc) || (a.Ordre || 0) - (b.Ordre || 0));
+  const reponses = new Map(rowsOf(t.PTS).filter(r => r.Revue === revId).map(r => [r.Point, r]));
+
+  const lastEv = Math.max(0, ...evRows.map(e => +(/^\d{4}EV(\d{4})/.exec(e.Libelle || '')?.[1] || 0) || 0));
+  return { rev, tem, ent, prog, pls, chs, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv };
+}
+
+const BLOC_ORDRE = ['General', 'Initiale', 'Surveillance', 'Renouvellement', 'Rapport'];
+const blocOrdre = b => { const i = BLOC_ORDRE.indexOf(b || 'General'); return i < 0 ? 99 : i; };
+
+// ── États des jalons ───────────────────────────────────────────────────────
+
+const repondu = p => { const r = D.reponses.get(p.id); return !!(r && r.Present && r.Conforme); };
+const pointsDe = j => D.refs.filter(p => p.jalon === j && !p.titre);
+
+function etatJalons() {
+  const r = D.rev;
+  const plSignee = D.pls.some(p => p.Statut === 'Signée');
+  const out = {};
+  const base = j => {
+    const pts = pointsDe(j);
+    const n = pts.filter(repondu).length;
+    const dates = pts.map(p => D.reponses.get(p.id)?.Date_verif).filter(Boolean);
+    return { n, total: pts.length, date: dates.length ? Math.max(...dates) : null, entame: n > 0 || pts.some(p => D.reponses.has(p.id)) };
+  };
+  const st = (b, fait, entame, arret = false) => ({ ...b, etat: arret ? 'arret' : fait ? 'fait' : (entame || b.entame) ? 'encours' : 'avenir' });
+
+  const rec = base('Recevabilité');
+  const recevable = D.cols.recevable ? r.Recevable : (rec.n === rec.total && rec.total ? 'OUI' : '');
+  out['Recevabilité'] = st({ ...rec, date: D.cols.dateRecev && r.Date_recevabilite ? r.Date_recevabilite : rec.date },
+    !!recevable && rec.n === rec.total, !!recevable, recevable === 'NON');
+  const stop1 = recevable === 'NON';
+
+  const pro = base('Proposition commerciale');
+  out['Proposition commerciale'] = stop1 ? { ...pro, etat: 'avenir' }
+    : st({ ...pro, date: r.Offre_date || pro.date }, plSignee && pro.n === pro.total, D.pls.length > 0 || !!r.Decision_offre, r.Decision_offre === 'NON');
+  const stop2 = stop1 || r.Decision_offre === 'NON';
+
+  const pla = base('Planification');
+  const toutesEvals = D.chs.length > 0 && D.chs.every(c => D.evals.get(c.id)?.length) || (!D.chs.length && D.evalsLiees.length > 0);
+  out['Planification'] = stop2 ? { ...pla, etat: 'avenir' } : st(pla, toutesEvals && pla.n === pla.total, D.evalsLiees.length > 0);
+
+  const rea = base('Réalisation et rapport');
+  const livre = D.cols.dateRapport && r.Date_livraison_rapport;
+  out['Réalisation et rapport'] = stop2 ? { ...rea, etat: 'avenir' }
+    : st({ ...rea, date: livre || rea.date }, !!livre && rea.n === rea.total, !!livre);
+
+  const dec = base('Décision');
+  out['Décision'] = stop2 ? { ...dec, etat: 'avenir' }
+    : st({ ...dec, date: r.Date_decision || dec.date }, !!r.Date_decision && dec.n === dec.total, !!r.Proposition);
+  return out;
+}
+
+// ── Rendu ──────────────────────────────────────────────────────────────────
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtD = s => s ? new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(s * 1000)) : '';
+const fmtDT = s => s ? new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(s * 1000)) : '';
+const fmtE = n => (Number(n) || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' € HT';
+// datetime-local dans le fuseau du navigateur (celui de l'utilisateur, Paris en pratique)
+const toLocalInput = s => { if (!s) return ''; const d = new Date(s * 1000); const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+const toDateInput = s => s ? new Date(s * 1000).toISOString().slice(0, 10) : '';
+const dateToSec = v => v ? Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) / 1000 : null;
+const today = () => { const n = new Date(); return Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) / 1000; };
+const pageLink = (page, hash = '') => docUrl ? `${docUrl}/p/${page}${hash}` : '';
+
+function tog(act, current, values, extra = '', large = false) {
+  return `<span class="tog${large ? ' large' : ''}">` + values.map(v =>
+    `<button class="v-${v}${current === v ? ' on' : ''}" data-act="${act}" data-v="${v}" ${extra}>${v}</button>`).join('') + '</span>';
+}
+
+function render() {
+  const { rev, tem, ent } = D;
+  document.getElementById('empty').style.display = 'none';
+  const main = document.getElementById('main');
+  main.style.display = 'block';
+  const etats = etatJalons();
+  if (!ouverts) {
+    const courant = JALONS.find(j => etats[j.id].etat === 'encours') ?? JALONS.find(j => etats[j.id].etat === 'avenir') ?? JALONS[0];
+    ouverts = new Set([courant.id]);
+  }
+  const entreprise = tem ? String(ent.get(tem.Entreprise)?.Denomination || '') : '';
+  const progs = [...D.progIds].map(id => D.prog.get(id)).filter(Boolean).join(', ');
+  const types = [...D.types].join(', ');
+
+  let h = `<div class="entete">
+    <button class="gear" data-act="config">⚙</button>
+    <h1>Revue de dossier — ${esc(tem?.NumTEM404 || 'sans TEM-404')}</h1>
+    <div class="sous">${esc(entreprise || '?')} · ${esc(progs || 'programme ?')}${types ? ' · ' + esc(types) : ''}
+      ${tem?.Date_Reception ? ' · reçu le ' + fmtD(tem.Date_Reception) : ''}</div>
+    <div class="frise">${JALONS.map((j, i) => {
+      const e = etats[j.id];
+      return `<div class="jal ${e.etat}" data-act="goto" data-j="${esc(j.id)}" title="${esc(j.id)} : ${ETATS[e.etat]}">
+        <b>${i + 1}. ${esc(j.court)}</b><small>${e.etat === 'fait' ? '✔ ' + fmtD(e.date) : ETATS[e.etat]}${e.total ? ` · ${e.n}/${e.total}` : ''}</small></div>`;
+    }).join('')}</div>
+    ${!D.cols.dateVerif ? '<div class="warn">Colonnes Date_verif / Verifie_par absentes de Revues_points : horodatage désactivé.</div>' : ''}
+    ${!D.refs.length ? '<div class="warn">Aucun point applicable : vérifier les colonnes Programmes et Actif de Referentiels_revue (page 67).</div>' : ''}
+  </div>`;
+
+  JALONS.forEach((j, i) => {
+    const e = etats[j.id];
+    h += `<details class="sec" data-j="${esc(j.id)}"${ouverts.has(j.id) ? ' open' : ''}>
+      <summary>${i + 1}. ${esc(j.id)} <span class="pastille ${e.etat}">${ETATS[e.etat]}</span>
+        <span class="cpt">${e.total ? `${e.n}/${e.total} point(s)` : ''}</span></summary>
+      <div class="corps">${panneau(j.id)}${tablePoints(j.id)}</div></details>`;
+  });
+  main.innerHTML = h;
+}
+
+function tablePoints(j) {
+  const pts = D.refs.filter(p => p.jalon === j);
+  if (!pts.length) return '<div class="info">Aucun point de vérification pour ce jalon.</div>';
+  let bloc = null;
+  const rows = pts.map(p => {
+    let pre = '';
+    if (j === 'Réalisation et rapport' && (p.Bloc || 'General') !== bloc) {
+      bloc = p.Bloc || 'General';
+      pre = `<tr class="bloc"><td colspan="6">${esc(bloc === 'General' ? 'Général' : bloc)}</td></tr>`;
+    }
+    if (p.titre) return pre + `<tr class="titre"><td colspan="6">${esc(p.Libelle)}</td></tr>`;
+    const r = D.reponses.get(p.id) || {};
+    const liv = D.cols.livrable && p.Livrable ? `<span class="badge-liv">📄 ${esc(p.Livrable)}</span>` : '';
+    return pre + `<tr class="${p.Sous_point ? 'sous' : ''}" data-pt="${p.id}">
+      <td class="lib">${esc(p.Libelle)}${liv}</td>
+      <td>${tog('present', r.Present, ['O', 'N', 'SO'])}</td>
+      <td>${tog('conforme', r.Conforme, ['O', 'N', 'SO'])}</td>
+      <td>${D.cols.dateVerif ? `<input class="dt" type="datetime-local" data-act="date" value="${toLocalInput(r.Date_verif)}">` : ''}</td>
+      <td class="qui">${esc(r.Verifie_par || '')}</td>
+      <td><input class="com" type="text" data-act="com" value="${esc(r.Commentaire || '')}" placeholder="Commentaire"></td>
+    </tr>`;
+  }).join('');
+  return `<table class="pts"><thead><tr><th>Point</th><th>Présent</th><th>Conforme</th><th>Vérifié le</th><th>Par</th><th>Commentaire</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function champDate(col, val, titre) {
+  return `<label class="lbl">${esc(titre)}</label><input type="date" data-act="rev-date" data-col="${col}" value="${toDateInput(val)}">`;
+}
+function champTexte(col, val, titre, area = false) {
+  return area
+    ? `<label class="lbl">${esc(titre)}</label><textarea data-act="rev-txt" data-col="${col}">${esc(val || '')}</textarea>`
+    : `<label class="lbl">${esc(titre)}</label><input type="text" data-act="rev-txt" data-col="${col}" value="${esc(val || '')}">`;
+}
+
+function panneau(j) {
+  const r = D.rev, c = D.cols;
+  if (j === 'Recevabilité') {
+    return `<div class="livrable"><h3>📄 Recevabilité</h3>
+      ${c.recevable ? `<div class="ligne"><label class="lbl">Dossier recevable</label>${tog('rev-choix', r.Recevable, ['OUI', 'NON'], 'data-col="Recevable" data-date="Date_recevabilite"', true)}
+        ${c.dateRecev ? champDate('Date_recevabilite', r.Date_recevabilite, 'le') : ''}</div>`
+        : '<div class="warn">Colonnes Recevable / Date_recevabilite à créer dans Revues_de_dossier.</div>'}
+      <div class="ligne"><button class="btn sec2" disabled title="Modèle à fournir">Générer l'avis de recevabilité (à venir)</button></div>
+    </div>`;
+  }
+  if (j === 'Proposition commerciale') {
+    const lien = D.tem ? pageLink(PAGES.tem400, `#a1.s${SECTION_TEM400}.r${D.tem.id}`) : '';
+    const pls = D.pls.length
+      ? `<table class="liste">${D.pls.map(p => `<tr><td><b>${esc(p.Libelle_PL || 'PL ' + p.id)}</b></td><td>${fmtE(p.Montant_HT)}</td>
+          <td><span class="pastille ${p.Statut === 'Signée' ? 'fait' : p.Statut === 'Annulée' ? 'arret' : 'encours'}">${esc(p.Statut || '?')}</span></td>
+          <td class="info">${p.Date_creation ? 'créée le ' + fmtD(p.Date_creation) : ''}</td></tr>`).join('')}</table>`
+      : '<div class="info">Aucune proposition enregistrée par le TEM-400 pour cette demande.</div>';
+    return `<div class="livrable"><h3>📄 Proposition commerciale (TEM-400)</h3>
+      <div class="ligne"><label class="lbl">Décision d'offre</label>${tog('rev-choix', r.Decision_offre, ['OUI', 'NON'], 'data-col="Decision_offre" data-date="Offre_date"', true)}
+        ${champDate('Offre_date', r.Offre_date, 'le')}</div>
+      <div class="ligne">${champTexte('Just_offre', r.Just_offre, 'Justification', true)}</div>
+      ${pls}
+      <div class="ligne">${lien ? `<a class="lien" href="${esc(lien)}" target="_blank" rel="noopener">${D.pls.length ? 'Ouvrir' : 'Créer'} la proposition dans le TEM-400 ↗</a>`
+        : `<span class="info">${D.tem ? 'Adresse du document à renseigner (⚙) pour le lien vers le TEM-400.' : 'Revue sans TEM-404.'}</span>`}</div>
+    </div>`;
+  }
+  if (j === 'Planification') {
+    const lignes = D.chs.map(ch => {
+      const evs = D.evals.get(ch.id) || [];
+      const prog = D.prog.get(ch.Programme) || '?';
+      const typ = ids(ch.Type_d_evaluation).join(', ');
+      return `<tr><td><b>${esc(prog)}</b> ${esc(typ)}<div class="info">${esc(ch.Libelle_CH || ch.libelle || '')}</div></td>
+        <td>${evs.length ? evs.map(e => `${esc(e.Libelle || 'Évaluation ' + e.id)} <span class="pastille ${e.Statut === 'Terminé' ? 'fait' : 'encours'}">${esc(e.Statut || '')}</span>`).join('<br>')
+          : `<button class="btn" data-act="creer-eval" data-ch="${ch.id}">Créer l'évaluation</button>`}</td></tr>`;
+    }).join('');
+    const sansCH = !D.chs.length && D.evalsLiees.length
+      ? `<table class="liste">${D.evalsLiees.map(e => `<tr><td>${esc(e.Libelle)}</td><td><span class="pastille encours">${esc(e.Statut || '')}</span></td></tr>`).join('')}</table>` : '';
+    const lp = pageLink(PAGES.plan), lo = pageLink(PAGES.odm);
+    return `<div class="livrable"><h3>📄 Évaluation(s), plan d'évaluation, ordres de mission</h3>
+      ${lignes ? `<table class="liste">${lignes}</table>` : sansCH || '<div class="info">Aucune prestation : la proposition commerciale doit d’abord être enregistrée dans le TEM-400.</div>'}
+      <div class="ligne">${lp ? `<a class="lien" href="${esc(lp)}" target="_blank" rel="noopener">Plan d'évaluation ↗</a>` : ''}
+        ${lo ? `<a class="lien" href="${esc(lo)}" target="_blank" rel="noopener">Ordres de mission ↗</a>` : ''}</div>
+    </div>`;
+  }
+  if (j === 'Réalisation et rapport') {
+    const evs = D.evalsLiees.length ? `<table class="liste">${D.evalsLiees.map(e => `<tr><td>${esc(e.Libelle)}</td><td>${e.Date_Debut_prevue ? fmtD(e.Date_Debut_prevue) : ''}${e.Date_fin_prevue ? ' → ' + fmtD(e.Date_fin_prevue) : ''}</td>
+        <td><span class="pastille ${e.Statut === 'Terminé' ? 'fait' : 'encours'}">${esc(e.Statut || '')}</span></td></tr>`).join('')}</table>` : '';
+    return `<div class="livrable"><h3>📄 Rapport d'évaluation</h3>
+      ${evs}
+      ${c.dateRapport ? `<div class="ligne">${champDate('Date_livraison_rapport', r.Date_livraison_rapport, 'Rapport livré le')}
+        <button class="btn sec2" data-act="rapport-auj">Livré aujourd'hui</button></div>` : '<div class="warn">Colonnes Date_livraison_rapport / Lien_rapport à créer dans Revues_de_dossier.</div>'}
+      ${c.lienRapport ? `<div class="ligne">${champTexte('Lien_rapport', r.Lien_rapport, 'Lien du rapport')}
+        ${/^https?:\/\//.test(r.Lien_rapport || '') ? `<a class="lien" href="${esc(r.Lien_rapport)}" target="_blank" rel="noopener">Ouvrir ↗</a>` : ''}</div>` : ''}
+    </div>`;
+  }
+  // Décision
+  return `<div class="livrable"><h3>📄 Décision</h3>
+    <div class="ligne"><label class="lbl">Proposition</label>${choixProposition.length
+      ? `<span class="tog large" style="flex-wrap:wrap">${choixProposition.map(v => `<button class="v-OUI${r.Proposition === v ? ' on' : ''}" data-act="rev-choix" data-col="Proposition" data-v="${esc(v)}">${esc(v)}</button>`).join('')}</span>`
+      : champTexte('Proposition', r.Proposition, '')}</div>
+    <div class="ligne">${champTexte('Decideur', r.Decideur, 'Décideur')} ${champDate('Date_decision', r.Date_decision, 'le')}</div>
+    <div class="ligne">${champTexte('Just_finale', r.Just_finale, 'Justification', true)}</div>
+    <div class="ligne"><button class="btn sec2" disabled title="À venir">Exporter la revue TEM-16b en PDF (à venir)</button></div>
+  </div>`;
+}
+
+// ── Écritures ──────────────────────────────────────────────────────────────
+
+async function apply(actions, msg) {
+  if (!actions.length || writing) return null;
+  writing = true;
+  status('Enregistrement…');
+  try {
+    const res = await grist.docApi.applyUserActions(actions);
+    status(msg);
+    return res;
+  } catch (e) {
+    status("Échec de l'enregistrement : " + (e.message || e), 'error');
+    return null;
+  } finally {
+    writing = false;
+  }
+}
+
+const nowSec = () => Math.floor(Date.now() / 1000);
+
+async function setPoint(ptId, fields, horodater = true) {
+  const r = D.reponses.get(ptId);
+  if (horodater && D.cols.dateVerif) fields.Date_verif = nowSec();
+  const act = r ? ['UpdateRecord', T.PTS, r.id, fields] : ['AddRecord', T.PTS, null, { Revue: revId, Point: ptId, ...fields }];
+  if (await apply([act], 'Point enregistré')) await reload();
+}
+
+async function setRev(fields, msg = 'Fiche enregistrée') {
+  if (await apply([['UpdateRecord', T.REV, revId, fields]], msg)) await reload();
+}
+
+// Libellé EV repris de la CH (2026CH0006_PASIRENO_ADVENS → 2026EV0113_PASIRENO_ADVENS),
+// numéro = dernier numéro d'évaluation + 1
+function libelleEval(ch) {
+  const an = new Date().getFullYear();
+  const num = String(D.lastEv + 1).padStart(4, '0');
+  const m = /^\d{4}CH\d{4}_(.+)$/.exec(ch.Libelle_CH || '');
+  if (m) return `${an}EV${num}_${m[1]}`;
+  const ent = String(D.ent.get(ch.Denomination || D.tem?.Entreprise)?.Denomination || '').toUpperCase().replace(/\s+/g, '_');
+  return `${an}EV${num}_${(D.prog.get(ch.Programme) || 'XXXX').slice(0, 4).toUpperCase()}_${ent}`;
+}
+
+async function creerEval(chId) {
+  const ch = D.chs.find(c => c.id === chId);
+  if (!ch) return;
+  const fields = {
+    Libelle: libelleEval(ch), Entreprise: ch.Denomination || D.tem?.Entreprise || 0, Programme: ch.Programme || 0,
+    Type_d_evaluation: Array.isArray(ch.Type_d_evaluation) ? ch.Type_d_evaluation : null, PO: ch.id, Statut: 'à planifier',
+  };
+  const res = await apply([['AddRecord', T.EV, null, fields]], `Évaluation ${fields.Libelle} créée`);
+  const newId = res?.retValues?.[0];
+  if (newId && !D.rev.Evaluation) await apply([['UpdateRecord', T.REV, revId, { Evaluation: newId }]], `Évaluation ${fields.Libelle} créée et rattachée à la revue`);
+  await reload();
+}
+
+// ── Événements ─────────────────────────────────────────────────────────────
+
+const main = document.getElementById('main');
+
+main.addEventListener('toggle', ev => {
+  const d = ev.target.closest?.('details.sec');
+  if (!d || !ouverts) return;
+  if (d.open) ouverts.add(d.dataset.j); else ouverts.delete(d.dataset.j);
+}, true);
+
+main.addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-act]');
+  if (!b || writing) return;
+  const act = b.dataset.act;
+  const tr = b.closest('tr[data-pt]');
+  if (act === 'config') return openConfig();
+  if (act === 'goto') {
+    ouverts.add(b.dataset.j);
+    const d = main.querySelector(`details.sec[data-j="${CSS.escape(b.dataset.j)}"]`);
+    if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    return;
+  }
+  if ((act === 'present' || act === 'conforme') && tr) {
+    const ptId = +tr.dataset.pt;
+    const col = act === 'present' ? 'Present' : 'Conforme';
+    const cur = D.reponses.get(ptId)?.[col] || '';
+    const v = cur === b.dataset.v ? '' : b.dataset.v;  // re-cliquer efface
+    return setPoint(ptId, { [col]: v });
+  }
+  if (act === 'rev-choix') {
+    const col = b.dataset.col, cur = D.rev[col] || '';
+    const v = cur === b.dataset.v ? '' : b.dataset.v;
+    const f = { [col]: v };
+    // La date suit la décision : remplie au clic si vide, modifiable ensuite
+    if (b.dataset.date && v && !D.rev[b.dataset.date] && b.dataset.date in D.rev) f[b.dataset.date] = today();
+    return setRev(f);
+  }
+  if (act === 'rapport-auj') return setRev({ Date_livraison_rapport: today() }, 'Rapport marqué livré');
+  if (act === 'creer-eval') return creerEval(+b.dataset.ch);
+});
+
+main.addEventListener('change', async ev => {
+  const el = ev.target;
+  const act = el.dataset.act;
+  const tr = el.closest('tr[data-pt]');
+  if (act === 'date' && tr) {
+    const v = el.value ? Math.floor(new Date(el.value).getTime() / 1000) : null;
+    return setPoint(+tr.dataset.pt, { Date_verif: v }, false);
+  }
+  if (act === 'com' && tr) return setPoint(+tr.dataset.pt, { Commentaire: el.value }, false);
+  if (act === 'rev-date') return setRev({ [el.dataset.col]: dateToSec(el.value) });
+  if (act === 'rev-txt') return setRev({ [el.dataset.col]: el.value });
+});
+
+// ── Configuration ──────────────────────────────────────────────────────────
+
+function openConfig() {
+  document.getElementById('config-url').value = docUrl;
+  document.getElementById('config').style.display = 'block';
+}
+document.getElementById('config-cancel').addEventListener('click', () => { document.getElementById('config').style.display = 'none'; });
+document.getElementById('config-save').addEventListener('click', async () => {
+  docUrl = document.getElementById('config-url').value.trim().replace(/\/+$/, '').replace(/\/p\/\d+.*$/, '');
+  await grist.setOption('docUrl', docUrl);
+  document.getElementById('config').style.display = 'none';
+  if (D) render();
+});
+
+function status(msg, type = '') {
+  const s = document.getElementById('status');
+  s.textContent = msg;
+  s.className = 'statusbar' + (type ? ' ' + type : '');
+}
+
+function showEmpty(msg) {
+  D = null;
+  document.getElementById('empty').textContent = msg || 'Sélectionnez une revue de dossier.';
+  document.getElementById('empty').style.display = 'block';
+  document.getElementById('main').style.display = 'none';
+}
+</script>
+</body>
+</html>
