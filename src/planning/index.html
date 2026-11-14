@@ -8,9 +8,14 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* Grist peut passer le widget en thème sombre : sans couleur explicite, le texte devient
+       blanc sur les fonds blancs du planning (fenêtre d'édition illisible). */
+    :root { color-scheme: light !important; }
+
     body {
       font-family: system-ui, -apple-system, sans-serif;
       font-size: 12px;
+      color: #1f2937;
       background: #f0f2f5;
       height: 100vh;
       display: flex;
@@ -328,7 +333,8 @@
       box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
     }
     .pop.on { display: flex; }
-    .pop button, .pop select, .pop input { font: inherit; }
+    .pop { color: #1f2937; }
+    .pop button, .pop select, .pop input { font: inherit; color: inherit; }
     .pop select, .pop input { border: 1px solid #cbd5e1; border-radius: 4px; padding: 3px 5px; background: #fff; width: 100%; }
     .pop button { border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; padding: 3px 10px; cursor: pointer; }
     .pop button:hover { background: #eef2ff; }

@@ -240,8 +240,10 @@ function build(t) {
   const reponses = new Map(rowsOf(t.PTS).filter(r => r.Revue === revId).map(r => [r.Point, r]));
 
   const lastEv = Math.max(0, ...evRows.map(e => +(/^\d{4}EV(\d{4})/.exec(e.Libelle || '')?.[1] || 0) || 0));
-  const qualifs = t.QL ? new Map(rowsOf(t.QL).map(r => [r.id, String(r.Qualifications || '')])) : new Map();
-  return { rev, tem, ent, prog, pls, chs, chById, qualifs, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv };
+  const qlRows = t.QL ? rowsOf(t.QL) : [];
+  const qualifs = new Map(qlRows.map(r => [r.id, String(r.Qualifications || '')]));
+  const qlParCode = new Map(qlRows.filter(r => r.Qualification_code).map(r => [String(r.Qualification_code), r.id]));
+  return { rev, tem, ent, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv };
 }
 
 const BLOC_ORDRE = ['General', 'Initiale', 'Surveillance', 'Renouvellement', 'Rapport'];
@@ -422,7 +424,8 @@ function panneau(j) {
       const typ = ids(ch.Type_d_evaluation).join(', ');
       return `<tr><td><b>${esc(prog)}</b> ${esc(typ)}<div class="info">${esc(ch.Libelle_CH || ch.libelle || '')}</div></td>
         <td>${evs.length ? evs.map(e => `${esc(e.Libelle || 'Évaluation ' + e.id)} <span class="pastille ${e.Statut === 'Terminé' ? 'fait' : 'encours'}">${esc(e.Statut || '')}</span>`).join('<br>')
-          : `<button class="btn" data-act="creer-eval" data-ch="${ch.id}">Créer l'évaluation</button>`}</td></tr>`;
+          : `<button class="btn" data-act="creer-eval" data-ch="${ch.id}">Créer l'évaluation</button>
+             <div class="info">Portées du TEM-404 : ${esc(porteesDemandees(ch.Programme).map(id => D.qualifs.get(id)).join(', ') || 'aucune cochée')}</div>`}</td></tr>`;
     }).join('');
     const sansCH = !D.chs.length && D.evalsLiees.length
       ? `<table class="liste">${D.evalsLiees.map(e => `<tr><td>${esc(e.Libelle)}</td><td><span class="pastille encours">${esc(e.Statut || '')}</span></td></tr>`).join('')}</table>` : '';
@@ -772,16 +775,38 @@ function libelleEval(ch) {
   return `${an}EV${num}_${(D.prog.get(ch.Programme) || 'XXXX').slice(0, 4).toUpperCase()}_${ent}`;
 }
 
+// Portées demandées dans le TEM-404 (cases c1.* PASSI, c2.* PACS, c3.* PRIS, mêmes clés que le
+// TEM-400) → qualifications de Qualifications_List, par leur code.
+const PORTEES_TEM = {
+  passi: { bloc: 'c1', codes: { archi: 'PASSI_ARCHI', conf: 'PASSI_CONF', code: 'PASSI_CODE', intrusion: 'PASSI_INTRUSION', orgaphy: 'PASSI_ORGAPHY' } },
+  pacs:  { bloc: 'c2', codes: { homol: 'PACS_HOM', risque: 'PACS_GDR', archi: 'PACS_ARCHI', crise: 'PACS_CRISE' } },
+  pris:  { bloc: 'c3', codes: { rec: 'PRIS_REC', inv: 'PRIS_INV', code: 'PRIS_CODE', pci: 'PRIS_PCI', crise: 'PRIS_CRISE' } },
+};
+const progCle = progId => { const n = String(D.prog.get(progId) || '').toUpperCase(); return Object.keys(PROG_NOMS).find(k => n.startsWith(PROG_NOMS[k])) || null; };
+
+function porteesDemandees(progId) {
+  const def = PORTEES_TEM[progCle(progId)];
+  if (!def) return [];
+  const j = jsonTem();
+  return Object.entries(def.codes).filter(([k]) => j[`${def.bloc}.${k}`] === true)
+    .map(([, code]) => D.qlParCode.get(code)).filter(Boolean);
+}
+
 async function creerEval(chId) {
   const ch = D.chs.find(c => c.id === chId);
   if (!ch) return;
+  const portees = porteesDemandees(ch.Programme);
   const fields = {
     Libelle: libelleEval(ch), Entreprise: ch.Denomination || D.tem?.Entreprise || 0, Programme: ch.Programme || 0,
     Type_d_evaluation: Array.isArray(ch.Type_d_evaluation) ? ch.Type_d_evaluation : null, PO: ch.id, Statut: 'à planifier',
+    ...(portees.length ? { Activites_: ['L', ...portees] } : {}),
   };
-  const res = await apply([['AddRecord', T.EV, null, fields]], `Évaluation ${fields.Libelle} créée`);
+  const noms = portees.map(id => D.qualifs.get(id)).join(', ');
+  const res = await apply([['AddRecord', T.EV, null, fields]],
+    `Évaluation ${fields.Libelle} créée` + (portees.length ? ` — portées : ${noms}` : ' — aucune portée cochée dans le TEM-404'));
   const newId = res?.retValues?.[0];
-  if (newId && !D.rev.Evaluation) await apply([['UpdateRecord', T.REV, revId, { Evaluation: newId }]], `Évaluation ${fields.Libelle} créée et rattachée à la revue`);
+  if (newId && !D.rev.Evaluation) await apply([['UpdateRecord', T.REV, revId, { Evaluation: newId }]],
+    `Évaluation ${fields.Libelle} créée et rattachée à la revue` + (portees.length ? ` — portées : ${noms}` : ''));
   await reload();
 }
 
