@@ -111,6 +111,15 @@
       padding: 8px 16px; border-radius: 6px; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,.18);
       opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 10; }
     .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    /* Mail d'information : aperçu modal */
+    .ov { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    .ov-box { background: #fff; color: #1e293b; width: min(900px, 96vw); max-height: 92vh; display: flex; flex-direction: column; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+    .ov-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #1e3a8a; color: #fff; font-weight: 600; border-radius: 8px 8px 0 0; }
+    .ov-opts { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
+    .ov-opts label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    .ov-prev { overflow: auto; padding: 12px 16px; flex: 1; background: #fff; }
+    .ov-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid #e2e8f0; }
+    .ov-foot .statusbar { flex: 1; }
     textarea.json { width: 100%; min-height: 160px; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
   </style>
 </head>
@@ -134,11 +143,25 @@
   <button id="btn-save" class="btn btn-primary">Enregistrer</button>
 </div>
 
+<div id="mail-ov" class="ov" style="display:none">
+  <div class="ov-box" role="dialog" aria-label="Mail d'information">
+    <div class="ov-head"><span>✉ Mail d'information (interne)</span><span class="spacer"></span><button id="mail-close" class="btn btn-light">✕</button></div>
+    <div id="mail-opts" class="ov-opts"></div>
+    <div id="mail-prev" class="ov-prev"></div>
+    <div class="ov-foot">
+      <span id="mail-status" class="statusbar"></span>
+      <button id="mail-copy" class="btn btn-primary">Copier pour le mail</button>
+      <button id="mail-save" class="btn btn-success">Enregistrer dans la proposition</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <div id="footer" class="footer">
   <span id="status" class="statusbar"></span>
   <button id="btn-copy-text" class="btn btn-grey" disabled>Copier le devis (texte)</button>
+  <button id="btn-mail" class="btn btn-grey" disabled title="Récapitulatif mis en forme à coller dans un mail interne">✉ Mail d'information</button>
   <button id="btn-copy-json" class="btn btn-grey" disabled title="Json_client : proposition commerciale à envoyer à CPQ">Copier le Json_client (CPQ)</button>
   <button id="btn-draft" class="btn btn-grey" disabled title="Conserver la saisie sans numéroter la proposition">Enregistrer le brouillon</button>
   <button id="btn-update" class="btn btn-primary" style="display:none" disabled>Enregistrer les modifications</button>
@@ -288,6 +311,11 @@ $('sel-prop').addEventListener('change', () => selectProposition(Number($('sel-p
 $('btn-copy-text').addEventListener('click', e => copier(texteDevis(), 'Devis copié dans le presse-papiers.', e.currentTarget));
 $('btn-copy-json').addEventListener('click', e => copier(JSON.stringify(jsonClient(), null, 2), 'Json_client copié dans le presse-papiers.', e.currentTarget));
 $('btn-create').addEventListener('click', validerProposition);
+$('btn-mail').addEventListener('click', ouvrirMail);
+$('mail-close').addEventListener('click', fermerMail);
+$('mail-ov').addEventListener('click', e => { if (e.target.id === 'mail-ov') fermerMail(); });
+$('mail-copy').addEventListener('click', copierMail);
+$('mail-save').addEventListener('click', enregistrerMail);
 $('btn-draft').addEventListener('click', enregistrerBrouillon);
 $('btn-update').addEventListener('click', enregistrerProposition);
 
@@ -1028,6 +1056,7 @@ function majBoutons() {
   const ok = !!(resultat && resultat.prestations.length && !resultat.ctrl.some(c => c.niveau === 'bloquant'));
   $('btn-copy-text').disabled = !ok;
   $('btn-copy-json').disabled = !ok;
+  $('btn-mail').disabled = !ok;
   const brouillon = estBrouillon();
   // Un brouillon s'enregistre même incomplet (contrôles bloquants, code entreprise manquant)
   $('btn-draft').style.display = brouillon ? '' : 'none';
@@ -1191,6 +1220,171 @@ function texteDevis() {
     + (res.tot.remise ? ` — remise ${EUR2.format(res.tot.remise)}` : '') + ` — net ${EUR2.format(res.tot.ht)} HT`);
   L.push('', etat.justification || '');
   return L.join('\n');
+}
+
+/* ──────────────────────────────────────────
+   Mail d'information (interne) : aperçu mis en forme, copié dans le presse-papiers
+   (HTML + texte) et enregistré dans Propositions_prestation.visualisation_mail
+   (texte Markdown, une copie par CH de la proposition).
+────────────────────────────────────────── */
+const COL_MAIL = 'visualisation_mail';
+const MAIL_OPTS = [
+  { id: 'entete', lib: 'En-tête (client, TEM-404, statut)', def: true },
+  { id: 'montants', lib: 'Montants (TJM, brut, remise, net)', def: true },
+  { id: 'lots', lib: 'Détail par lot', def: true },
+  { id: 'uos', lib: "Unités d'œuvre", def: false },
+  { id: 'roles', lib: 'Répartition par rôle', def: false },
+  { id: 'justif', lib: 'Justification', def: true },
+];
+let mailOpts = null;
+function lireMailOpts() {
+  let o = {};
+  try { o = JSON.parse(localStorage.getItem('tem400-mail-opts') || '{}') || {}; } catch { o = {}; }
+  return Object.fromEntries(MAIL_OPTS.map(m => [m.id, typeof o[m.id] === 'boolean' ? o[m.id] : m.def]));
+}
+const statutMail = () => etat.source ? (etat.source.statut || BROUILLON) : 'non enregistrée';
+const rolesUo = u => ROLES.filter(r => u.ja[r.id] > 0).map(r => `${r.lib} ${JH.format(u.ja[r.id])}`).join(', ');
+const lignesMail = (l, o) => o.uos ? uosFacturees(l) : [];
+
+function mailHtml(o) {
+  const res = resultat, lib = libelles(res), ent = data.entreprises.get(etat.entrepriseId);
+  const td = 'padding:4px 8px;border:1px solid #cbd5e1;vertical-align:top;';
+  const num = td + 'text-align:right;white-space:nowrap;';
+  const th = 'padding:5px 8px;border:1px solid #1e3a8a;background:#1e3a8a;color:#ffffff;text-align:left;';
+  const ncol = 2 + (o.montants ? 3 : 0);
+  let h = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#1e293b;">';
+  h += `<p style="font-size:16px;font-weight:bold;color:#1e3a8a;margin:0 0 6px;">Proposition commerciale ${esc(lib.pl)}</p>`;
+  if (o.entete) h += `<p style="margin:0 0 10px;">Client : <b>${esc(ent?.Denomination)}</b> — TEM-404 ${esc(etat.numTem)} — statut : ${esc(statutMail())} — ${frDate(today())}</p>`;
+  h += '<table style="border-collapse:collapse;font-size:13px;margin:0 0 10px;">';
+  h += `<tr><th style="${th}">Prestation</th><th style="${th}text-align:right;">J.h</th>`
+    + (o.montants ? `<th style="${th}text-align:right;">Brut HT</th><th style="${th}text-align:right;">Remise</th><th style="${th}text-align:right;">Net HT</th>` : '') + '</tr>';
+  for (const [i, x] of res.prestations.entries()) {
+    h += `<tr style="background:#eff6ff;"><td style="${td}"><b>${esc(lib.ch[i])}</b><br><span style="color:#475569;">${esc(x.prog.nom)} — ${esc(x.e.type)} ${esc(x.e.niveau)}</span></td>`
+      + `<td style="${num}"><b>${JH.format(x.jh)}</b>${x.jhOffert ? `<br><span style="color:#475569;">dont ${JH.format(x.jhOffert)} offerts</span>` : ''}</td>`
+      + (o.montants ? `<td style="${num}">${EUR2.format(x.htBrut)}</td><td style="${num}">${x.reduction ? `${x.reduction} % (${EUR2.format(x.remise)})` : '—'}</td><td style="${num}"><b>${EUR2.format(x.ht)}</b></td>` : '') + '</tr>';
+    if (!o.lots && !o.uos) continue;
+    for (const l of x.lots) {
+      if (!l.jh && !l.uos.some(u => u.partagee && u.appl)) continue;
+      if (o.lots) h += `<tr><td style="${td}padding-left:20px;">${esc(l.lot.lib)}</td><td style="${num}">${JH.format(l.jh)}</td>` + (o.montants ? `<td style="${td}" colspan="3"></td>` : '') + '</tr>';
+      for (const u of lignesMail(l, o)) {
+        const det = [o.roles && rolesUo(u), u.offerte && 'offerte', u.partagee && `comptée sur ${u.partagee}`].filter(Boolean).join(' — ');
+        h += `<tr><td style="${td}padding-left:${o.lots ? 36 : 20}px;color:#334155;">${esc(u.lib)}${det ? `<br><span style="color:#64748b;font-size:12px;">${esc(det)}</span>` : ''}</td>`
+          + `<td style="${num}color:#334155;">${JH.format(u.jh)}</td>` + (o.montants ? `<td style="${td}" colspan="3"></td>` : '') + '</tr>';
+      }
+    }
+  }
+  h += `<tr style="background:#1e3a8a;color:#ffffff;font-weight:bold;"><td style="${td}border-color:#1e3a8a;">Total</td><td style="${num}border-color:#1e3a8a;">${JH.format(res.tot.jh)}</td>`
+    + (o.montants ? `<td style="${num}border-color:#1e3a8a;">${EUR2.format(res.tot.htBrut)}</td><td style="${num}border-color:#1e3a8a;">${res.tot.remise ? EUR2.format(res.tot.remise) : '—'}</td><td style="${num}border-color:#1e3a8a;">${EUR2.format(res.tot.ht)}</td>` : '') + '</tr>';
+  h += '</table>';
+  if (o.montants) h += `<p style="margin:0 0 10px;color:#475569;">TJM appliqué : ${EUR.format(res.tjm)} HT</p>`;
+  if (o.justif && (etat.justification || '').trim()) {
+    // La justification générée commence déjà par « Justification : » : son titre n'est pas répété.
+    const j = etat.justification.trim().replace(/^justification\s*:\s*/i, '');
+    h += '<p style="font-weight:bold;color:#1e3a8a;margin:12px 0 4px;">Justification</p>';
+    h += `<p style="margin:0;">${esc(j).replace(/\n/g, '<br>')}</p>`;
+  }
+  return h + '</div>';
+}
+
+// Même contenu en Markdown : texte brut du presse-papiers et valeur enregistrée dans Grist.
+function mailMarkdown(o) {
+  const res = resultat, lib = libelles(res), ent = data.entreprises.get(etat.entrepriseId);
+  const L = [`**Proposition commerciale ${lib.pl}**`];
+  if (o.entete) L.push('', `Client : **${ent?.Denomination ?? ''}** — TEM-404 ${etat.numTem} — statut : ${statutMail()} — ${frDate(today())}`);
+  L.push('');
+  for (const [i, x] of res.prestations.entries()) {
+    const m = o.montants ? ` — net ${EUR2.format(x.ht)} HT (brut ${EUR2.format(x.htBrut)}${x.reduction ? `, remise ${x.reduction} % soit ${EUR2.format(x.remise)}` : ''})` : '';
+    L.push(`- **${lib.ch[i]}** — ${x.prog.nom} ${x.e.type} ${x.e.niveau} : ${JH.format(x.jh)} j.h${x.jhOffert ? ` (dont ${JH.format(x.jhOffert)} offerts)` : ''}${m}`);
+    if (!o.lots && !o.uos) continue;
+    for (const l of x.lots) {
+      if (!l.jh && !l.uos.some(u => u.partagee && u.appl)) continue;
+      if (o.lots) L.push(`    - ${l.lot.lib} : ${JH.format(l.jh)} j.h`);
+      for (const u of lignesMail(l, o)) {
+        const det = [o.roles && rolesUo(u), u.offerte && 'offerte', u.partagee && `comptée sur ${u.partagee}`].filter(Boolean).join(' — ');
+        L.push(`${o.lots ? '        ' : '    '}- ${u.lib} : ${JH.format(u.jh)} j.h${det ? ` (${det})` : ''}`);
+      }
+    }
+  }
+  L.push('', `**Total : ${JH.format(res.tot.jh)} j.h**` + (o.montants ? ` — brut ${EUR2.format(res.tot.htBrut)} HT${res.tot.remise ? ` — remise ${EUR2.format(res.tot.remise)}` : ''} — **net ${EUR2.format(res.tot.ht)} HT**` : ''));
+  if (o.montants) L.push('', `TJM appliqué : ${EUR.format(res.tjm)} HT`);
+  if (o.justif && (etat.justification || '').trim()) L.push('', '**Justification**', '', etat.justification.trim().replace(/^justification\s*:\s*/i, ''));
+  return L.join('\n');
+}
+
+function ouvrirMail() {
+  if (!resultat?.prestations.length) return;
+  mailOpts = lireMailOpts();
+  $('mail-opts').innerHTML = MAIL_OPTS.map(m =>
+    `<label><input type="checkbox" data-opt="${m.id}"${mailOpts[m.id] ? ' checked' : ''}> ${esc(m.lib)}</label>`).join('');
+  $('mail-opts').querySelectorAll('input').forEach(cb => cb.addEventListener('change', () => {
+    mailOpts[cb.dataset.opt] = cb.checked;
+    try { localStorage.setItem('tem400-mail-opts', JSON.stringify(mailOpts)); } catch { /* stockage indisponible */ }
+    renderMail();
+  }));
+  $('mail-ov').style.display = '';
+  renderMail();
+}
+function fermerMail() { $('mail-ov').style.display = 'none'; }
+
+// CH de la proposition enregistrée (hors annulées) : là où le mail est conservé.
+const chMail = () => etat.source ? Object.values(etat.source.ch).filter(c => !c.annulee && c.rowId) : [];
+
+function renderMail() {
+  $('mail-prev').innerHTML = mailHtml(mailOpts);
+  const chs = chMail();
+  const colOk = data.ppCols.has(COL_MAIL);
+  $('mail-save').disabled = !chs.length || !colOk;
+  $('mail-save').title = !colOk ? `Colonne ${TABLE_CH}.${COL_MAIL} absente`
+    : !chs.length ? 'Valider ou enregistrer la proposition d’abord (aucune CH)' : `Enregistrer dans ${chs.length} CH`;
+  const st = $('mail-status');
+  st.textContent = !colOk ? `Colonne ${COL_MAIL} absente de ${TABLE_CH} : enregistrement impossible.`
+    : !chs.length ? 'Proposition sans CH (brouillon non numéroté) : copie possible, enregistrement après validation.' : '';
+  st.className = `statusbar ${chs.length && colOk ? '' : 'error'}`;
+}
+
+async function copierMail(e) {
+  const html = mailHtml(mailOpts), texte = mailMarkdown(mailOpts);
+  let ok = false;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([texte], { type: 'text/plain' }),
+    })]);
+    ok = true;
+  } catch {
+    // Repli dans l'iframe Grist : copie de la sélection de l'aperçu (mise en forme conservée).
+    const sel = window.getSelection(), r = document.createRange();
+    r.selectNodeContents($('mail-prev'));
+    sel.removeAllRanges(); sel.addRange(r);
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    sel.removeAllRanges();
+  }
+  if (!ok) { $('mail-status').textContent = 'Copie automatique impossible : sélectionner l’aperçu et faire Cmd+C.'; return; }
+  toast('Mail copié : coller dans le message (Cmd+V).');
+  const b = e.currentTarget, lib = b.dataset.lib ||= b.textContent;
+  b.textContent = '✓ Copié';
+  clearTimeout(b._t);
+  b._t = setTimeout(() => { b.textContent = lib; }, 2000);
+}
+
+async function enregistrerMail() {
+  const chs = chMail();
+  if (!chs.length) return;
+  const lib = libelles(resultat);
+  if (!window.confirm(`Enregistrer ce mail dans ${TABLE_CH}.${COL_MAIL} pour ${chs.length} CH de ${lib.pl} ?\n\nLe contenu précédent de la colonne sera remplacé.`)) return;
+  $('mail-save').disabled = true;
+  try {
+    const texte = `${mailMarkdown(mailOpts)}\n\n_Mail généré le ${fmtDateHeure(new Date().toISOString())}_`;
+    await grist.docApi.applyUserActions([['BulkUpdateRecord', TABLE_CH, chs.map(c => c.rowId), { [COL_MAIL]: chs.map(() => texte) }]]);
+    toast('Mail enregistré dans la proposition.');
+    $('mail-status').textContent = `Enregistré dans ${chs.length} CH.`;
+    $('mail-status').className = 'statusbar ok';
+  } catch (err) {
+    $('mail-status').textContent = `Échec de l’enregistrement : ${err.message || err}`;
+    $('mail-status').className = 'statusbar error';
+  } finally {
+    $('mail-save').disabled = false;
+  }
 }
 
 async function copier(txt, msg, bouton) {
