@@ -121,7 +121,7 @@
 const T = {
   REV: 'Revues_de_dossier', REF: 'Referentiels_revue', PTS: 'Revues_points', TEM: 'TEM_404',
   PL: 'Propositions_commerciales', CH: 'Propositions_prestation', EV: 'Evaluations',
-  ENT: 'Entreprises', PROG: 'Programmes',
+  ENT: 'Entreprises', PROG: 'Programmes', QL: 'Qualifications_List',
 };
 // Pages du document vers lesquelles la fiche renvoie
 const PAGES = { tem400: 81, plan: 87, odm: 89 };
@@ -150,11 +150,12 @@ grist.ready({ requiredAccess: 'full', onEditOptions: openConfig });
 grist.onOptions(opts => {
   docUrl = (opts?.docUrl || '').replace(/\/+$/, '');
   signataire = opts?.signataire || '';
+  signataireAttest = opts?.signataireAttestation || '';
   if (D) render();
 });
 grist.onRecord(async rec => {
   if (!rec?.id) { revId = 0; showEmpty(); return; }
-  if (rec.id !== revId) { ouverts = null; courrier = null; }
+  if (rec.id !== revId) { ouverts = null; courrier = null; attest = null; }
   revId = rec.id;
   await reload();
 });
@@ -239,7 +240,8 @@ function build(t) {
   const reponses = new Map(rowsOf(t.PTS).filter(r => r.Revue === revId).map(r => [r.Point, r]));
 
   const lastEv = Math.max(0, ...evRows.map(e => +(/^\d{4}EV(\d{4})/.exec(e.Libelle || '')?.[1] || 0) || 0));
-  return { rev, tem, ent, prog, pls, chs, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv };
+  const qualifs = t.QL ? new Map(rowsOf(t.QL).map(r => [r.id, String(r.Qualifications || '')])) : new Map();
+  return { rev, tem, ent, prog, pls, chs, chById, qualifs, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv };
 }
 
 const BLOC_ORDRE = ['General', 'Initiale', 'Surveillance', 'Renouvellement', 'Rapport'];
@@ -440,6 +442,8 @@ function panneau(j) {
         <button class="btn sec2" data-act="rapport-auj">Livré aujourd'hui</button></div>` : '<div class="warn">Colonnes Date_livraison_rapport / Lien_rapport à créer dans Revues_de_dossier.</div>'}
       ${c.lienRapport ? `<div class="ligne">${champTexte('Lien_rapport', r.Lien_rapport, 'Lien du rapport')}
         ${/^https?:\/\//.test(r.Lien_rapport || '') ? `<a class="lien" href="${esc(r.Lien_rapport)}" target="_blank" rel="noopener">Ouvrir ↗</a>` : ''}</div>` : ''}
+      <div class="ligne"><button class="btn${attest ? ' sec2' : ''}" data-act="attest" ${D.evalsLiees.length ? '' : 'disabled title="Aucune évaluation rattachée à cette revue"'}>${attest ? 'Fermer l’attestation' : '🧾 Préparer une attestation de déroulement des activités'}</button></div>
+      ${attest ? editeurAttest() : ''}
     </div>`;
   }
   // Décision
@@ -555,53 +559,175 @@ async function preparerPdf() {
   try { return await pdfPret; } catch (e) { pdfPret = null; throw e; }
 }
 
-function definitionCourrier(c, res) {
-  const filet = (y, x1, x2) => ({ canvas: [{ type: 'line', x1, y1: y, x2, y2: y, lineWidth: 0.6, lineColor: BLEU }] });
+// En-tête et pied communs aux documents générés (charte Certi-Trust)
+function cadrePdf(res, titre) {
+  const filet = (y) => ({ canvas: [{ type: 'line', x1: 0, y1: y, x2: 515, y2: y, lineWidth: 0.6, lineColor: BLEU }] });
   return {
     pageSize: 'A4', pageMargins: [62, 118, 62, 78],
-    info: { title: `${c.objet}`, author: 'Certi-Trust France' },
+    info: { title: titre, author: 'Certi-Trust France' },
     defaultStyle: { font: res.police, fontSize: 10, color: '#262B38', lineHeight: 1.2 },
     header: () => ({ margin: [40, 28, 40, 0], stack: [
       { columns: [
         res.logo ? { image: res.logo, width: 120 } : { text: 'Certi-Trust', bold: true, color: BLEU, fontSize: 16 },
         { text: 'CONFIANCE DANS L’ÈRE NUMÉRIQUE', italics: true, color: BLEU, fontSize: 7.5, alignment: 'right', margin: [0, 30, 0, 0], characterSpacing: 0.6 },
       ] },
-      filet(6, 0, 515),
+      filet(6),
     ] }),
     footer: () => ({ margin: [40, 18, 40, 0], stack: [
-      filet(0, 0, 515),
+      filet(0),
       { text: PIED.join('\n'), alignment: 'center', color: BLEU, fontSize: 8, margin: [0, 6, 0, 0] },
     ] }),
-    content: [
-      { stack: EXPEDITEUR.map((t, i) => ({ text: t, bold: i === 0, fontSize: i === 0 ? 10 : 9 })) },
-      { text: c.date, alignment: 'right', margin: [0, 8, 0, 0] },
-      { text: c.dest, margin: [250, 26, 0, 0] },
-      { text: [{ text: 'Objet :', decoration: 'underline', bold: true }, ' ' + c.objet], margin: [0, 34, 0, 0] },
-      { text: c.salut, margin: [0, 26, 0, 0] },
-      ...c.corps.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => ({ text: p.replace(/\s*\n\s*/g, ' '), alignment: 'justify', margin: [0, 12, 0, 0] })),
-      { text: c.signature, margin: [0, 40, 0, 0] },
-    ],
   };
 }
 
-async function genererPdfCourrier(bouton) {
-  const c = courrier;
-  if (!c) return;
+// pdfmake coupe les mots au trait d'union et étire l'espace en justification (« Certi- Trust ») ;
+// Montserrat n'a pas de trait d'union insécable : les mots composés passent en noWrap.
+const insecable = t => t.split(/(\S*\p{L}-\p{L}\S*)/u).filter(Boolean).map((x, i, a) => /\p{L}-\p{L}/u.test(x) ? { text: x, noWrap: true } : x);
+
+// Paragraphes séparés par une ligne vide ; une ligne commençant par « • » ou « – » est un
+// élément de liste (retrait suspendu).
+function paragraphesPdf(corps) {
+  const out = [];
+  corps.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).forEach(p => {
+    const lignes = p.split('\n').map(l => l.trim()).filter(Boolean);
+    let texte = [];
+    const vider = () => { if (texte.length) out.push({ text: insecable(texte.join(' ')), alignment: 'justify', margin: [0, 10, 0, 0] }); texte = []; };
+    lignes.forEach(l => {
+      const m = /^([•–\-])\s*(.*)$/.exec(l);
+      if (!m) { texte.push(l); return; }
+      vider();
+      out.push({ columns: [{ width: 14, text: m[1] === '-' ? '–' : m[1] }, { width: '*', text: insecable(m[2]), alignment: 'justify' }], margin: [18, 4, 0, 0] });
+    });
+    vider();
+  });
+  return out;
+}
+
+function definitionCourrier(c, res) {
+  return { ...cadrePdf(res, c.objet), content: [
+    { stack: EXPEDITEUR.map((t, i) => ({ text: t, bold: i === 0, fontSize: i === 0 ? 10 : 9 })) },
+    { text: c.date, alignment: 'right', margin: [0, 8, 0, 0] },
+    { text: c.dest, margin: [250, 26, 0, 0] },
+    { text: [{ text: 'Objet :', decoration: 'underline', bold: true }, ' ' + c.objet], margin: [0, 34, 0, 0] },
+    { text: c.salut, margin: [0, 26, 0, 0] },
+    ...paragraphesPdf(c.corps),
+    { text: c.signature, margin: [0, 40, 0, 0] },
+  ] };
+}
+
+function definitionAttest(a, res) {
+  return { ...cadrePdf(res, a.titre.replace(/\n/g, ' ')), content: [
+    { text: a.titre.toUpperCase(), alignment: 'center', bold: true, color: BLEU, fontSize: 12, lineHeight: 1.35, margin: [0, 0, 0, 0] },
+    { text: a.ref, margin: [0, 22, 0, 0] },
+    ...paragraphesPdf(a.corps),
+    { text: a.date, margin: [0, 18, 0, 0] },
+    { text: a.signature, margin: [0, 36, 0, 0] },
+  ] };
+}
+
+// Garde-fou : les champs entre crochets ([JJ/MM/AAAA], [Prénom NOM]…) restent à compléter
+async function genererPdf(kind, bouton) {
+  const doc = kind === 'attest' ? attest : courrier;
+  if (!doc) return;
+  const restes = [...new Set(Object.values(doc).filter(v => typeof v === 'string').flatMap(v => v.match(/\[[^\]\n]{2,40}\]/g) || []))];
+  if (restes.length && !window.confirm(`Champs encore à compléter : ${restes.join(', ')}.\n\nGénérer quand même ?`)) return;
   const lib = bouton.textContent;
   bouton.disabled = true; bouton.textContent = 'Génération…';
   try {
     const res = await preparerPdf();
     const d = new Date(), p2 = n => String(n).padStart(2, '0');
     const code = String(D.ent.get(D.tem?.Entreprise)?.code || jsonTem()['demandeur.nom'] || 'CLIENT').replace(/[^\w-]+/g, '_');
-    const nom = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${code}_Courrier_Recevabilite_${PROG_NOMS[c.prog]}.pdf`;
-    const pdf = window.pdfMake.createPdf(definitionCourrier(c, res), null, res.fonts, res.vfs);
+    const jour = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}`;
+    const nom = kind === 'attest'
+      ? `${jour}_${code}_Attestation_deroulement_${PROG_NOMS[doc.prog] || 'EVAL'}.pdf`
+      : `${jour}_${code}_Courrier_Recevabilite_${PROG_NOMS[doc.prog]}.pdf`;
+    const def = kind === 'attest' ? definitionAttest(doc, res) : definitionCourrier(doc, res);
+    const pdf = window.pdfMake.createPdf(def, null, res.fonts, res.vfs);
     try { pdf.download(nom); } catch { pdf.open(); }
-    status(`Courrier généré : ${nom}`);
+    status(`Document généré : ${nom}`);
   } catch (e) {
     status('Erreur PDF : ' + (e.message || e), 'error');
   } finally {
     bouton.disabled = false; bouton.textContent = lib;
   }
+}
+
+// ── Attestation de déroulement des activités d'évaluation ─────────────────
+// Texte repris du modèle « attestation.docx » ; délivrée quand les activités sont terminées
+// et la décision pas encore prise (jalon ④). Une attestation par évaluation.
+
+let attest = null;            // { evalId, prog, titre, ref, corps, date, signature }
+let signataireAttest = '';    // option du widget
+
+const DEMARCHES = {
+  Initiale: 'de qualification initiale', Renouvellement: 'de renouvellement de sa qualification',
+  Surveillance: 'de maintien de sa qualification', 'Complémentaire': 'd’évaluation complémentaire de sa qualification',
+  'Extension d’activité': 'd’extension de sa qualification',
+};
+
+function texteAttest(evalId) {
+  const e = D.evalsLiees.find(x => x.id === evalId) || D.evalsLiees[0];
+  const j = jsonTem();
+  const nomProg = String(D.prog.get(e.Programme) || '');
+  const prog = Object.keys(PROG_NOMS).find(k => nomProg.toUpperCase().startsWith(PROG_NOMS[k])) || progsDemandes()[0] || 'passi';
+  const P = PROG_NOMS[prog];
+  const version = val(j[`b.${prog}.version`]), niveau = val(j[`b.${prog}.niveau`]).toLowerCase();
+  const type = ids(e.Type_d_evaluation)[0] || val(j[`b.${prog}.type_demande`]);
+  const ch = D.chById.get(e.PO);
+  const contrat = String(ch?.Propale || '').trim() || '[n° de contrat]';
+  const dateContrat = ch?.Date_de_signature ? fmtD(ch.Date_de_signature) : '[date du contrat]';
+  const ent = D.ent.get(D.tem?.Entreprise || e.Entreprise);
+  const societe = val(j['demandeur.nom']) || String(ent?.Denomination || '[société]');
+  const siren = val(j['demandeur.siren']) || String(ent?.SIREN || '') || '[SIREN]';
+  const portees = [...new Set([...ids(e.Activites_), ...ids(ch?.Activites)])].sort((a, b) => a - b).map(id => D.qualifs.get(id)).filter(Boolean);
+  const sig = signataireAttest || '[Prénom NOM]\nDirecteur du centre d’évaluation ANSSI - Certi-Trust';
+  const [nom, fonction = ''] = sig.split('\n');
+  const d = new Date(), p2 = n => String(n).padStart(2, '0');
+  const aujourdhui = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  return {
+    evalId: e.id, prog,
+    titre: `Attestation relative au déroulement des activités d'évaluation\nen vue de la qualification ${P}`,
+    ref: `Réf. : ${contrat} — ${aujourdhui}`,
+    corps: [
+      `Je soussigné, ${nom}, ${fonction.replace(/\s*-\s*Certi-Trust\s*$/, '')} de Certi-Trust, centre d'évaluation accrédité par le COFRAC et agrée par l'ANSSI pour la réalisation des évaluations ANSSI,`,
+      `atteste que la société ${societe} enregistrée sous le numéro de siren ${siren}, est engagée dans une démarche ${DEMARCHES[type] || 'de qualification'} ${P}${version ? ' ' + version : ''}${niveau ? ' au niveau ' + niveau : ''}, sur les portées :\n`
+        + (portees.length ? portees.map((x, i) => `• ${x}${i === portees.length - 1 ? '.' : ' ;'}`).join('\n') : '• [portées]'),
+      `et fait l'objet d'une évaluation confiée à Certi-Trust dans le cadre du contrat n° ${contrat} en date du ${dateContrat}`,
+      `À la date de la présente :\n`
+        + `– les activités d'évaluation prévues par le référentiel (audit documentaire, audit sur site, entretiens et, le cas échéant, tests techniques) ont été menées à leur terme sur le plan opérationnel ;\n`
+        + `– le rapport d'évaluation est en cours de finalisation et les conclusions ne pourront être prises qu’à partir du prochain comité de certification en date du [JJ/MM/AAAA].\n`
+        + `– À ce stade de l'audit, aucune non-conformité majeure non traitée n'a été identifiée ni portée à notre connaissance par l'équipe d'audit.\n`
+        + `– Une fois la certification prononcée, sans suivra l’édition, la signature d’un certificat et d'un avis de conformité attestant que le service d’audit de la société ${societe} se conforme aux exigences du référentiel ${P} de l’ANSSI.`,
+      `La présente attestation ne constitue ni une décision de qualification ni un engagement quant à son issue. Conformément au référentiel ${P}, la qualification relève de la seule compétence de l'ANSSI, qui se prononce au vu du rapport d'évaluation définitif et du certificat transmis par Certi-Trust.`,
+    ].join('\n\n'),
+    date: `Fait à Paris, le ${aujourdhui}.`,
+    signature: sig,
+  };
+}
+
+function editeurAttest() {
+  const a = attest;
+  const champ = (k, titre, type = 'input', cls = '') => type === 'input'
+    ? `<div class="ligne"><label class="lbl">${titre}</label><input type="text" data-act="att-txt" data-k="${k}" value="${esc(a[k])}"></div>`
+    : `<div class="ligne"><label class="lbl">${titre}</label><textarea class="${cls}" data-act="att-txt" data-k="${k}">${esc(a[k])}</textarea></div>`;
+  return `<div class="courrier">
+    ${D.evalsLiees.length > 1 ? `<div class="ligne"><label class="lbl">Évaluation</label><span class="tog large" style="flex-wrap:wrap">${D.evalsLiees.map(e =>
+      `<button class="v-OUI${a.evalId === e.id ? ' on' : ''}" data-act="att-eval" data-v="${e.id}">${esc(e.Libelle || 'Évaluation ' + e.id)}</button>`).join('')}</span>
+      <span class="info">Changer d’évaluation regénère le texte.</span></div>` : ''}
+    ${champ('titre', 'Titre', 'area', 'court')}
+    ${champ('ref', 'Référence')}
+    ${champ('corps', 'Corps (« • » / « – » en début de ligne = liste)', 'area', 'corps')}
+    ${champ('date', 'Date')}
+    ${champ('signature', 'Signature (nom, puis fonction)', 'area', 'court')}
+    <div class="info">À compléter : la date du prochain comité de certification ([JJ/MM/AAAA]).</div>
+    <div class="ligne"><button class="btn" data-act="att-pdf">📄 Générer le PDF</button>
+      <button class="btn sec2" data-act="att-sign" title="Mémorise la signature dans ce document Grist">Mémoriser la signature</button></div>
+  </div>`;
+}
+
+function ouvrirAttest() {
+  attest = attest ? null : texteAttest(D.evalsLiees[0].id);
+  render();
 }
 
 // ── Écritures ──────────────────────────────────────────────────────────────
@@ -705,7 +831,15 @@ main.addEventListener('click', async ev => {
     courrier = { ...texteCourrier(prog, civ), signature: sig };
     return render();
   }
-  if (act === 'cour-pdf') return genererPdfCourrier(b);
+  if (act === 'cour-pdf') return genererPdf('courrier', b);
+  if (act === 'attest') return ouvrirAttest();
+  if (act === 'att-eval') { const sig = attest.signature; attest = { ...texteAttest(+b.dataset.v), signature: sig }; return render(); }
+  if (act === 'att-pdf') return genererPdf('attest', b);
+  if (act === 'att-sign') {
+    signataireAttest = attest.signature;
+    await grist.setOption('signataireAttestation', signataireAttest);
+    return status('Signature de l’attestation mémorisée pour les prochaines fois.');
+  }
   if (act === 'cour-sign') {
     signataire = courrier.signature;
     await grist.setOption('signataire', signataire);
@@ -717,6 +851,7 @@ main.addEventListener('click', async ev => {
 main.addEventListener('input', ev => {
   const el = ev.target;
   if (el.dataset.act === 'cour-txt' && courrier) courrier[el.dataset.k] = el.value;
+  if (el.dataset.act === 'att-txt' && attest) attest[el.dataset.k] = el.value;
 });
 
 main.addEventListener('change', async ev => {
