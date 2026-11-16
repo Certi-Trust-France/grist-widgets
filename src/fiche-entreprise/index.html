@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fiche entreprise</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Charte Certi-Trust (comme revue-dossier). Thème clair imposé : Grist peut passer le widget en sombre. */
+  :root { color-scheme: light !important;
+          --marine:#32406C; --marine-fonce:#262f52; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A;
+          --ok:#059669; --ok-bg:#d1fae5; --ko:#b91c1c; --ko-bg:#fdecec; --so:#64748b; --so-bg:#eef0f4; --enc:#9a5b00; --enc-bg:#fff4e0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font: 12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color: var(--txt); margin: 0; padding: 12px; background: #eef0f4; }
+  button { font: inherit; cursor: pointer; color: inherit; }
+  input { font: inherit; color: var(--txt); }
+  .empty { padding: 40px 0; text-align: center; color: var(--gris); font-style: italic; }
+
+  .entete { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; display: flex; gap: 12px; align-items: flex-start; }
+  .entete img { height: 34px; }
+  .entete .id { flex: 1; min-width: 0; }
+  .entete h1 { margin: 0; font-size: 16px; color: var(--marine); }
+  .entete .sous { color: var(--gris); font-size: 12px; margin-top: 2px; }
+  .outils { display: flex; gap: 6px; }
+  .outils button { background: #fff; color: var(--marine); border: 1px solid var(--bord); border-radius: 4px; padding: 3px 8px; font-size: 11px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+  .pastille { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; display: inline-block; }
+  .pastille.ok { background: var(--ok-bg); color: #065f46; }
+  .pastille.enc { background: var(--enc-bg); color: var(--enc); }
+  .pastille.ko { background: var(--ko-bg); color: var(--ko); }
+  .pastille.so { background: var(--so-bg); color: var(--so); }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .kpi { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 8px 10px; }
+  .kpi .v { font-size: 17px; font-weight: 700; color: var(--marine); font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 11px; color: var(--gris); }
+  .kpi.alerte .v { color: var(--ko); }
+
+  details.sec { background: #fff; border: 1px solid var(--bord); border-radius: 6px; margin-bottom: 8px; }
+  details.sec > summary { list-style: none; cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--marine); }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary::before { content: '▸'; color: var(--gris); }
+  details.sec[open] > summary::before { content: '▾'; }
+  details.sec > summary .cpt { margin-left: auto; font-weight: 600; font-size: 11px; color: var(--gris); }
+  .corps { padding: 0 12px 10px; overflow-x: auto; }
+  h3 { margin: 10px 0 4px; font-size: 12px; color: var(--marine); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 600; color: var(--gris); font-size: 11px; border-bottom: 1px solid var(--bord); padding: 4px 6px; white-space: nowrap; }
+  td { border-bottom: 1px solid #eef0f4; padding: 4px 6px; vertical-align: top; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.tot td { font-weight: 700; border-top: 1px solid var(--bord); }
+  tr.annule td { color: var(--gris); text-decoration: line-through; }
+  .info { color: var(--gris); font-size: 11.5px; }
+  a.lien { color: var(--marine); font-weight: 600; text-decoration: none; }
+  a.lien:hover { text-decoration: underline; }
+
+  ul.alertes { margin: 0; padding: 0; list-style: none; }
+  ul.alertes li { padding: 5px 8px; border-radius: 4px; margin-bottom: 4px; display: flex; gap: 8px; align-items: baseline; }
+  ul.alertes li.ko { background: var(--ko-bg); }
+  ul.alertes li.enc { background: var(--enc-bg); }
+  ul.alertes li .q { font-weight: 700; white-space: nowrap; }
+
+  .config { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+  .config input { width: 100%; border: 1px solid var(--bord); border-radius: 4px; padding: 4px 6px; margin: 6px 0; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .outils, .config { display: none !important; }
+    details.sec, .kpi, .entete { break-inside: avoid; border-color: #ccc; }
+  }
+  .btn { border: 1px solid var(--marine); background: var(--marine); color: #fff; border-radius: 4px; padding: 4px 10px; font-weight: 600; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="config" class="config" style="display:none">
+  <b>Adresse du document Grist</b> (pour les liens vers les pages)
+  <input id="config-url" type="text" placeholder="https://…/doc">
+  <button class="btn" id="config-ok">Enregistrer</button>
+</div>
+<div id="app"><div class="empty">Sélectionner une entreprise.</div></div>
+
+<script>
+// Fiche entreprise : synthèse en lecture seule d'une entreprise (cycles, demandes, propositions,
+// évaluations, facturation, examens, auditeurs, contacts, sites, alertes).
+// Le widget n'écrit rien dans Grist ; l'adresse du document (liens) est une option du widget.
+
+const T = {
+  ent: 'Entreprises', cyc: 'Cycles_services', tem: 'TEM_404', rev: 'Revues_de_dossier',
+  pl: 'Propositions_commerciales', ch: 'Propositions_prestation', ev: 'Evaluations',
+  ecr: 'Examens_ecrits', ora: 'Examens_oraux', cand: 'Candidats', qi: 'Qualification_individuelle',
+  ctc: 'Contacts', site: 'Sites', prog: 'Programmes', evr: 'Evaluateurs', ql: 'Qualifications_List',
+  dde: 'Demandes_devis_examens',
+};
+// Liens « ouvrir dans Grist » : page, section et première colonne affichée.
+const LIENS = {
+  ev: [48, 378, 148], ch: [75, 348, 911], tem: [77, 354, 962], rev: [68, 326, 1134], cyc: [58, 273, 932],
+  pl: [82, 366, 1039], qi: [79, 363, 969], ctc: [65, 320, 108],
+};
+const ALERTE_JOURS = 183;   // échéances à moins de 6 mois
+
+let docUrl = '';
+let entId = 0;
+let D = null;
+let ouverts = new Set(['alertes', 'cycles', 'evals']);
+let reqId = 0;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const rowsOf = t => t ? t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]]))) : [];
+const ids = raw => Array.isArray(raw) ? raw.slice(1).filter(x => x != null && x !== '') : [];   // RefList / ChoiceList : ['L', …]
+const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+const NB = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
+const eur = v => (v === null || v === undefined || v === '') ? '' : EUR.format(v);
+const nb = v => (v === null || v === undefined || v === '') ? '' : NB.format(v);
+const DAY = 86400;
+const now = () => Math.floor(Date.now() / 1000);
+const fdate = s => s ? new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC' }).format(new Date(s * 1000)) : '';
+const num = v => (typeof v === 'number' && isFinite(v)) ? v : 0;
+const lien = (cle, id, texte) => {
+  const l = LIENS[cle];
+  if (!docUrl || !l || !id) return esc(texte);
+  return `<a class="lien" target="_top" href="${esc(`${docUrl}/p/${l[0]}#a1.s${l[1]}.r${id}.c${l[2]}`)}">${esc(texte)}</a>`;
+};
+const past = (cls, txt) => `<span class="pastille ${cls}">${esc(txt)}</span>`;
+
+grist.ready({ requiredAccess: 'full', onEditOptions: openConfig });
+grist.onOptions(opts => {
+  docUrl = (opts?.docUrl || '').replace(/\/+$/, '');
+  if (D) render();
+});
+grist.onRecord(async rec => {
+  if (!rec?.id) { entId = 0; $('app').innerHTML = '<div class="empty">Sélectionner une entreprise.</div>'; return; }
+  entId = rec.id;
+  if (!D) await reload(); else render();
+});
+
+async function reload() {
+  const my = ++reqId;
+  $('app').innerHTML = '<div class="empty">Chargement…</div>';
+  const cles = Object.keys(T);
+  const tabs = await Promise.all(cles.map(k => grist.docApi.fetchTable(T[k]).catch(() => null)));
+  if (my !== reqId) return;
+  D = Object.fromEntries(cles.map((k, i) => [k, rowsOf(tabs[i])]));
+  D.byId = Object.fromEntries(cles.map(k => [k, new Map(D[k].map(r => [r.id, r]))]));
+  D.evalsParCh = new Map();
+  for (const e of D.ev) if (e.PO) (D.evalsParCh.get(e.PO) || D.evalsParCh.set(e.PO, []).get(e.PO)).push(e);
+  render();
+}
+
+// ── Calculs ────────────────────────────────────────────────────────────────
+
+const nomProg = id => D.byId.prog.get(id)?.Nom_du_programme || '';
+const codeQual = id => D.byId.ql.get(id)?.Qualification_code || '';
+const trig = id => D.byId.evr.get(id)?.Evaluateur_Trigramme || '';
+const nomCand = c => c ? `${c.First_Name || ''} ${c.Last_Name || ''}`.trim() : '';
+const typesOf = r => ids(r.Type_d_evaluation).join(', ');
+const evalTerminee = e => e.Terminee === true || e.Statut === 'Terminé';
+const evalActive = e => !evalTerminee(e) && e.Statut !== 'Annulé';
+const chAnnulee = c => c.Statut === 'Annulée';
+// Signature : rarement saisie sur les anciennes CH. Une CH facturée, présente au carnet de commandes
+// (reste à facturer renseigné) ou rattachée à une évaluation est considérée comme signée.
+const chSigneeExplicite = c => c.devis_signe === true || !!c.Date_de_signature || c.Statut === 'Signée';
+const chSignee = c => chSigneeExplicite(c) || num(c.Facture) > 0 || typeof c.Reste_a_facturer === 'number' || !!D.evalsParCh.get(c.id)?.length;
+
+function donnees(eid) {
+  const by = (k, col) => D[k].filter(r => r[col] === eid);
+  const d = {
+    ent: D.byId.ent.get(eid),
+    cycles: by('cyc', 'Denomination'),
+    tems: by('tem', 'Entreprise'),
+    pls: by('pl', 'Entreprise'),
+    chs: by('ch', 'Denomination'),
+    evals: by('ev', 'Entreprise'),
+    cands: by('cand', 'Entreprise'),
+    ecrits: by('ecr', 'Denomination'),
+    oraux: by('ora', 'Denomination'),
+    qis: by('qi', 'Denomination'),
+    contacts: by('ctc', 'Entreprise'),
+    sites: by('site', 'Entreprise'),
+    ddes: by('dde', 'Entreprise'),
+  };
+  d.evalsParCh = D.evalsParCh;
+  d.revParTem = new Map(D.rev.filter(r => r.Demande).map(r => [r.Demande, r]));
+  return d;
+}
+
+function indicateurs(d) {
+  const vivantes = d.chs.filter(c => !chAnnulee(c));
+  const signees = vivantes.filter(chSignee);
+  const t = now();
+  const qualifsValides = d.qis.filter(q => q.Valide !== false && (!q.Fin_validite || q.Fin_validite >= t));
+  const exAFact = [...d.ecrits.filter(x => x.a_facturer && !x.Facture), ...d.oraux.filter(x => x.a_facturer && !x.Facture2)];
+  return {
+    signe: signees.reduce((s, c) => s + num(c.Montant_PO), 0),
+    propose: vivantes.filter(c => !chSignee(c)).reduce((s, c) => s + num(c.Montant_PO), 0),
+    facture: vivantes.reduce((s, c) => s + num(c.Facture), 0),
+    reste: vivantes.reduce((s, c) => s + num(c.Reste_a_facturer), 0),
+    jours: signees.reduce((s, c) => s + num(c.JH_vendus), 0),
+    evalsEnCours: d.evals.filter(evalActive).length,
+    auditeurs: new Set(qualifsValides.map(q => q.Candidat)).size,
+    exAFact: exAFact.length,
+    exAFactMontant: exAFact.reduce((s, x) => s + num(x.Montant), 0),
+  };
+}
+
+function alertes(d) {
+  const A = [], t = now(), lim = t + ALERTE_JOURS * DAY;
+  for (const c of d.cycles) {
+    const p = nomProg(c.Programme);
+    if (c.Prochaine_echeance && c.Prochaine_echeance <= lim)
+      A.push({ niv: c.Prochaine_echeance < t ? 'ko' : 'enc', q: p, txt: `Prochaine échéance du cycle le ${fdate(c.Prochaine_echeance)}${c.Prochaine_echeance < t ? ' (dépassée)' : ''}`, l: lien('cyc', c.id, 'cycle') });
+    if (c.date_fin_certification && c.date_fin_certification <= lim)
+      A.push({ niv: c.date_fin_certification < t ? 'ko' : 'enc', q: p, txt: `Fin de certification le ${fdate(c.date_fin_certification)}`, l: lien('cyc', c.id, 'cycle') });
+  }
+  for (const c of d.chs) {
+    if (chAnnulee(c) || !chSignee(c)) continue;
+    // Signée sans évaluation : seulement si tout n'est pas déjà facturé (sinon cycle terminé hors Grist)
+    const soldee = num(c.Facture) > 0 && !(num(c.Reste_a_facturer) > 0);
+    if (!d.evalsParCh.get(c.id)?.length && !soldee)
+      A.push({ niv: 'enc', q: nomProg(c.Programme), txt: `Proposition signée sans évaluation : ${(c.Propale || c.Libelle_CH || '').trim()} (${typesOf(c) || 'type ?'})`, l: lien('ch', c.id, 'CH') });
+    const evs = d.evalsParCh.get(c.id) || [];
+    if (num(c.Reste_a_facturer) > 0 && evs.length && evs.every(evalTerminee))
+      A.push({ niv: 'ko', q: nomProg(c.Programme), txt: `Évaluation terminée, reste à facturer ${eur(c.Reste_a_facturer)} : ${(c.Propale || '').trim()}`, l: lien('ch', c.id, 'CH') });
+  }
+  if (d.ent?.Examens_sans_devis) A.push({ niv: 'enc', q: 'Examens', txt: 'Des examens n’ont ni devis ni code devis.', l: '' });
+  const exp = d.qis.filter(q => q.Valide !== false && q.Fin_validite && q.Fin_validite >= t && q.Fin_validite <= lim);
+  if (exp.length) A.push({ niv: 'enc', q: 'Auditeurs', txt: `${exp.length} qualification(s) expirent d’ici 6 mois : ${exp.slice(0, 6).map(q => `${nomCand(D.byId.cand.get(q.Candidat))} ${codeQual(q.Qualification)} (${fdate(q.Fin_validite)})`).join(', ')}${exp.length > 6 ? '…' : ''}`, l: '' });
+  for (const tm of d.tems) if (!d.revParTem.has(tm.id))
+    A.push({ niv: 'enc', q: 'TEM-404', txt: `Demande ${tm.NumTEM404 || tm.id} sans revue de dossier`, l: lien('tem', tm.id, 'TEM-404') });
+  return A;
+}
+
+function badgesProgrammes(d) {
+  const t = now(), B = [];
+  const vus = new Set();
+  for (const c of [...d.cycles].sort((a, b) => num(b.date_debut_cycle) - num(a.date_debut_cycle))) {
+    const p = nomProg(c.Programme); if (!p || vus.has(p)) continue; vus.add(p);
+    if (c.date_fin_certification && c.date_fin_certification < t) B.push(past('ko', `${p} · certification échue ${fdate(c.date_fin_certification)}`));
+    else if (c.date_fin_certification) B.push(past(c.Prochaine_echeance && c.Prochaine_echeance <= t + ALERTE_JOURS * DAY ? 'enc' : 'ok', `${p} · certifié jusqu’au ${fdate(c.date_fin_certification)}`));
+    else B.push(past('enc', `${p} · cycle ouvert le ${fdate(c.date_debut_cycle)}`));
+  }
+  for (const e of d.evals.filter(evalActive)) {
+    const p = nomProg(e.Programme); if (!p || vus.has(p)) continue; vus.add(p);
+    B.push(past('enc', `${p} · évaluation ${ids(e.Type_d_evaluation)[0]?.toLowerCase() || ''} en cours`));
+  }
+  return B.join('') || '<span class="info">Aucun cycle de certification enregistré.</span>';
+}
+
+// ── Rendu ─────────────────────────────────────────────────────────────────
+
+function section(cle, titre, compte, corps) {
+  return `<details class="sec" data-cle="${cle}"${ouverts.has(cle) ? ' open' : ''}><summary>${esc(titre)}<span class="cpt">${esc(compte)}</span></summary><div class="corps">${corps}</div></details>`;
+}
+const vide = txt => `<div class="info">${esc(txt)}</div>`;
+
+function render() {
+  if (!D || !entId) return;
+  const d = donnees(entId);
+  if (!d.ent) { $('app').innerHTML = '<div class="empty">Entreprise introuvable.</div>'; return; }
+  const k = indicateurs(d), A = alertes(d);
+  const e = d.ent;
+  let h = `<div class="entete"><img src="logo.png" alt="Certi-Trust" onerror="this.remove()"><div class="id">
+    <h1>${esc(e.Denomination)}</h1>
+    <div class="sous">Code ${esc(e.code || '—')} · SIREN ${esc(e.SIREN || '—')} · SIRET ${esc(e.SIRET || '—')} · Responsable de compte : ${esc(e.Responsable_de_compte || '—')}</div>
+    <div class="badges">${badgesProgrammes(d)}</div></div>
+    <div class="outils"><button id="b-refresh" title="Relire les données">↻</button><button id="b-print" title="Imprimer ou enregistrer en PDF">🖨</button></div></div>`;
+
+  h += `<div class="kpis">
+    <div class="kpi"><div class="v">${eur(k.signe)}</div><div class="l">vendu (CH signées)</div></div>
+    <div class="kpi"><div class="v">${eur(k.facture)}</div><div class="l">facturé</div></div>
+    <div class="kpi${k.reste > 0 ? '' : ''}"><div class="v">${eur(k.reste)}</div><div class="l">reste à facturer</div></div>
+    <div class="kpi"><div class="v">${nb(k.jours)} j</div><div class="l">jours vendus (signés)</div></div>
+    <div class="kpi"><div class="v">${eur(k.propose)}</div><div class="l">proposé, non signé</div></div>
+    <div class="kpi"><div class="v">${k.evalsEnCours}</div><div class="l">évaluation(s) en cours</div></div>
+    <div class="kpi"><div class="v">${k.auditeurs}</div><div class="l">auditeur(s) qualifié(s)</div></div>
+    <div class="kpi${k.exAFact ? ' alerte' : ''}"><div class="v">${k.exAFact}</div><div class="l">examen(s) à facturer${k.exAFact ? ` · ${eur(k.exAFactMontant)}` : ''}</div></div>
+  </div>`;
+
+  // Alertes
+  h += section('alertes', 'Alertes', A.length ? `${A.length}` : 'aucune',
+    A.length ? `<ul class="alertes">${A.map(a => `<li class="${a.niv}"><span class="q">${esc(a.q)}</span><span>${esc(a.txt)}</span>${a.l ? `<span style="margin-left:auto">${a.l}</span>` : ''}</li>`).join('')}</ul>` : vide('Rien à signaler.'));
+
+  // Cycles
+  const cyc = [...d.cycles].sort((a, b) => num(b.date_debut_cycle) - num(a.date_debut_cycle));
+  const evLib = id => { const x = D.byId.ev.get(id); return x ? lien('ev', id, x.Libelle || id) : ''; };
+  h += section('cycles', 'Cycles et certificats', `${cyc.length}`, cyc.length ? `<table><thead><tr><th>Programme</th><th>Début du cycle</th><th>Initiale</th><th>Surveillance</th><th>Renouvellement / autres</th><th>Prochaine échéance</th><th>Fin de certification</th><th>Commentaire</th></tr></thead><tbody>${cyc.map(c => `<tr>
+      <td>${lien('cyc', c.id, nomProg(c.Programme) || '—')}</td><td>${fdate(c.date_debut_cycle)}</td>
+      <td>${ids(c.eval_initiale).map(evLib).join('<br>')}</td>
+      <td>${fdate(c.Date_surveillance_certification)}</td>
+      <td>${[c.eval_renouvellement, ...ids(c.eval_autres)].filter(Boolean).map(evLib).join('<br>')}</td>
+      <td>${c.Prochaine_echeance ? (c.Prochaine_echeance < now() ? past('ko', fdate(c.Prochaine_echeance)) : c.Prochaine_echeance <= now() + ALERTE_JOURS * DAY ? past('enc', fdate(c.Prochaine_echeance)) : fdate(c.Prochaine_echeance)) : ''}</td>
+      <td>${fdate(c.date_fin_certification)}</td><td class="info">${esc(c.Commentaires || '')}</td></tr>`).join('')}</tbody></table>` : vide('Aucun cycle.'));
+
+  // Demandes et propositions
+  const tems = [...d.tems].sort((a, b) => num(b.Date_Reception) - num(a.Date_Reception));
+  const chs = [...d.chs].sort((a, b) => num(b.Date) - num(a.Date) || b.id - a.id);
+  let dp = '<h3>Demandes TEM-404</h3>' + (tems.length ? `<table><thead><tr><th>N°</th><th>Réception</th><th>Programmes</th><th>Revue de dossier</th></tr></thead><tbody>${tems.map(tm => {
+      const r = d.revParTem.get(tm.id);
+      return `<tr><td>${lien('tem', tm.id, tm.NumTEM404 || tm.id)}</td><td>${fdate(tm.Date_Reception)}</td><td>${ids(tm.PROGRAMME).map(nomProg).join(', ')}</td>
+        <td>${r ? `${lien('rev', r.id, 'revue')} ${r.Decision_offre ? past(r.Decision_offre === 'OUI' ? 'ok' : 'ko', 'offre ' + r.Decision_offre) : ''} ${r.Date_decision ? past('ok', 'décision ' + fdate(r.Date_decision)) : ''}` : past('enc', 'à faire')}</td></tr>`;
+    }).join('')}</tbody></table>` : vide('Aucun TEM-404.'));
+  if (d.pls.length) dp += `<h3>Propositions TEM-400</h3><table><thead><tr><th>Proposition</th><th>Statut</th><th class="n">Montant HT</th></tr></thead><tbody>${d.pls.map(p => `<tr><td>${lien('pl', p.id, p.Libelle_PL || 'brouillon non numéroté')}</td><td>${esc(p.Statut || '')}</td><td class="n">${eur(p.Montant_HT)}</td></tr>`).join('')}</tbody></table>`;
+  dp += '<h3>Propositions (CH)</h3>' + (chs.length ? `<table><thead><tr><th>Proposition</th><th>Date</th><th>Programme</th><th>Type</th><th>Signée</th><th class="n">Montant HT</th><th class="n">Jours</th><th>Évaluation</th></tr></thead><tbody>${chs.map(c => `<tr class="${chAnnulee(c) ? 'annule' : ''}">
+      <td>${lien('ch', c.id, (c.Propale || c.Libelle_CH || '—').trim())}</td><td>${fdate(c.Date)}</td><td>${esc(nomProg(c.Programme))}</td><td>${esc(typesOf(c))}</td>
+      <td>${chSigneeExplicite(c) ? past('ok', c.Date_de_signature ? fdate(c.Date_de_signature) : 'oui') : chSignee(c) ? past('ok', 'oui (déduit)') : past('so', c.Statut || 'non indiqué')}</td>
+      <td class="n">${eur(c.Montant_PO)}</td><td class="n">${nb(c.JH_vendus)}</td>
+      <td>${(d.evalsParCh.get(c.id) || []).map(x => lien('ev', x.id, x.Libelle || x.id)).join('<br>')}</td></tr>`).join('')}</tbody></table>` : vide('Aucune proposition.'));
+  h += section('props', 'Demandes et propositions', `${tems.length} TEM-404 · ${chs.length} CH`, dp);
+
+  // Évaluations
+  const evs = [...d.evals].sort((a, b) => num(b.Date_Debut_prevue) - num(a.Date_Debut_prevue) || b.id - a.id);
+  h += section('evals', 'Évaluations', `${k.evalsEnCours} en cours / ${evs.length}`, evs.length ? `<table><thead><tr><th>Évaluation</th><th>Programme</th><th>Type</th><th>Statut</th><th>Début</th><th>Fin</th><th>Équipe</th><th>Proposition</th><th class="n">Vendu</th><th class="n">Marge</th></tr></thead><tbody>${evs.map(x => {
+      const eq = [x.RE && `RE ${trig(x.RE)}`, ids(x.ETA).length && `ETA ${ids(x.ETA).map(trig).join('/')}`, ids(x.ETM).length && `ETM ${ids(x.ETM).map(trig).join('/')}`].filter(Boolean).join(' · ');
+      const ch = D.byId.ch.get(x.PO);
+      const st = evalTerminee(x) ? past('ok', 'Terminé') : x.Statut === 'Annulé' ? past('so', 'Annulé') : past('enc', x.Statut || 'sans statut');
+      return `<tr class="${x.Statut === 'Annulé' ? 'annule' : ''}"><td>${lien('ev', x.id, x.Libelle || x.id)}</td><td>${esc(nomProg(x.Programme))}</td><td>${esc(typesOf(x))}</td><td>${st}</td>
+        <td>${fdate(x.Date_Debut_prevue)}</td><td>${fdate(x.Date_fin_prevue)}</td><td>${esc(eq)}</td>
+        <td>${ch ? lien('ch', ch.id, (ch.Propale || ch.Libelle_CH || 'CH').trim()) : past('ko', 'aucune')}</td>
+        <td class="n">${eur(x.Montant_Eval_Devis)}</td><td class="n">${typeof x.Marge_euros === 'number' ? eur(x.Marge_euros) : ''}</td></tr>`;
+    }).join('')}</tbody></table>` : vide('Aucune évaluation.'));
+
+  // Facturation
+  const fch = chs.filter(c => !chAnnulee(c) && (chSignee(c) || num(c.Facture) || num(c.Reste_a_facturer)));
+  const exE = d.ecrits, exO = d.oraux;
+  const sum = (xs, f) => xs.reduce((s, x) => s + num(f(x)), 0);
+  let fa = fch.length ? `<table><thead><tr><th>Proposition</th><th>Programme</th><th>Type</th><th class="n">Montant HT</th><th class="n">Facturé</th><th>Dernière facture</th><th class="n">Reste à facturer</th></tr></thead><tbody>${fch.map(c => `<tr>
+      <td>${lien('ch', c.id, (c.Propale || c.Libelle_CH || '—').trim())}</td><td>${esc(nomProg(c.Programme))}</td><td>${esc(typesOf(c))}</td>
+      <td class="n">${eur(c.Montant_PO)}</td><td class="n">${eur(c.Facture)}</td><td>${fdate(c.date_facturation)}</td>
+      <td class="n">${num(c.Reste_a_facturer) > 0 ? `<b>${eur(c.Reste_a_facturer)}</b>` : eur(c.Reste_a_facturer)}</td></tr>`).join('')}
+      <tr class="tot"><td colspan="3">Total</td><td class="n">${eur(sum(fch, c => c.Montant_PO))}</td><td class="n">${eur(sum(fch, c => c.Facture))}</td><td></td><td class="n">${eur(sum(fch, c => c.Reste_a_facturer))}</td></tr></tbody></table>` : vide('Aucune proposition signée ou facturée.');
+  fa += `<h3>Examens</h3><table><thead><tr><th></th><th class="n">Nombre</th><th class="n">Montant</th><th class="n">Facturés</th><th class="n">À facturer</th><th class="n">Sans devis</th></tr></thead><tbody>
+    <tr><td>Écrits</td><td class="n">${exE.length}</td><td class="n">${eur(sum(exE, x => x.Montant))}</td><td class="n">${exE.filter(x => x.Facture).length}</td><td class="n">${exE.filter(x => x.a_facturer && !x.Facture).length}</td><td class="n">${exE.filter(x => !x.Devis_CT && !x.code_devis).length}</td></tr>
+    <tr><td>Oraux</td><td class="n">${exO.length}</td><td class="n">${eur(sum(exO, x => x.Montant))}</td><td class="n">${exO.filter(x => x.Facture2).length}</td><td class="n">${exO.filter(x => x.a_facturer && !x.Facture2).length}</td><td class="n">${exO.filter(x => !x.Devis_CT && !x.code_devis).length}</td></tr></tbody></table>`;
+  if (d.ddes.length) fa += `<div class="info" style="margin-top:6px">Demandes de devis examens : ${d.ddes.map(x => `${esc(x.code || '')} (${fdate(x.date_envoi)}, ${eur(x.total)})`).join(' · ')}</div>`;
+  h += section('fact', 'Facturation', `reste ${eur(k.reste)}`, fa);
+
+  // Examens et auditeurs : une ligne par candidat
+  const parCand = new Map();
+  const get = id => parCand.get(id) || parCand.set(id, { ecr: [], ora: [], qi: [] }).get(id);
+  for (const c of d.cands) get(c.id);
+  for (const x of exE) if (x.Candidat) get(x.Candidat).ecr.push(x);
+  for (const x of exO) if (x.Candidat) get(x.Candidat).ora.push(x);
+  for (const q of d.qis) if (q.Candidat) get(q.Candidat).qi.push(q);
+  const t = now();
+  const lignes = [...parCand.entries()].map(([cid, v]) => ({ cid, c: D.byId.cand.get(cid), ...v }))
+    .sort((a, b) => nomCand(a.c).localeCompare(nomCand(b.c), 'fr'));
+  const resEcrit = x => x.succes_echec === 'Succès' ? 'ok' : x.succes_echec === 'Échec' ? 'ko' : 'so';
+  const ex = lignes.length ? `<table><thead><tr><th>Candidat</th><th>Écrits</th><th>Oraux</th><th>Qualifications valides</th></tr></thead><tbody>${lignes.map(l => {
+      const ecr = l.ecr.sort((a, b) => num(a.date_heure) - num(b.date_heure)).map(x => past(resEcrit(x), `${codeQual(x.Qualification) || '?'} ${x.succes_echec === 'Succès' ? 'reçu' : x.succes_echec === 'Échec' ? 'ajourné' : (x.date_heure && x.date_heure > t ? fdate(x.date_heure) : 'en attente')}`)).join(' ');
+      const ora = l.ora.sort((a, b) => num(a.date_heure) - num(b.date_heure)).map(x => past(x.date_heure && x.date_heure > t ? 'enc' : 'so', `${ids(x.Qualifications).map(codeQual).join('/') || nomProg(x.Programme)} ${fdate(x.date_heure)}`)).join(' ');
+      const qv = l.qi.filter(q => q.Valide !== false && (!q.Fin_validite || q.Fin_validite >= t))
+        .map(q => past(q.Fin_validite && q.Fin_validite <= t + ALERTE_JOURS * DAY ? 'enc' : 'ok', `${codeQual(q.Qualification)}${q.Fin_validite ? ' → ' + fdate(q.Fin_validite) : ''}`)).join(' ');
+      return `<tr><td>${esc(nomCand(l.c) || '?')}<div class="info">${esc(l.c?.Courriel || '')}</div></td><td>${ecr}</td><td>${ora}</td><td>${qv}</td></tr>`;
+    }).join('')}</tbody></table>` : vide('Aucun candidat.');
+  h += section('exam', 'Examens et auditeurs', `${lignes.length} candidat(s) · ${k.auditeurs} qualifié(s)`, ex);
+
+  // Contacts et sites
+  const roles = c => [c.Representant_legal && 'Représentant légal', c.Responsable_de_programme && 'Resp. programme', c.Responsable_examens && 'Resp. examens', c.Facturation && 'Facturation']
+    .filter(Boolean).map(r => past('so', r)).join(' ');
+  const progsCtc = c => [...ids(c.Programmes_Responsable), ...ids(c.Programmes_Examens)].map(x => typeof x === 'number' ? nomProg(x) : x).filter(Boolean);
+  const ctcs = [...d.contacts].sort((a, b) => (b.Representant_legal ? 1 : 0) - (a.Representant_legal ? 1 : 0));
+  let cs = '<h3>Contacts</h3>' + (ctcs.length ? `<table><thead><tr><th>Nom</th><th>Rôles</th><th>Courriel</th><th>Téléphone</th></tr></thead><tbody>${ctcs.map(c => `<tr>
+      <td>${lien('ctc', c.id, `${c.Prenom || ''} ${c.Nom || ''}`.trim() || '?')}</td><td>${roles(c)} ${[...new Set(progsCtc(c))].map(esc).join(', ')}</td>
+      <td>${c.Courriel ? `<a class="lien" href="mailto:${esc(c.Courriel)}">${esc(c.Courriel)}</a>` : ''}</td><td>${esc(c.telephone || '')}</td></tr>`).join('')}</tbody></table>` : vide('Aucun contact.'));
+  const sites = [...d.sites].sort((a, b) => (b.Siege ? 1 : 0) - (a.Siege ? 1 : 0));
+  cs += '<h3>Sites</h3>' + (sites.length ? `<table><thead><tr><th>Site</th><th>Adresse</th><th></th></tr></thead><tbody>${sites.map(s => `<tr class="${s.Actif === false ? 'annule' : ''}">
+      <td>${esc(s.Nom_site || '')}</td><td>${esc([s.Street, s.Street2, [s.Zip, s.City].filter(Boolean).join(' '), s.Pays].filter(Boolean).join(', '))}</td>
+      <td>${s.Siege ? past('ok', 'siège') : ''}</td></tr>`).join('')}</tbody></table>` : vide('Aucun site.'));
+  h += section('contacts', 'Contacts et sites', `${ctcs.length} contact(s) · ${sites.length} site(s)`, cs);
+
+  $('app').innerHTML = h;
+  $('app').querySelectorAll('details.sec').forEach(el => el.addEventListener('toggle', () => {
+    el.open ? ouverts.add(el.dataset.cle) : ouverts.delete(el.dataset.cle);
+  }));
+  $('b-refresh').addEventListener('click', reload);
+  $('b-print').addEventListener('click', () => {
+    document.querySelectorAll('details.sec').forEach(el => { el.open = true; });
+    window.print();
+  });
+}
+
+// ── Configuration (adresse du document pour les liens) ──────────────────────
+
+function openConfig() {
+  $('config').style.display = '';
+  $('config-url').value = docUrl;
+}
+$('config-ok').addEventListener('click', async () => {
+  docUrl = $('config-url').value.trim().replace(/\/+$/, '').replace(/\/p\/\d+.*$/, '');
+  await grist.setOption('docUrl', docUrl);
+  $('config').style.display = 'none';
+  render();
+});
+</script>
+</body>
+</html>
