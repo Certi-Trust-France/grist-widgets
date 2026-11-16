@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Alertes entreprises</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<script src="../commun/entreprise-donnees.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Charte Certi-Trust (comme fiche-entreprise). Thème clair imposé : Grist peut passer le widget en sombre. */
+  :root { color-scheme: light !important;
+          --marine:#32406C; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A;
+          --ok-bg:#d1fae5; --ko:#b91c1c; --ko-bg:#fdecec; --so:#64748b; --so-bg:#eef0f4; --enc:#9a5b00; --enc-bg:#fff4e0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font: 12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color: var(--txt); margin: 0; padding: 12px; background: #eef0f4; }
+  button, select, input { font: inherit; color: var(--txt); }
+  .empty { padding: 40px 0; text-align: center; color: var(--gris); font-style: italic; }
+
+  .entete { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+  .entete h1 { margin: 0; font-size: 15px; color: var(--marine); display: flex; align-items: center; gap: 8px; }
+  .entete h1 .sp { flex: 1; }
+  .outils button { background: #fff; color: var(--marine); border: 1px solid var(--bord); border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { border: 1px solid var(--bord); background: #fff; border-radius: 12px; padding: 2px 10px; font-size: 11.5px; cursor: pointer; }
+  .chip b { font-variant-numeric: tabular-nums; }
+  .chip.on { background: var(--marine); border-color: var(--marine); color: #fff; }
+  .chip.ko b { color: var(--ko); } .chip.enc b { color: var(--enc); }
+  .chip.on b { color: #fff; }
+  .filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+  .filtres input, .filtres select { border: 1px solid var(--bord); border-radius: 4px; padding: 3px 6px; background: #fff; }
+  .filtres input { min-width: 220px; }
+  .info { color: var(--gris); font-size: 11.5px; }
+
+  .tableau { background: #fff; border: 1px solid var(--bord); border-radius: 6px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 600; color: var(--gris); font-size: 11px; border-bottom: 1px solid var(--bord); padding: 6px; white-space: nowrap; cursor: pointer; user-select: none; position: sticky; top: 0; background: #fff; }
+  th.tri::after { content: ' ▾'; } th.tri.asc::after { content: ' ▴'; }
+  td { border-bottom: 1px solid #eef0f4; padding: 5px 6px; vertical-align: top; }
+  td.d { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tr.ko td:first-child { border-left: 3px solid var(--ko); }
+  tr.enc td:first-child { border-left: 3px solid #f1cf94; }
+  .pastille { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; display: inline-block; }
+  .pastille.ko { background: var(--ko-bg); color: var(--ko); }
+  .pastille.enc { background: var(--enc-bg); color: var(--enc); }
+  .pastille.so { background: var(--so-bg); color: var(--so); }
+  a.lien { color: var(--marine); font-weight: 600; text-decoration: none; }
+  a.lien:hover { text-decoration: underline; }
+
+  .config { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+  .config input { width: 100%; border: 1px solid var(--bord); border-radius: 4px; padding: 4px 6px; margin: 6px 0; }
+  .btn { border: 1px solid var(--marine); background: var(--marine); color: #fff; border-radius: 4px; padding: 4px 10px; font-weight: 600; font-size: 12px; cursor: pointer; }
+  @media print { body { background: #fff; padding: 0; } .outils, .filtres, .config { display: none !important; } th { position: static; } }
+</style>
+</head>
+<body>
+<div id="config" class="config" style="display:none">
+  <b>Adresse du document Grist</b> (pour les liens vers les pages)
+  <input id="config-url" type="text" placeholder="https://…/doc">
+  <button class="btn" id="config-ok">Enregistrer</button>
+</div>
+<div id="app"><div class="empty">Chargement…</div></div>
+
+<script>
+// Tableau de toutes les alertes de toutes les entreprises. Le calcul des alertes est commun avec
+// la fiche entreprise (../commun/entreprise-donnees.js). Lecture seule.
+
+const NIVEAUX = { ko: 'Urgent', enc: 'À surveiller' };
+const ORDRE_NIV = { ko: 0, enc: 1 };
+let docUrl = '';
+let A = [];
+let reqId = 0;
+let f = lireFiltres();     // filtres mémorisés dans le navigateur
+let tri = { col: 'niv', asc: true };
+
+const $ = id => document.getElementById(id);
+const lien = (cle, id, texte) => {
+  const l = LIENS[cle];
+  if (!docUrl || !l || !id) return esc(texte);
+  return `<a class="lien" target="_top" href="${esc(`${docUrl}/p/${l[0]}#a1.s${l[1]}.r${id}.c${l[2]}`)}">${esc(texte)}</a>`;
+};
+
+function lireFiltres() {
+  const def = { niv: '', cat: '', resp: '', q: '' };
+  try { return { ...def, ...JSON.parse(localStorage.getItem('alertes-entreprises-filtres') || '{}') }; } catch { return def; }
+}
+function ecrireFiltres() { try { localStorage.setItem('alertes-entreprises-filtres', JSON.stringify(f)); } catch { /* stockage indisponible */ } }
+
+grist.ready({ requiredAccess: 'full', onEditOptions: openConfig });
+grist.onOptions(opts => {
+  docUrl = (opts?.docUrl || '').replace(/\/+$/, '');
+  if (D) render();
+});
+reload();
+
+async function reload() {
+  const my = ++reqId;
+  $('app').innerHTML = '<div class="empty">Chargement…</div>';
+  try {
+    const d = await chargerDonnees();
+    if (my !== reqId) return;
+    D = d;
+    A = toutesAlertes();
+    for (const a of A) a.resp = D.byId.ent.get(a.entId)?.Responsable_de_compte || '';
+    render();
+  } catch (err) {
+    $('app').innerHTML = `<div class="empty">Lecture impossible : ${esc(err.message || err)}</div>`;
+  }
+}
+
+const filtrees = () => {
+  const q = f.q.trim().toLowerCase();
+  return A.filter(a => (!f.niv || a.niv === f.niv) && (!f.cat || a.cat === f.cat) && (!f.resp || a.resp === f.resp)
+    && (!q || `${a.ent} ${a.q} ${a.txt}`.toLowerCase().includes(q)));
+};
+
+const CLES_TRI = {
+  niv: a => [ORDRE_NIV[a.niv], a.date ?? Infinity],
+  ent: a => [a.ent.toLowerCase(), ORDRE_NIV[a.niv]],
+  cat: a => [a.cat, ORDRE_NIV[a.niv]],
+  q: a => [a.q, ORDRE_NIV[a.niv]],
+  date: a => [a.date ?? Infinity, ORDRE_NIV[a.niv]],
+  resp: a => [a.resp.toLowerCase(), ORDRE_NIV[a.niv]],
+};
+function trier(xs) {
+  const k = CLES_TRI[tri.col];
+  return [...xs].sort((x, y) => {
+    const a = k(x), b = k(y);
+    for (let i = 0; i < a.length; i++) { if (a[i] < b[i]) return tri.asc ? -1 : 1; if (a[i] > b[i]) return tri.asc ? 1 : -1; }
+    return 0;
+  });
+}
+
+function render() {
+  const xs = trier(filtrees());
+  const compte = (cle, val) => A.filter(a => a[cle] === val).length;
+  const cats = [...new Set(A.map(a => a.cat))].sort();
+  const resps = [...new Set(A.map(a => a.resp).filter(Boolean))].sort();
+  const nEnt = new Set(xs.map(a => a.entId)).size;
+  const chip = (cle, val, lib, cls = '') => `<span class="chip ${cls}${f[cle] === val ? ' on' : ''}" data-cle="${cle}" data-val="${esc(val)}">${esc(lib)} <b>${compte(cle, val)}</b></span>`;
+
+  let h = `<div class="entete"><h1>Alertes entreprises <span class="info">${xs.length} alerte(s) · ${nEnt} entreprise(s)</span><span class="sp"></span>
+      <span class="outils"><button id="b-csv" title="Exporter les alertes affichées">⬇ CSV</button> <button id="b-refresh" title="Relire les données">↻</button> <button id="b-print" title="Imprimer">🖨</button></span></h1>
+    <div class="chips">${chip('niv', 'ko', NIVEAUX.ko, 'ko')}${chip('niv', 'enc', NIVEAUX.enc, 'enc')}<span class="info">|</span>${cats.map(c => chip('cat', c, c)).join('')}</div>
+    <div class="filtres"><input id="f-q" type="search" placeholder="Rechercher (entreprise, programme, texte)" value="${esc(f.q)}">
+      <select id="f-resp"><option value="">Tous les responsables de compte</option>${resps.map(r => `<option${f.resp === r ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select>
+      ${(f.niv || f.cat || f.resp || f.q) ? '<button class="chip" id="f-raz">✕ Effacer les filtres</button>' : ''}</div></div>`;
+
+  const th = (col, lib) => `<th data-col="${col}" class="${tri.col === col ? 'tri' + (tri.asc ? ' asc' : '') : ''}">${lib}</th>`;
+  h += `<div class="tableau">${xs.length ? `<table><thead><tr>${th('niv', 'Niveau')}${th('ent', 'Entreprise')}${th('resp', 'Resp. compte')}${th('cat', 'Catégorie')}${th('q', 'Programme')}<th>Alerte</th>${th('date', 'Date')}<th></th></tr></thead><tbody>${xs.map(a => `<tr class="${a.niv}">
+      <td><span class="pastille ${a.niv}">${NIVEAUX[a.niv]}</span></td>
+      <td>${lien('fiche', a.entId, a.ent)}</td><td>${esc(a.resp)}</td><td>${esc(a.cat)}</td><td>${esc(a.q)}</td>
+      <td>${esc(a.txt)}</td><td class="d">${fdate(a.date)}</td><td>${a.l ? lien(a.l.cle, a.l.id, a.l.texte) : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Aucune alerte pour ces filtres.</div>'}</div>`;
+  $('app').innerHTML = h;
+
+  $('app').querySelectorAll('.chips .chip').forEach(el => el.addEventListener('click', () => {
+    const { cle, val } = el.dataset; f[cle] = f[cle] === val ? '' : val; ecrireFiltres(); render();
+  }));
+  $('app').querySelectorAll('th[data-col]').forEach(el => el.addEventListener('click', () => {
+    const col = el.dataset.col; tri = { col, asc: tri.col === col ? !tri.asc : true }; render();
+  }));
+  $('f-q').addEventListener('input', e => {
+    f.q = e.target.value; ecrireFiltres();
+    const pos = e.target.selectionStart; render(); $('f-q').focus(); $('f-q').setSelectionRange(pos, pos);
+  });
+  $('f-resp').addEventListener('change', e => { f.resp = e.target.value; ecrireFiltres(); render(); });
+  $('f-raz')?.addEventListener('click', () => { f = { niv: '', cat: '', resp: '', q: '' }; ecrireFiltres(); render(); });
+  $('b-refresh').addEventListener('click', reload);
+  $('b-print').addEventListener('click', () => window.print());
+  $('b-csv').addEventListener('click', () => exporterCsv(xs));
+}
+
+function exporterCsv(xs) {
+  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lignes = [['Niveau', 'Entreprise', 'Responsable de compte', 'Catégorie', 'Programme', 'Alerte', 'Date']]
+    .concat(xs.map(a => [NIVEAUX[a.niv], a.ent, a.resp, a.cat, a.q, a.txt, fdate(a.date)]));
+  const blob = new Blob(['﻿' + lignes.map(l => l.map(cell).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `alertes_entreprises_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function openConfig() { $('config').style.display = ''; $('config-url').value = docUrl; }
+$('config-ok').addEventListener('click', async () => {
+  docUrl = $('config-url').value.trim().replace(/\/+$/, '').replace(/\/p\/\d+.*$/, '');
+  await grist.setOption('docUrl', docUrl);
+  $('config').style.display = 'none';
+  render();
+});
+</script>
+</body>
+</html>
