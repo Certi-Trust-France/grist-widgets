@@ -483,22 +483,31 @@ function progsDemandes() {
   return Object.keys(PROG_NOMS).filter(k => j[`b.${k}.demande`] === true);
 }
 
-function texteCourrier(prog, civ) {
-  const j = jsonTem(), c = CIVILITES[civ], P = PROG_NOMS[prog];
-  const version = val(j[`b.${prog}.version`]), niveau = val(j[`b.${prog}.niveau`]);
+// Un seul courrier pour tous les programmes demandés dans le TEM-404 (progs : clés de PROG_NOMS).
+const enumerer = l => l.length > 1 ? l.slice(0, -1).join(', ') + ' et ' + l[l.length - 1] : (l[0] || '');
+function texteCourrier(progs, civ) {
+  const j = jsonTem(), c = CIVILITES[civ];
+  const refs = progs.map(prog => {
+    const version = val(j[`b.${prog}.version`]), niveau = val(j[`b.${prog}.niveau`]);
+    return { P: PROG_NOMS[prog], version, ref: `${PROG_NOMS[prog]}${version ? ' v' + version : ''}${niveau ? ' au niveau ' + niveau : ''}` };
+  });
+  const plur = refs.length > 1, Ps = enumerer(refs.map(r => r.P));
   const nom = [val(j['contact.representant_legal.prenom']), val(j['contact.representant_legal.nom'])].filter(Boolean).join(' ');
   const d = new Date(), p2 = n => String(n).padStart(2, '0');
   return {
-    prog, civ,
+    progs, civ,
     date: `Paris, le ${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)}`,
     dest: [`À l’attention de ${[c.abr, nom].filter(Boolean).join(' ')}`, val(j['demandeur.nom']) || String(D.ent.get(D.tem?.Entreprise)?.Denomination || ''),
            val(j['demandeur.adresse1']), val(j['demandeur.adresse2']), [val(j['demandeur.code_postal']), val(j['demandeur.ville'])].filter(Boolean).join(' ')]
            .filter(Boolean).join('\n'),
-    objet: `Attestation de recevabilité administration pour la qualification ${P}${version ? ' ' + version : ''}.`,
+    objet: `Attestation de recevabilité administration pour ${plur ? 'les qualifications' : 'la qualification'} ${enumerer(refs.map(r => r.P + (r.version ? ' ' + r.version : '')))}.`,
     salut: c.salut,
     corps: [
-      `Nous avons le plaisir de vous informer de notre décision favorable quant à la recevabilité de votre demande de qualification selon le référentiel ${P}${version ? ' v' + version : ''}${niveau ? ' au niveau ' + niveau : ''}.`,
-      `Par ailleurs, conformément aux termes de notre Règlement de certification, nous vous rappelons que vous disposez d'un délai de douze (12) mois à compter de la décision de recevabilité pour obtenir la qualification ${P}. Passé ce délai, nous serons amenés, le cas échéant, à devoir procéder à une nouvelle étude de recevabilité.`,
+      plur
+        ? `Nous avons le plaisir de vous informer de notre décision favorable quant à la recevabilité de votre demande de qualification selon les référentiels suivants :\n`
+          + refs.map((r, i) => `• ${r.ref}${i === refs.length - 1 ? '.' : ' ;'}`).join('\n')
+        : `Nous avons le plaisir de vous informer de notre décision favorable quant à la recevabilité de votre demande de qualification selon le référentiel ${refs[0].ref}.`,
+      `Par ailleurs, conformément aux termes de notre Règlement de certification, nous vous rappelons que vous disposez d'un délai de douze (12) mois à compter de la décision de recevabilité pour obtenir ${plur ? 'les qualifications' : 'la qualification'} ${Ps}. Passé ce délai, nous serons amenés, le cas échéant, à devoir procéder à une nouvelle étude de recevabilité.`,
       `Pour ce qui concerne la suite à donner au processus de qualification en cours, nous vous confirmons que notre équipe d’évaluation prendra contact dans les prochains jours avec les représentants de votre organisation pour établir la planification et préparer la réalisation de l'audit siège, de l’observation témoin et des autres étapes jusqu’à la qualification éventuelle.`,
       `En vous remerciant de votre confiance, nous restons à votre disposition pour répondre à toute question ou remarque de votre part et vous prions d'accepter, ${c.apos}, l’expression de nos meilleures salutations.`,
     ].join('\n\n'),
@@ -512,11 +521,12 @@ function editeurCourrier() {
     ? `<div class="ligne"><label class="lbl">${titre}</label><input type="text" data-act="cour-txt" data-k="${k}" value="${esc(c[k])}"></div>`
     : `<div class="ligne"><label class="lbl">${titre}</label><textarea class="${cls}" data-act="cour-txt" data-k="${k}">${esc(c[k])}</textarea></div>`;
   return `<div class="courrier">
-    <div class="ligne"><label class="lbl">Programme</label><span class="tog large">${progs.map(p =>
-      `<button class="v-OUI${c.prog === p ? ' on' : ''}" data-act="cour-prog" data-v="${p}">${PROG_NOMS[p]}</button>`).join('')}</span></div>
+    <div class="ligne"><label class="lbl">Programmes</label><span class="tog large">${progs.map(p =>
+      `<button class="v-OUI${c.progs.includes(p) ? ' on' : ''}" data-act="cour-prog" data-v="${p}">${PROG_NOMS[p]}</button>`).join('')}</span>
+      ${progs.length > 1 ? '<span class="info">Tous les programmes du TEM-404 sont inclus ; cliquer pour en retirer un.</span>' : ''}</div>
     <div class="ligne"><label class="lbl">Civilité</label><span class="tog large">${Object.entries(CIVILITES).map(([k, v]) =>
       `<button class="v-OUI${c.civ === k ? ' on' : ''}" data-act="cour-civ" data-v="${k}">${v.label}</button>`).join('')}</span>
-      <span class="info">Changer le programme ou la civilité regénère le texte.</span></div>
+      <span class="info">Changer les programmes ou la civilité regénère le texte.</span></div>
     ${champ('date', 'Date')}
     ${champ('dest', 'Destinataire', 'area', 'court')}
     ${champ('objet', 'Objet')}
@@ -531,7 +541,7 @@ function editeurCourrier() {
 function ouvrirCourrier() {
   if (courrier) { courrier = null; return render(); }
   const progs = progsDemandes();
-  courrier = texteCourrier(progs[0], 'M');
+  courrier = texteCourrier(progs, 'M');
   render();
 }
 
@@ -643,7 +653,7 @@ async function genererPdf(kind, bouton) {
     const jour = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}`;
     const nom = kind === 'attest'
       ? `${jour}_${code}_Attestation_deroulement_${PROG_NOMS[doc.prog] || 'EVAL'}.pdf`
-      : `${jour}_${code}_Courrier_Recevabilite_${PROG_NOMS[doc.prog]}.pdf`;
+      : `${jour}_${code}_Courrier_Recevabilite_${doc.progs.map(p => PROG_NOMS[p]).join('-')}.pdf`;
     const def = kind === 'attest' ? definitionAttest(doc, res) : definitionCourrier(doc, res);
     const pdf = window.pdfMake.createPdf(def, null, res.fonts, res.vfs);
     try { pdf.download(nom); } catch { pdf.open(); }
@@ -851,9 +861,14 @@ main.addEventListener('click', async ev => {
   if (act === 'creer-eval') return creerEval(+b.dataset.ch);
   if (act === 'courrier') return ouvrirCourrier();
   if (act === 'cour-prog' || act === 'cour-civ') {
-    const prog = act === 'cour-prog' ? b.dataset.v : courrier.prog, civ = act === 'cour-civ' ? b.dataset.v : courrier.civ;
-    const sig = courrier.signature;
-    courrier = { ...texteCourrier(prog, civ), signature: sig };
+    let progs = courrier.progs;
+    if (act === 'cour-prog') {
+      const v = b.dataset.v, avec = progs.includes(v) ? progs.filter(p => p !== v) : [...progs, v];
+      if (!avec.length) return;   // au moins un programme
+      progs = progsDemandes().filter(p => avec.includes(p));
+    }
+    const civ = act === 'cour-civ' ? b.dataset.v : courrier.civ, sig = courrier.signature;
+    courrier = { ...texteCourrier(progs, civ), signature: sig };
     return render();
   }
   if (act === 'cour-pdf') return genererPdf('courrier', b);
