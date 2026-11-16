@@ -107,6 +107,18 @@ function alertes(d) {
     if (c.date_fin_certification && c.date_fin_certification <= lim)
       add(c.date_fin_certification < t ? 'ko' : 'enc', 'Cycle', p, `Fin de certification le ${fdate(c.date_fin_certification)}`, c.date_fin_certification, { cle: 'cyc', id: c.id, texte: 'cycle' });
   }
+  // Surveillance terminée sans renouvellement engagé (évaluation ou proposition de renouvellement, même programme)
+  const estType = (r, ty) => ids(r.Type_d_evaluation).includes(ty);
+  for (const s of d.evals) {
+    if (!estType(s, 'Surveillance') || !evalTerminee(s)) continue;
+    const debS = s.Date_Debut_prevue || 0;
+    const renoEval = d.evals.some(e => e.id !== s.id && e.Programme === s.Programme && estType(e, 'Renouvellement') && e.Statut !== 'Annulé' && (e.id > s.id || (e.Date_Debut_prevue || 0) > debS));
+    const renoCh = d.chs.some(c => c.Programme === s.Programme && estType(c, 'Renouvellement') && !chAnnulee(c) && (!c.Date || !debS || c.Date >= debS));
+    if (renoEval || renoCh) continue;
+    const cyc = d.cycles.find(c => ids(c.eval_autres).includes(s.id));
+    const fin = cyc?.date_fin_certification;
+    add('ko', 'Cycle', nomProg(s.Programme), `Surveillance terminée (${s.Libelle || 'évaluation ' + s.id}) : créer un devis de renouvellement${fin ? ` (fin de certification le ${fdate(fin)})` : ''}`, fin || s.Date_fin_prevue, { cle: 'ev', id: s.id, texte: 'évaluation' });
+  }
   for (const c of d.chs) {
     if (chAnnulee(c) || !chSignee(c)) continue;
     const ref = (c.Propale || c.Libelle_CH || '').trim();
