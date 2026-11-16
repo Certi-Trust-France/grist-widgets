@@ -120,6 +120,9 @@
     .ov-prev { overflow: auto; padding: 12px 16px; flex: 1; background: #fff; }
     .ov-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid #e2e8f0; }
     .ov-foot .statusbar { flex: 1; }
+    .ov-dest { padding-top: 0; }
+    .ov-dest label { flex: 1 1 240px; display: flex; align-items: center; gap: 6px; }
+    .ov-dest input { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 4px; font: inherit; color: #1e293b; background: #fff; }
     textarea.json { width: 100%; min-height: 160px; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
   </style>
 </head>
@@ -147,10 +150,15 @@
   <div class="ov-box" role="dialog" aria-label="Mail d'information">
     <div class="ov-head"><span>✉ Mail d'information (interne)</span><span class="spacer"></span><button id="mail-close" class="btn btn-light">✕</button></div>
     <div id="mail-opts" class="ov-opts"></div>
+    <div class="ov-opts ov-dest">
+      <label>À <input id="mail-to" type="text" placeholder="adresse1@…, adresse2@…" spellcheck="false"></label>
+      <label>Cc <input id="mail-cc" type="text" placeholder="facultatif" spellcheck="false"></label>
+    </div>
     <div id="mail-prev" class="ov-prev"></div>
     <div class="ov-foot">
       <span id="mail-status" class="statusbar"></span>
-      <button id="mail-copy" class="btn btn-primary">Copier pour le mail</button>
+      <button id="mail-copy" class="btn btn-light">Copier pour le mail</button>
+      <button id="mail-send" class="btn btn-primary" title="Copie le récapitulatif et ouvre un nouveau mail dans ta messagerie (expéditeur : ton compte)">✉ Ouvrir dans ma messagerie</button>
       <button id="mail-save" class="btn btn-success">Enregistrer dans la proposition</button>
     </div>
   </div>
@@ -315,6 +323,8 @@ $('btn-mail').addEventListener('click', ouvrirMail);
 $('mail-close').addEventListener('click', fermerMail);
 $('mail-ov').addEventListener('click', e => { if (e.target.id === 'mail-ov') fermerMail(); });
 $('mail-copy').addEventListener('click', copierMail);
+$('mail-send').addEventListener('click', envoyerMail);
+['mail-to', 'mail-cc'].forEach(id => $(id).addEventListener('change', sauverDest));
 $('mail-save').addEventListener('click', enregistrerMail);
 $('btn-draft').addEventListener('click', enregistrerBrouillon);
 $('btn-update').addEventListener('click', enregistrerProposition);
@@ -1321,8 +1331,19 @@ function ouvrirMail() {
     try { localStorage.setItem('tem400-mail-opts', JSON.stringify(mailOpts)); } catch { /* stockage indisponible */ }
     renderMail();
   }));
+  const dest = lireDest();
+  $('mail-to').value = dest.to || '';
+  $('mail-cc').value = dest.cc || '';
   $('mail-ov').style.display = '';
   renderMail();
+}
+
+// Destinataires mémorisés dans ce navigateur (jamais dans le dépôt ni dans le document).
+function lireDest() {
+  try { return JSON.parse(localStorage.getItem('tem400-mail-dest') || '{}') || {}; } catch { return {}; }
+}
+function sauverDest() {
+  try { localStorage.setItem('tem400-mail-dest', JSON.stringify({ to: $('mail-to').value.trim(), cc: $('mail-cc').value.trim() })); } catch { /* stockage indisponible */ }
 }
 function fermerMail() { $('mail-ov').style.display = 'none'; }
 
@@ -1342,7 +1363,7 @@ function renderMail() {
   st.className = `statusbar ${chs.length && colOk ? '' : 'error'}`;
 }
 
-async function copierMail(e) {
+async function copierMailPP() {
   const html = mailHtml(mailOpts), texte = mailMarkdown(mailOpts);
   let ok = false;
   try {
@@ -1359,12 +1380,39 @@ async function copierMail(e) {
     try { ok = document.execCommand('copy'); } catch { ok = false; }
     sel.removeAllRanges();
   }
+  return ok;
+}
+
+async function copierMail(e) {
+  const ok = await copierMailPP();
   if (!ok) { $('mail-status').textContent = 'Copie automatique impossible : sélectionner l’aperçu et faire Cmd+C.'; return; }
   toast('Mail copié : coller dans le message (Cmd+V).');
   const b = e.currentTarget, lib = b.dataset.lib ||= b.textContent;
   b.textContent = '✓ Copié';
   clearTimeout(b._t);
   b._t = setTimeout(() => { b.textContent = lib; }, 2000);
+}
+
+// Ouvre un nouveau mail dans la messagerie de l'utilisateur (lien mailto) : l'expéditeur est son compte.
+// Un lien mailto ne transporte que du texte brut : le récapitulatif mis en forme est copié, à coller dans le corps.
+async function envoyerMail() {
+  sauverDest();
+  const ok = await copierMailPP();
+  const lib = libelles(resultat), ent = data.entreprises.get(etat.entrepriseId);
+  const objet = `Proposition commerciale ${lib.pl}${ent?.Denomination ? ` — ${ent.Denomination}` : ''}`;
+  const corps = ok ? 'Bonjour,\n\n\n' : `Bonjour,\n\n${mailMarkdown(mailOpts).replace(/\*\*/g, '')}\n`;
+  const adr = v => v.split(/[;,\s]+/).filter(Boolean).map(x => x.replace(/[?&#]/g, '')).join(',');
+  const cc = $('mail-cc').value.trim();
+  let url = `mailto:${adr($('mail-to').value)}?subject=${encodeURIComponent(objet)}`
+    + (cc ? `&cc=${adr(cc)}` : '') + `&body=${encodeURIComponent(corps)}`;
+  if (url.length > 1900) { const i = url.lastIndexOf('%0A', 1900); url = url.slice(0, i > 0 ? i : 1900); }
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+  $('mail-status').textContent = ok ? 'Mail ouvert : coller le récapitulatif dans le corps (Cmd+V).'
+    : 'Copie impossible : le récapitulatif est mis en texte brut dans le mail.';
+  $('mail-status').className = `statusbar ${ok ? 'ok' : 'error'}`;
+  toast(ok ? 'Messagerie ouverte : Cmd+V pour coller le récapitulatif.' : 'Messagerie ouverte (texte brut).');
 }
 
 async function enregistrerMail() {
