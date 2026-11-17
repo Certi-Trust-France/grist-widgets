@@ -14,7 +14,7 @@
   body { font: 12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color: var(--txt); margin: 0; padding: 12px; background: #eef0f4; }
   .empty { padding: 40px 0; text-align: center; color: var(--gris); font-style: italic; }
   button { font: inherit; cursor: pointer; }
-  input, textarea { font: inherit; color: var(--txt); }
+  input, textarea, select { font: inherit; color: var(--txt); }
 
   .entete { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
   .entete h1 { margin: 0; font-size: 15px; color: var(--marine); }
@@ -50,7 +50,7 @@
   .livrable h3 { margin: 0 0 6px; font-size: 12px; color: var(--marine); }
   .ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0; }
   .ligne label.lbl { color: var(--gris); font-size: 11.5px; min-width: 110px; }
-  .ligne input[type=text], .ligne input[type=date], .ligne textarea { border: 1px solid var(--bord); border-radius: 4px; padding: 3px 6px; background: #fff; }
+  .ligne input[type=text], .ligne input[type=date], .ligne textarea, .ligne select { border: 1px solid var(--bord); border-radius: 4px; padding: 3px 6px; background: #fff; }
   .ligne textarea { width: 100%; min-height: 34px; resize: vertical; }
   .btn { border: 1px solid var(--marine); background: var(--marine); color: #fff; border-radius: 4px; padding: 4px 10px; font-weight: 600; font-size: 12px; }
   .btn:hover:not(:disabled) { background: var(--marine-fonce); }
@@ -121,10 +121,11 @@
 const T = {
   REV: 'Revues_de_dossier', REF: 'Referentiels_revue', PTS: 'Revues_points', TEM: 'TEM_404',
   PL: 'Propositions_commerciales', CH: 'Propositions_prestation', EV: 'Evaluations',
-  ENT: 'Entreprises', PROG: 'Programmes', QL: 'Qualifications_List',
+  ENT: 'Entreprises', PROG: 'Programmes', QL: 'Qualifications_List', LIS: 'LIS_12',
 };
 // Pages du document vers lesquelles la fiche renvoie
-const PAGES = { tem400: 81, plan: 87, odm: 89 };
+const PAGES = { tem400: 81, plan: 87, odm: 89, lis: 72 };
+const SECTION_LIS = 341;    // section LIS-12 de la page 72 (lien vers le certificat)
 const SECTION_TEM400 = 365; // section du widget TEM-400 sur la page 81 (pour ouvrir la bonne demande)
 
 const JALONS = [
@@ -211,12 +212,17 @@ function build(t) {
     dateVerif: has(t.PTS, 'Date_verif'), verifiePar: has(t.PTS, 'Verifie_par'),
     recevable: has(t.REV, 'Recevable'), dateRecev: has(t.REV, 'Date_recevabilite'),
     dateRapport: has(t.REV, 'Date_livraison_rapport'), lienRapport: has(t.REV, 'Lien_rapport'),
+    certificat: has(t.REV, 'Certificat'),
   };
   const ent  = t.ENT  ? new Map(rowsOf(t.ENT).map(r => [r.id, r])) : new Map();
   const prog = t.PROG ? new Map(rowsOf(t.PROG).map(r => [r.id, String(r.Nom_du_programme || '')])) : new Map();
   const tem  = t.TEM ? rowsOf(t.TEM).find(r => r.id === rev.Demande) ?? null : null;
   const evRows = t.EV ? rowsOf(t.EV) : [];
   const evRev  = evRows.find(e => e.id === rev.Evaluation) ?? null;
+  // Certificat produit (LIS-12) : la revue peut n'avoir ni TEM-404 ni évaluation (certificats déjà délivrés)
+  const lisRows = t.LIS ? rowsOf(t.LIS) : [];
+  const cert = lisRows.find(l => l.id === rev.Certificat) ?? null;
+  const entId = tem?.Entreprise || evRev?.Entreprise || cert?.Denomination || 0;
 
   const pls = t.PL && tem ? rowsOf(t.PL).filter(p => p.TEM_404 === tem.id) : [];
   const chById = t.CH ? new Map(rowsOf(t.CH).map(r => [r.id, r])) : new Map();
@@ -226,7 +232,10 @@ function build(t) {
   const evals = new Map(chs.map(c => [c.id, evRows.filter(e => e.PO === c.id)]));
   const evalsLiees = [...new Set([...(evRev ? [evRev] : []), ...[...evals.values()].flat()])];
 
-  const progIds = new Set([...ids(tem?.PROGRAMME), ...chs.map(c => c.Programme), ...evalsLiees.map(e => e.Programme)].filter(Boolean));
+  const progIds = new Set([...ids(tem?.PROGRAMME), ...chs.map(c => c.Programme), ...evalsLiees.map(e => e.Programme), cert?.Programme].filter(Boolean));
+  // Certificats proposés : ceux de l'entreprise, sur les programmes de la revue s'ils sont connus
+  const certs = lisRows.filter(l => entId && l.Denomination === entId && (!progIds.size || progIds.has(l.Programme) || l.id === rev.Certificat))
+    .sort((a, b) => (b.Date_Delivrance || 0) - (a.Date_Delivrance || 0));
   const types = new Set([...chs, ...evalsLiees].flatMap(x => ids(x.Type_d_evaluation)));
   const blocs = new Set(['General', 'Rapport', ...[...types].map(x => BLOCS_TYPE[x]).filter(Boolean)]);
   const blocsConnus = [...types].some(x => BLOCS_TYPE[x]);
@@ -243,7 +252,7 @@ function build(t) {
   const qlRows = t.QL ? rowsOf(t.QL) : [];
   const qualifs = new Map(qlRows.map(r => [r.id, String(r.Qualifications || '')]));
   const qlParCode = new Map(qlRows.filter(r => r.Qualification_code).map(r => [String(r.Qualification_code), r.id]));
-  return { rev, tem, ent, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv };
+  return { rev, tem, ent, entId, cert, certs, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv };
 }
 
 const BLOC_ORDRE = ['General', 'Initiale', 'Surveillance', 'Renouvellement', 'Rapport'];
@@ -324,7 +333,7 @@ function render() {
     const courant = JALONS.find(j => etats[j.id].etat === 'encours') ?? JALONS.find(j => etats[j.id].etat === 'avenir') ?? JALONS[0];
     ouverts = new Set([courant.id]);
   }
-  const entreprise = tem ? String(ent.get(tem.Entreprise)?.Denomination || '') : '';
+  const entreprise = String(ent.get(D.entId)?.Denomination || '');
   const progs = [...D.progIds].map(id => D.prog.get(id)).filter(Boolean).join(', ');
   const types = [...D.types].join(', ');
 
@@ -456,8 +465,25 @@ function panneau(j) {
       : champTexte('Proposition', r.Proposition, '')}</div>
     <div class="ligne">${champTexte('Decideur', r.Decideur, 'Décideur')} ${champDate('Date_decision', r.Date_decision, 'le')}</div>
     <div class="ligne">${champTexte('Just_finale', r.Just_finale, 'Justification', true)}</div>
+    ${blocCertificat()}
     <div class="ligne"><button class="btn sec2" disabled title="À venir">Exporter la revue TEM-16b en PDF (à venir)</button></div>
   </div>`;
+}
+
+// Certificat produit, tenu dans le LIS-12 (page 72)
+function blocCertificat() {
+  if (!D.cols.certificat) return '<div class="warn">Colonne Certificat (Réf. LIS_12) à créer dans Revues_de_dossier.</div>';
+  const c = D.cert, lib = l => [l.numero_attestation || 'n° de certificat à attribuer', D.prog.get(l.Programme),
+    l.Date_Delivrance ? 'délivré le ' + fmtD(l.Date_Delivrance) : ''].filter(Boolean).join(' · ');
+  const opts = D.certs.map(l => `<option value="${l.id}"${l.id === D.rev.Certificat ? ' selected' : ''}>${esc(lib(l))}</option>`).join('');
+  const lien = c ? pageLink(PAGES.lis, `#a1.s${SECTION_LIS}.r${c.id}`) : '';
+  return `<div class="ligne"><label class="lbl">Certificat (LIS-12)</label>
+      <select data-act="rev-cert"><option value="">— aucun —</option>${opts}</select>
+      ${lien ? `<a class="lien" href="${esc(lien)}" target="_blank" rel="noopener">Ouvrir dans le LIS-12 ↗</a>` : ''}</div>
+    ${!D.certs.length ? `<div class="info">Aucune ligne LIS-12 pour ${D.entId ? 'cette entreprise' : 'une entreprise inconnue'}${D.progIds.size ? ' sur ce programme' : ''}.</div>` : ''}
+    ${c ? `<div class="ligne info">N° de certificat : <b>${esc(c.numero_attestation || 'à attribuer')}</b>
+      · Décision ANSSI : ${c.N_decision_ANSSI ? esc(String(c.N_decision_ANSSI)) : 'à renseigner'}
+      · Validité : ${c.Date_Delivrance ? fmtD(c.Date_Delivrance) : '?'} → ${c.Date_Fin ? fmtD(c.Date_Fin) : '?'}</div>` : ''}`;
 }
 
 // ── Courrier de recevabilité ───────────────────────────────────────────────
@@ -905,6 +931,7 @@ main.addEventListener('change', async ev => {
   if (act === 'com' && tr) return setPoint(+tr.dataset.pt, { Commentaire: el.value }, false);
   if (act === 'rev-date') return setRev({ [el.dataset.col]: dateToSec(el.value) });
   if (act === 'rev-txt') return setRev({ [el.dataset.col]: el.value });
+  if (act === 'rev-cert') return setRev({ Certificat: +el.value || 0 }, 'Certificat rattaché');
 });
 
 // ── Configuration ──────────────────────────────────────────────────────────
