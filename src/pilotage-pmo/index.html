@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pilotage PMO</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<script src="../commun/entreprise-donnees.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Charte Certi-Trust (comme alertes-entreprises). Thème clair imposé. */
+  :root { color-scheme: light !important;
+          --marine:#32406C; --pale:#EDF0F6; --txt:#262B38; --bord:#D5DCEA; --gris:#7A7C7A;
+          --ok:#047857; --ok-bg:#d1fae5; --ko:#b91c1c; --ko-bg:#fdecec; --so:#64748b; --so-bg:#eef0f4; --enc:#9a5b00; --enc-bg:#fff4e0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font: 12.5px/1.45 Montserrat, -apple-system, "Segoe UI", sans-serif; color: var(--txt); margin: 0; padding: 12px; background: #eef0f4; }
+  button, select, input { font: inherit; color: var(--txt); }
+  .empty { padding: 40px 0; text-align: center; color: var(--gris); font-style: italic; }
+  .info { color: var(--gris); font-size: 11.5px; }
+
+  .entete { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+  .entete h1 { margin: 0; font-size: 15px; color: var(--marine); display: flex; align-items: center; gap: 8px; }
+  .entete h1 .sp { flex: 1; }
+  .outils button { background: #fff; color: var(--marine); border: 1px solid var(--bord); border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+  .kpi { border: 1px solid var(--bord); border-radius: 6px; padding: 8px 10px; cursor: pointer; background: #fff; text-align: left; }
+  .kpi b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; color: var(--marine); }
+  .kpi.ko b { color: var(--ko); } .kpi.enc b { color: var(--enc); } .kpi.zero b { color: var(--ok); }
+  .kpi span { font-size: 11px; color: var(--gris); }
+  .kpi.on { outline: 2px solid var(--marine); }
+
+  .onglets { display: flex; gap: 4px; margin-top: 10px; border-bottom: 1px solid var(--bord); }
+  .onglet { border: 1px solid transparent; border-bottom: 0; background: none; padding: 6px 12px; cursor: pointer; border-radius: 6px 6px 0 0; color: var(--gris); font-weight: 600; }
+  .onglet.on { background: #fff; border-color: var(--bord); color: var(--marine); margin-bottom: -1px; }
+  .onglet small { font-weight: 400; }
+  .filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+  .filtres input, .filtres select { border: 1px solid var(--bord); border-radius: 4px; padding: 3px 6px; background: #fff; }
+  .filtres input[type=search] { min-width: 220px; }
+  .chip { border: 1px solid var(--bord); background: #fff; border-radius: 12px; padding: 2px 10px; font-size: 11.5px; cursor: pointer; }
+  .chip.on { background: var(--marine); border-color: var(--marine); color: #fff; }
+  .note { background: #fff; border: 1px solid var(--bord); border-left: 3px solid var(--marine); border-radius: 4px; padding: 6px 10px; margin-bottom: 8px; font-size: 11.5px; color: var(--gris); }
+  .warn { background: var(--enc-bg); color: var(--enc); border-radius: 4px; padding: 6px 10px; margin-bottom: 8px; font-size: 11.5px; }
+
+  .tableau { background: #fff; border: 1px solid var(--bord); border-radius: 6px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 600; color: var(--gris); font-size: 11px; border-bottom: 1px solid var(--bord); padding: 6px; white-space: nowrap; position: sticky; top: 0; background: #fff; }
+  td { border-bottom: 1px solid #eef0f4; padding: 5px 6px; vertical-align: top; }
+  td.d, td.n { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.n { text-align: right; }
+  tr.ko td:first-child { border-left: 3px solid var(--ko); }
+  tr.enc td:first-child { border-left: 3px solid #f1cf94; }
+  tr.ok td:first-child { border-left: 3px solid #9fd8bf; }
+  .pastille { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; display: inline-block; }
+  .pastille.ko { background: var(--ko-bg); color: var(--ko); }
+  .pastille.enc { background: var(--enc-bg); color: var(--enc); }
+  .pastille.ok { background: var(--ok-bg); color: var(--ok); }
+  .pastille.so { background: var(--so-bg); color: var(--so); }
+  .ecart { font-weight: 600; } .ecart.plus { color: var(--ko); } .ecart.moins { color: var(--ok); }
+  td input[type=date] { border: 1px solid var(--bord); border-radius: 4px; padding: 1px 4px; font-size: 11.5px; }
+  td input[type=text] { border: 1px solid var(--bord); border-radius: 4px; padding: 1px 4px; font-size: 11.5px; width: 100%; min-width: 140px; }
+  .mini { border: 1px solid var(--bord); background: #fff; color: var(--marine); border-radius: 4px; padding: 1px 6px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+  .mini:hover { background: var(--pale); }
+  a.lien { color: var(--marine); font-weight: 600; text-decoration: none; }
+  a.lien:hover { text-decoration: underline; }
+  .sous { color: var(--gris); font-size: 11px; }
+
+  .config { background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+  .config input { width: 100%; border: 1px solid var(--bord); border-radius: 4px; padding: 4px 6px; margin: 6px 0; }
+  .btn { border: 1px solid var(--marine); background: var(--marine); color: #fff; border-radius: 4px; padding: 4px 10px; font-weight: 600; font-size: 12px; cursor: pointer; }
+  #status { position: fixed; bottom: 10px; right: 10px; background: var(--marine); color: #fff; padding: 6px 12px; border-radius: 4px; font-size: 12px; display: none; }
+  #status.error { background: var(--ko); }
+  @media print { body { background: #fff; padding: 0; } .outils, .filtres, .config, .onglets, td input, .mini { display: none !important; } th { position: static; } }
+</style>
+</head>
+<body>
+<div id="config" class="config" style="display:none">
+  <b>Adresse du document Grist</b> (pour les liens vers les pages)
+  <input id="config-url" type="text" placeholder="https://…/doc">
+  <button class="btn" id="config-ok">Enregistrer</button>
+</div>
+<div id="app"><div class="empty">Chargement…</div></div>
+<div id="status"></div>
+
+<script>
+// Pilotage PMO : les trois points que la PMO ne doit pas laisser échapper.
+//  1. Démarrage : pas de prestation sans proposition acceptée (CH signée).
+//  2. Rapport et facturation : la remise du rapport déclenche la facture ; un glissement de la fin doit être justifié.
+//  3. Échéances du cycle : surveillance à 18 mois, renouvellement à 3 ans, à anticiper avec le commercial.
+// Données : ../commun/entreprise-donnees.js (Évaluations, CH, Entreprises…) + LIS_12.
+// Colonnes facultatives (le widget fonctionne sans, les champs correspondants sont alors masqués) :
+//   Evaluations.Date_remise_rapport, Evaluations.Date_fin_initiale, Evaluations.Motif_glissement, LIS_12.Commercial_prevenu.
+
+const LIS = { table: 'LIS_12', page: 72, section: 341, col: 860 };
+const HORIZON_MOIS = { ko: 6, enc: 12 };   // échéances : urgent à moins de 6 mois, à surveiller à moins de 12
+const DEMARRAGE_JOURS = 30;                 // proposition non signée : urgent si le démarrage est à moins de 30 jours
+const NIV = { ko: 'Urgent', enc: 'À surveiller', ok: 'OK', so: 'Information' };
+const ORDRE = { ko: 0, enc: 1, so: 2, ok: 3 };
+
+let docUrl = '';
+let LISR = [];          // lignes LIS_12
+let cols = {};          // colonnes facultatives présentes
+let lignes = { dem: [], rap: [], ech: [] };
+let reqId = 0, writing = false;
+let f = lireFiltres();
+
+const $ = id => document.getElementById(id);
+const toInput = s => s ? new Date(s * 1000).toISOString().slice(0, 10) : '';
+const fromInput = v => v ? Math.floor(Date.parse(v + 'T00:00:00Z') / 1000) : null;
+const aujourdhui = () => { const d = new Date(); return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 1000); };
+const addMois = (s, m) => { const d = new Date(s * 1000); return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, d.getUTCDate()) / 1000); };
+const jours = (a, b) => Math.round((a - b) / DAY);
+const lienGrist = (page, section, id, col, texte) => docUrl && id
+  ? `<a class="lien" target="_top" href="${esc(`${docUrl}/p/${page}#a1.s${section}.r${id}.c${col}`)}">${esc(texte)}</a>` : esc(texte);
+const lienCle = (cle, id, texte) => { const l = LIENS[cle]; return l ? lienGrist(l[0], l[1], id, l[2], texte) : esc(texte); };
+const nomEnt = id => D.byId.ent.get(id)?.Denomination || '';
+const respEnt = id => D.byId.ent.get(id)?.Responsable_de_compte || '';
+const aType = (r, t) => ids(r.Type_d_evaluation).includes(t);
+
+function lireFiltres() {
+  const def = { onglet: 'dem', etat: '', resp: '', q: '' };
+  try { return { ...def, ...JSON.parse(localStorage.getItem('pilotage-pmo-filtres') || '{}') }; } catch { return def; }
+}
+function ecrireFiltres() { try { localStorage.setItem('pilotage-pmo-filtres', JSON.stringify(f)); } catch { /* stockage indisponible */ } }
+function status(msg, cls = '') { const s = $('status'); s.textContent = msg; s.className = cls; s.style.display = 'block'; clearTimeout(status.t); status.t = setTimeout(() => { s.style.display = 'none'; }, 3000); }
+
+grist.ready({ requiredAccess: 'full', onEditOptions: openConfig });
+grist.onOptions(opts => { docUrl = (opts?.docUrl || '').replace(/\/+$/, ''); if (D) render(); });
+reload();
+
+async function reload() {
+  const my = ++reqId;
+  try {
+    const [d, lis, gC, gT] = await Promise.all([
+      chargerDonnees(),
+      grist.docApi.fetchTable(LIS.table).catch(() => null),
+      grist.docApi.fetchTable('_grist_Tables_column').catch(() => null),
+      grist.docApi.fetchTable('_grist_Tables').catch(() => null),
+    ]);
+    if (my !== reqId) return;
+    D = d; LISR = rowsOf(lis);
+    const colsDe = t => { const ref = gT?.id[gT.tableId.indexOf(t)]; return new Set((gC?.colId || []).filter((_, i) => gC.parentId[i] === ref)); };
+    const ce = colsDe('Evaluations'), cl = colsDe(LIS.table);
+    cols = { remise: ce.has('Date_remise_rapport'), finInit: ce.has('Date_fin_initiale'), motif: ce.has('Motif_glissement'), prevenu: cl.has('Commercial_prevenu') };
+    calculer();
+    render();
+  } catch (err) {
+    $('app').innerHTML = `<div class="empty">Lecture impossible : ${esc(err.message || err)}</div>`;
+  }
+}
+
+// ── Calculs ────────────────────────────────────────────────────────────────
+
+function calculer() {
+  const t = aujourdhui();
+  const actives = D.ev.filter(evalActive);
+
+  // 1. Démarrage : évaluations non terminées et leur proposition
+  lignes.dem = actives.map(e => {
+    const ch = D.byId.ch.get(e.PO);
+    const sig = String(e.Signee || '');
+    const deb = e.Date_Debut_prevue || null;
+    const proche = deb && deb <= t + DEMARRAGE_JOURS * DAY;
+    let niv, etat;
+    if (!ch) { niv = proche || !deb ? 'ko' : 'enc'; etat = 'Sans proposition'; }
+    else if (chAnnulee(ch)) { niv = 'ko'; etat = 'Proposition annulée'; }
+    else if (sig.startsWith('oui')) { niv = 'ok'; etat = sig.includes('déduit') ? 'Acceptée (déduit)' : 'Acceptée'; }
+    else { niv = proche ? 'ko' : 'enc'; etat = 'Non signée'; }
+    return { niv, etat, e, ch, ent: e.Entreprise, deb, sig };
+  });
+
+  // 2. Rapport et facturation : évaluations actives + terminées avec un reste à facturer
+  // (une terminée n'est suivie que si sa CH n'a plus d'autre évaluation en cours : sinon le reste couvre les étapes suivantes)
+  const chActive = new Set(actives.map(e => e.PO).filter(Boolean));
+  const suivies = D.ev.filter(e => e.Statut !== 'Annulé' && (evalActive(e) || (num(e.Reste_a_Facturer) > 0 && !chActive.has(e.PO))));
+  lignes.rap = suivies.map(e => {
+    const fin = e.Date_fin_prevue || null, init = cols.finInit ? (e.Date_fin_initiale || null) : null;
+    const remise = cols.remise ? (e.Date_remise_rapport || null) : null;
+    const reste = num(e.Reste_a_Facturer);
+    const ecart = fin && init ? jours(fin, init) : null;
+    const motif = cols.motif ? String(e.Motif_glissement || '').trim() : '';
+    const terminee = evalTerminee(e);
+    let niv = 'ok', etat = 'En cours';
+    if (remise && reste > 0) { niv = 'ko'; etat = 'Rapport remis : à facturer'; }
+    else if (remise) { niv = 'ok'; etat = 'Rapport remis, facturé'; }
+    else if (terminee && reste > 0) { niv = 'ko'; etat = 'Terminée, reste à facturer'; }
+    else if (fin && fin < t) { niv = 'ko'; etat = 'Fin dépassée, rapport non remis'; }
+    else if (ecart > 0 && !motif) { niv = 'enc'; etat = 'Glissement sans motif'; }
+    else if (ecart > 0) { niv = 'enc'; etat = 'Glissement justifié'; }
+    else if (!fin) { niv = 'so'; etat = 'Fin non planifiée'; }
+    return { niv, etat, e, ent: e.Entreprise, deb: e.Date_Debut_prevue || null, fin, init, ecart, motif, remise, reste };
+  });
+
+  // 3. Échéances du cycle : une ligne par qualification en cours du LIS-12 (la plus récente par entreprise et programme)
+  const cyc = new Map();
+  for (const r of LISR) {
+    if (!r.Denomination || !r.Date_Fin || r.Date_Fin < t) continue;
+    const k = r.Denomination + '|' + r.Programme;
+    if (!cyc.has(k) || r.Date_Fin > cyc.get(k).Date_Fin) cyc.set(k, r);
+  }
+  lignes.ech = [...cyc.values()].map(r => {
+    const debut = r.Debut_Cycle_Actuel && typeof r.Debut_Cycle_Actuel === 'number' ? r.Debut_Cycle_Actuel : r.Date_Delivrance;
+    const fin = r.Date_Fin;
+    const dateSurv = debut ? addMois(debut, 18) : null;
+    const memes = D.ev.filter(e => e.Entreprise === r.Denomination && e.Programme === r.Programme && e.Statut !== 'Annulé');
+    const apres = (x, d) => !x.Date_Debut_prevue || x.Date_Debut_prevue >= (d || 0) - 90 * DAY;   // sans date : rattachée au cycle en cours
+    const survFaite = memes.some(e => aType(e, 'Surveillance') && evalTerminee(e) && apres(e, debut));
+    const type = (!dateSurv || survFaite || dateSurv > fin) ? 'Renouvellement' : 'Surveillance';
+    const date = type === 'Surveillance' ? dateSurv : addMois(fin, -3);
+    const evals = memes.filter(e => aType(e, type) && apres(e, debut));
+    const chs = D.ch.filter(c => c.Denomination === r.Denomination && c.Programme === r.Programme && !chAnnulee(c) && aType(c, type) && (!c.Date || c.Date >= (debut || 0) - 90 * DAY));
+    const couvert = evals.length ? `Évaluation ${evals.map(e => e.Libelle || e.id).join(', ')}` : chs.length ? `Proposition ${chs.map(c => (c.Propale || c.Libelle_CH || c.id)).join(', ')}` : '';
+    const prevenu = cols.prevenu ? (r.Commercial_prevenu || null) : null;
+    const mois = date ? (date - t) / (30.4 * DAY) : null;
+    let niv = 'ok', etat = couvert ? 'Devis ou évaluation en place' : 'Pas encore à traiter';
+    // Surveillance dépassée de plus de 3 mois sans aucune trace : souvent réalisée avant le suivi dans Grist
+    const nonTracee = !couvert && type === 'Surveillance' && mois !== null && mois < -3;
+    if (nonTracee) { niv = 'enc'; etat = 'Surveillance dépassée, non tracée dans Grist : vérifier'; }
+    else if (!couvert) {
+      if (mois !== null && mois <= HORIZON_MOIS.ko) { niv = prevenu ? 'enc' : 'ko'; etat = prevenu ? 'Commercial prévenu, devis attendu' : (mois < 0 ? 'Échéance dépassée, aucun devis' : 'À moins de 6 mois, aucun devis'); }
+      else if (mois !== null && mois <= HORIZON_MOIS.enc) { niv = 'enc'; etat = prevenu ? 'Commercial prévenu' : 'À moins de 12 mois : prévenir le commercial'; }
+    }
+    return { niv, etat, r, ent: r.Denomination, type, date, debut, fin, couvert, prevenu, mois };
+  });
+}
+
+// ── Rendu ──────────────────────────────────────────────────────────────────
+
+const ONGLETS = [
+  { id: 'dem', titre: '1. Démarrage', sous: 'proposition acceptée' },
+  { id: 'rap', titre: '2. Rapport et facturation', sous: 'fin, glissement, facture' },
+  { id: 'ech', titre: '3. Échéances du cycle', sous: 'surveillance, renouvellement' },
+];
+const KPIS = [
+  { onglet: 'dem', etat: 'Sans proposition', lib: 'Évaluations sans proposition' },
+  { onglet: 'dem', etat: 'Non signée', lib: 'Propositions non signées' },
+  { onglet: 'rap', etat: 'Fin dépassée, rapport non remis', lib: 'Rapports en retard' },
+  { onglet: 'rap', etat: 'Glissement sans motif', lib: 'Glissements sans motif', si: () => cols.finInit },
+  { onglet: 'rap', etat: '__facturer', lib: 'À facturer' },
+  { onglet: 'ech', etat: '__urgent', lib: 'Échéances < 6 mois sans devis' },
+];
+const correspond = (l, etat) => etat === '__facturer' ? /facturer/.test(l.etat) && l.niv === 'ko'
+  : etat === '__urgent' ? l.niv === 'ko' : l.etat === etat;
+
+function filtrees() {
+  const q = f.q.trim().toLowerCase();
+  return lignes[f.onglet].filter(l => (!f.etat || correspond(l, f.etat))
+    && (!f.resp || respEnt(l.ent) === f.resp)
+    && (!q || `${nomEnt(l.ent)} ${nomProg(l.e?.Programme ?? l.r?.Programme)} ${l.e?.Libelle || ''} ${l.etat}`.toLowerCase().includes(q)))
+    .sort((a, b) => ORDRE[a.niv] - ORDRE[b.niv] || ((a.date ?? a.fin ?? a.deb ?? Infinity) - (b.date ?? b.fin ?? b.deb ?? Infinity)));
+}
+
+function render() {
+  const xs = filtrees();
+  const resps = [...new Set(D.ent.map(e => e.Responsable_de_compte).filter(Boolean))].sort();
+  const etats = [...new Set(lignes[f.onglet].map(l => l.etat))].sort();
+  const etatCourant = f.etat && !f.etat.startsWith('__') ? f.etat : '';
+
+  let h = `<div class="entete"><h1>Pilotage PMO <span class="info">mis à jour le ${fdate(aujourdhui())}</span><span class="sp"></span>
+      <span class="outils"><button id="b-csv" title="Exporter la liste affichée">⬇ CSV</button> <button id="b-refresh" title="Relire les données">↻</button> <button id="b-print" title="Imprimer">🖨</button></span></h1>
+    <div class="kpis">${KPIS.filter(k => !k.si || k.si()).map(k => {
+      const n = lignes[k.onglet].filter(l => correspond(l, k.etat)).length;
+      const cls = n === 0 ? 'zero' : (k.etat === 'Non signée' || k.etat === 'Glissement sans motif') ? 'enc' : 'ko';
+      return `<button class="kpi ${cls}${f.onglet === k.onglet && f.etat === k.etat ? ' on' : ''}" data-onglet="${k.onglet}" data-etat="${esc(k.etat)}"><b>${n}</b><span>${esc(k.lib)}</span></button>`;
+    }).join('')}</div>
+    <div class="onglets">${ONGLETS.map(o => `<button class="onglet${f.onglet === o.id ? ' on' : ''}" data-onglet="${o.id}">${o.titre} <small>· ${lignes[o.id].filter(l => l.niv === 'ko').length} urgent(s)</small></button>`).join('')}</div>
+    <div class="filtres"><input id="f-q" type="search" placeholder="Rechercher (entreprise, programme, évaluation)" value="${esc(f.q)}">
+      <select id="f-etat"><option value="">Tous les états</option>${etats.map(e => `<option${etatCourant === e ? ' selected' : ''}>${esc(e)}</option>`).join('')}</select>
+      <select id="f-resp"><option value="">Tous les responsables de compte</option>${resps.map(r => `<option${f.resp === r ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select>
+      <span class="info">${xs.length} ligne(s)</span>
+      ${(f.etat || f.resp || f.q) ? '<button class="chip" id="f-raz">✕ Effacer les filtres</button>' : ''}</div></div>`;
+
+  h += ({ dem: vueDemarrage, rap: vueRapport, ech: vueEcheances })[f.onglet](xs);
+  $('app').innerHTML = h;
+  brancher(xs);
+}
+
+const pastille = l => `<span class="pastille ${l.niv}">${esc(l.etat)}</span>`;
+const cellEnt = id => `${lienCle('fiche', id, nomEnt(id))}${respEnt(id) ? `<div class="sous">${esc(respEnt(id))}</div>` : ''}`;
+const cellEval = e => `${lienCle('ev', e.id, e.Libelle || 'évaluation ' + e.id)}<div class="sous">${esc(nomProg(e.Programme))}${typesOf(e) ? ' · ' + esc(typesOf(e)) : ''}</div>`;
+const tableau = (entetes, corps) => `<div class="tableau">${corps ? `<table><thead><tr>${entetes.map(x => `<th>${x}</th>`).join('')}</tr></thead><tbody>${corps}</tbody></table>` : '<div class="empty">Rien à signaler pour ces filtres.</div>'}</div>`;
+
+function vueDemarrage(xs) {
+  return `<div class="note">Aucune évaluation ne démarre sans proposition commerciale acceptée. Urgent si la proposition manque ou n’est pas signée à moins de ${DEMARRAGE_JOURS} jours du démarrage.</div>`
+    + tableau(['État', 'Entreprise', 'Évaluation', 'Statut', 'Début prévu', 'Proposition (CH)', 'Signature'],
+      xs.map(l => `<tr class="${l.niv}"><td>${pastille(l)}</td><td>${cellEnt(l.ent)}</td><td>${cellEval(l.e)}</td><td>${esc(l.e.Statut || '')}</td>
+        <td class="d">${l.deb ? fdate(l.deb) : '<span class="info">non planifié</span>'}${l.deb ? `<div class="sous">${jours(l.deb, aujourdhui()) >= 0 ? 'dans ' + jours(l.deb, aujourdhui()) + ' j' : 'il y a ' + -jours(l.deb, aujourdhui()) + ' j'}</div>` : ''}</td>
+        <td>${l.ch ? lienCle('ch', l.ch.id, l.ch.Propale || l.ch.Libelle_CH || 'CH ' + l.ch.id) + (l.ch.Montant_PO ? `<div class="sous">${eur(l.ch.Montant_PO)}</div>` : '') : '<span class="info">aucune</span>'}</td>
+        <td>${esc(l.sig || '—')}</td></tr>`).join(''));
+}
+
+function vueRapport(xs) {
+  const manque = ['remise', 'finInit', 'motif'].filter(k => !cols[k]);
+  const sansInit = cols.finInit ? lignes.rap.filter(l => !l.init && l.fin && !l.remise).length : 0;
+  return `<div class="note">La remise du rapport déclenche la facture. La fin prévue d’origine est figée une fois : si la fin actuelle glisse au-delà, on note pourquoi.</div>`
+    + (manque.length ? `<div class="warn">Colonnes absentes de Evaluations : ${manque.map(k => ({ remise: 'Date_remise_rapport', finInit: 'Date_fin_initiale', motif: 'Motif_glissement' })[k]).join(', ')}. Les champs correspondants sont masqués.</div>` : '')
+    + (sansInit ? `<div class="note">${sansInit} évaluation(s) sans fin d’origine figée. <button class="mini" id="b-figer-tout">Figer la fin actuelle de toutes ces évaluations</button></div>` : '')
+    + tableau(['État', 'Entreprise', 'Évaluation', 'Début', ...(cols.finInit ? ['Fin d’origine'] : []), 'Fin actuelle', ...(cols.finInit ? ['Écart'] : []), ...(cols.motif ? ['Motif du glissement'] : []), ...(cols.remise ? ['Rapport remis le'] : []), 'Reste à facturer'],
+      xs.map(l => `<tr class="${l.niv}" data-ev="${l.e.id}"><td>${pastille(l)}</td><td>${cellEnt(l.ent)}</td><td>${cellEval(l.e)}</td>
+        <td class="d">${fdate(l.deb)}</td>
+        ${cols.finInit ? `<td class="d">${l.init ? fdate(l.init) : (l.fin ? `<button class="mini" data-act="figer" title="Enregistrer la fin actuelle comme fin d’origine">Figer</button>` : '')}</td>` : ''}
+        <td class="d">${l.fin ? fdate(l.fin) : '<span class="info">non planifiée</span>'}</td>
+        ${cols.finInit ? `<td class="d">${l.ecart ? `<span class="ecart ${l.ecart > 0 ? 'plus' : 'moins'}">${l.ecart > 0 ? '+' : ''}${l.ecart} j</span>` : ''}</td>` : ''}
+        ${cols.motif ? `<td>${(l.ecart > 0 || l.motif) ? `<input type="text" data-act="motif" value="${esc(l.motif)}" placeholder="Pourquoi la fin a glissé ?">` : ''}</td>` : ''}
+        ${cols.remise ? `<td class="d"><input type="date" data-act="remise" value="${toInput(l.remise)}">${l.remise ? '' : ` <button class="mini" data-act="remise-auj">Aujourd’hui</button>`}</td>` : ''}
+        <td class="n">${l.reste > 0 ? eur(l.reste) : '<span class="info">—</span>'}</td></tr>`).join(''));
+}
+
+function vueEcheances(xs) {
+  return `<div class="note">Une ligne par qualification en cours du LIS-12. Surveillance à 18 mois du début du cycle, renouvellement à préparer 3 mois avant la fin. « En place » = une évaluation ou une proposition existe pour cette échéance.</div>`
+    + (cols.prevenu ? '' : '<div class="warn">Colonne Commercial_prevenu absente de LIS_12 : le suivi « commercial prévenu » est masqué.</div>')
+    + tableau(['État', 'Entreprise', 'Programme · certificat', 'Cycle', 'Prochaine échéance', 'Devis / évaluation', ...(cols.prevenu ? ['Commercial prévenu le'] : [])],
+      xs.map(l => `<tr class="${l.niv}" data-lis="${l.r.id}"><td>${pastille(l)}</td><td>${cellEnt(l.ent)}</td>
+        <td>${lienGrist(LIS.page, LIS.section, l.r.id, LIS.col, nomProg(l.r.Programme))}<div class="sous">${esc(l.r.numero_attestation || 'n° à attribuer')}</div></td>
+        <td class="d">${fdate(l.debut)} → ${fdate(l.fin)}</td>
+        <td class="d"><b>${esc(l.type)}</b> ${fdate(l.date)}<div class="sous">${l.mois < 0 ? 'dépassée' : 'dans ' + Math.round(l.mois) + ' mois'}</div></td>
+        <td>${l.couvert ? esc(l.couvert) : '<span class="info">aucun</span>'}</td>
+        ${cols.prevenu ? `<td class="d"><input type="date" data-act="prevenu" value="${toInput(l.prevenu)}">${l.prevenu ? '' : ` <button class="mini" data-act="prevenu-auj">Aujourd’hui</button>`}</td>` : ''}</tr>`).join(''));
+}
+
+// ── Événements et écritures ────────────────────────────────────────────────
+
+async function ecrire(actions, msg) {
+  if (writing) return;
+  writing = true;
+  try { await grist.docApi.applyUserActions(actions); status(msg); await reload(); }
+  catch (e) { status('Écriture impossible : ' + (e.message || e), 'error'); }
+  finally { writing = false; }
+}
+const majEval = (id, champs, msg) => ecrire([['UpdateRecord', 'Evaluations', id, champs]], msg);
+const majLis = (id, champs, msg) => ecrire([['UpdateRecord', LIS.table, id, champs]], msg);
+
+function brancher(xs) {
+  const app = $('app');
+  app.querySelectorAll('.kpi').forEach(el => el.addEventListener('click', () => {
+    const { onglet, etat } = el.dataset;
+    const actif = f.onglet === onglet && f.etat === etat;
+    f.onglet = onglet; f.etat = actif ? '' : etat; ecrireFiltres(); render();
+  }));
+  app.querySelectorAll('.onglet').forEach(el => el.addEventListener('click', () => { f.onglet = el.dataset.onglet; f.etat = ''; ecrireFiltres(); render(); }));
+  $('f-q').addEventListener('input', e => { f.q = e.target.value; ecrireFiltres(); const p = e.target.selectionStart; render(); $('f-q').focus(); $('f-q').setSelectionRange(p, p); });
+  $('f-etat').addEventListener('change', e => { f.etat = e.target.value; ecrireFiltres(); render(); });
+  $('f-resp').addEventListener('change', e => { f.resp = e.target.value; ecrireFiltres(); render(); });
+  $('f-raz')?.addEventListener('click', () => { f = { ...f, etat: '', resp: '', q: '' }; ecrireFiltres(); render(); });
+  $('b-refresh').addEventListener('click', reload);
+  $('b-print').addEventListener('click', () => window.print());
+  $('b-csv').addEventListener('click', () => exporterCsv(xs));
+  $('b-figer-tout')?.addEventListener('click', () => {
+    const cibles = lignes.rap.filter(l => !l.init && l.fin && !l.remise);
+    if (!confirm(`Enregistrer la fin actuelle comme fin d’origine pour ${cibles.length} évaluation(s) ?`)) return;
+    ecrire(cibles.map(l => ['UpdateRecord', 'Evaluations', l.e.id, { Date_fin_initiale: l.fin }]), `${cibles.length} fin(s) d’origine figée(s)`);
+  });
+
+}
+
+// Délégation posée une seule fois (le contenu de #app est réécrit à chaque rendu)
+$('app').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.tagName === 'INPUT') return;
+  const ligne = b.closest('tr'), evId = +ligne?.dataset.ev, lisId = +ligne?.dataset.lis;
+  if (b.dataset.act === 'figer') { const l = lignes.rap.find(x => x.e.id === evId); return majEval(evId, { Date_fin_initiale: l.fin }, 'Fin d’origine figée'); }
+  if (b.dataset.act === 'remise-auj') return majEval(evId, { Date_remise_rapport: aujourdhui() }, 'Rapport marqué remis');
+  if (b.dataset.act === 'prevenu-auj') return majLis(lisId, { Commercial_prevenu: aujourdhui() }, 'Commercial prévenu');
+});
+$('app').addEventListener('change', ev => {
+  const el = ev.target, act = el.dataset.act; if (!act) return;
+  const ligne = el.closest('tr'), evId = +ligne?.dataset.ev, lisId = +ligne?.dataset.lis;
+  if (act === 'remise') return majEval(evId, { Date_remise_rapport: fromInput(el.value) }, 'Date de remise enregistrée');
+  if (act === 'motif') return majEval(evId, { Motif_glissement: el.value.trim() }, 'Motif enregistré');
+  if (act === 'prevenu') return majLis(lisId, { Commercial_prevenu: fromInput(el.value) }, 'Date enregistrée');
+});
+
+function exporterCsv(xs) {
+  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const tete = { dem: ['État', 'Entreprise', 'Évaluation', 'Programme', 'Statut', 'Début prévu', 'Proposition', 'Signature'],
+    rap: ['État', 'Entreprise', 'Évaluation', 'Programme', 'Début', 'Fin d’origine', 'Fin actuelle', 'Écart (j)', 'Motif', 'Rapport remis le', 'Reste à facturer'],
+    ech: ['État', 'Entreprise', 'Programme', 'Certificat', 'Début cycle', 'Fin cycle', 'Échéance', 'Date', 'Devis / évaluation', 'Commercial prévenu le'] }[f.onglet];
+  const ligne = l => ({
+    dem: () => [l.etat, nomEnt(l.ent), l.e.Libelle, nomProg(l.e.Programme), l.e.Statut, fdate(l.deb), l.ch ? (l.ch.Propale || l.ch.Libelle_CH) : '', l.sig],
+    rap: () => [l.etat, nomEnt(l.ent), l.e.Libelle, nomProg(l.e.Programme), fdate(l.deb), fdate(l.init), fdate(l.fin), l.ecart ?? '', l.motif, fdate(l.remise), l.reste || ''],
+    ech: () => [l.etat, nomEnt(l.ent), nomProg(l.r.Programme), l.r.numero_attestation, fdate(l.debut), fdate(l.fin), l.type, fdate(l.date), l.couvert, fdate(l.prevenu)],
+  })[f.onglet]();
+  const csv = [tete, ...xs.map(ligne)].map(r => r.map(cell).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `pilotage_pmo_${f.onglet}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function openConfig() { $('config').style.display = ''; $('config-url').value = docUrl; }
+$('config-ok').addEventListener('click', async () => {
+  docUrl = $('config-url').value.trim().replace(/\/+$/, '').replace(/\/p\/\d+.*$/, '');
+  await grist.setOption('docUrl', docUrl);
+  $('config').style.display = 'none';
+  render();
+});
+</script>
+</body>
+</html>
