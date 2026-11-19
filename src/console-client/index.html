@@ -194,12 +194,30 @@ const parId = (t, id) => D()[t].find(r => r.id === id) || null;
 const nomProg = id => (parId('Programmes', id) || {}).Nom_du_programme || '';
 const ent = () => parId('Entreprises', state.entId);
 
+/* Date_surveillance_certification est une échéance théorique (début + 18 mois) : elle ne
+   dit pas si la surveillance a eu lieu. Le cycle pointe sur ses évaluations — c'est là
+   qu'on va chercher si elle est faite, sinon toute surveillance réussie passerait en retard. */
+function survFaite(c) {
+  const liees = [...refs(c.eval_initiale), ...refs(c.eval_autres), ref1(c.eval_renouvellement)]
+    .filter(Boolean)
+    .map(id => parId('Evaluations', id))
+    .filter(Boolean);
+  const s = liees.filter(e => refs(e.Type_d_evaluation).some(t => /surveillance/i.test(t)));
+  const finie = s.find(e => e.Terminee || e.Statut === 'Terminé');
+  if (finie) return { etat: 'faite', ev: finie,
+                      date: dsDe(finie.Date_remise_rapport) || dsDe(finie.Date_fin_prevue) };
+  const encours = s.find(e => e.Statut !== 'Annulé');
+  if (encours) return { etat: 'encours', ev: encours, date: dsDe(encours.Date_Debut_prevue) };
+  return { etat: 'absente' };
+}
+
 const cycles = () => D().Cycles_services
   .filter(c => ref1(c.Denomination) === state.entId)
   .map(c => ({ id: c.id, prog: nomProg(ref1(c.Programme)), debut: dsDe(c.date_debut_cycle),
                surv: dsDe(c.Date_surveillance_certification), fin: dsDe(c.date_fin_certification),
                proch: dsDe(c.Prochaine_echeance), comm: c.Commentaires || '',
-               cert: (parId('LIS_12', ref1(c.Certificat)) || {}).Numero_de_certificat || '' }))
+               cert: (parId('LIS_12', ref1(c.Certificat)) || {}).Numero_de_certificat || '',
+               sv: survFaite(c) }))
   .sort((a, b) => (a.proch || '').localeCompare(b.proch || ''));
 
 const evaluations = () => D().Evaluations
@@ -256,12 +274,20 @@ function examens() {
 function alertes() {
   const A = [];
   for (const c of cycles()) {
-    if (c.surv && c.surv < aujourdhui())
-      A.push({ n: 'ko', t: `${c.prog} · surveillance dépassée depuis le ${fr(c.surv)}` });
+    const passee = c.surv && c.surv < aujourdhui();
+    if (passee && c.sv.etat === 'absente')
+      A.push({ n: 'ko', t: `${c.prog} · surveillance non réalisée, attendue le ${fr(c.surv)}` });
+    else if (passee && c.sv.etat === 'encours')
+      A.push({ n: 'wa', t: `${c.prog} · surveillance engagée mais pas terminée, attendue le ${fr(c.surv)}` });
+    else if (!passee && c.surv && moisVers(c.surv) <= 3 && c.sv.etat === 'absente')
+      A.push({ n: 'wa', t: `${c.prog} · surveillance à planifier avant le ${fr(c.surv)}` });
     const m = moisVers(c.proch);
-    if (m !== null && m <= 12)
+    if (m !== null && m <= 12) {
+      const echue = c.proch < aujourdhui();
       A.push({ n: m <= 6 ? 'ko' : 'wa',
-               t: `${c.prog} · certification échue le ${fr(c.proch)} (dans ${m} mois)` });
+               t: echue ? `${c.prog} · certification échue depuis le ${fr(c.proch)}`
+                        : `${c.prog} · certification valable jusqu’au ${fr(c.proch)} — renouvellement à engager (dans ${m} mois)` });
+    }
   }
   for (const e of evaluations()) if (e.Statut === 'à planifier')
     A.push({ n: 'wa', t: `${nomProg(ref1(e.Programme))} ${(refs(e.Type_d_evaluation)[0] || '').toLowerCase()} à planifier` });
@@ -305,12 +331,18 @@ function vuePano() {
   const A = alertes();
   const l = cycles().map(c => {
     const m = moisVers(c.proch);
-    const survKO = c.surv && c.surv < aujourdhui();
+    const survKO = c.surv && c.surv < aujourdhui() && c.sv.etat !== 'faite';
+    const survInfo = c.sv.etat === 'faite'
+      ? `<span class="ok2" title="${esc(c.sv.ev.Libelle || '')}">réalisée${c.sv.date ? ' le ' + fr(c.sv.date) : ''}</span>`
+      : c.sv.etat === 'encours'
+        ? `<span class="pill wa">${esc(c.sv.ev.Statut || 'en cours')}</span>`
+        : '<span class="mu">non réalisée</span>';
     return `<tr>
       <td><b>${esc(c.prog)}</b></td>
       <td>${fr(c.debut)} ${cad('Calculé : rédaction du rapport de l’évaluation initiale.')}</td>
       <td>${survKO ? '<span class="ko">' + fr(c.surv) + '</span>' : fr(c.surv)}
-          ${cad('Calculé : 18 mois après le début de cycle.')}</td>
+          ${cad('Échéance théorique : 18 mois après le début de cycle.')}
+          <div class="lg">${survInfo}</div></td>
       <td>${fr(c.fin)} ${cad('Calculé : 3 ans après le début de cycle.')}</td>
       <td class="n">${m === null ? '—' : `<span class="pill ${m <= 6 ? 'no' : m <= 12 ? 'wa' : 'gr'}">dans ${m} mois</span>`}</td>
       <td>${esc(c.cert || '—')}</td>
@@ -559,11 +591,13 @@ function resoudre(texte, champs) {
 function odjAuto() {
   const o = [];
   for (const c of cycles()) {
-    if (c.surv && c.surv < aujourdhui())
-      o.push(`${c.prog} — surveillance dépassée depuis le ${fr(c.surv)}`);
+    if (c.surv && c.surv < aujourdhui() && c.sv.etat !== 'faite')
+      o.push(`${c.prog} — surveillance non réalisée, attendue le ${fr(c.surv)}`);
+    else if (c.sv.etat === 'faite' && c.sv.date)
+      o.push(`${c.prog} — surveillance réalisée le ${fr(c.sv.date)}, cycle à jour`);
     const m = moisVers(c.proch);
     if (m !== null && m <= 18)
-      o.push(`${c.prog} — renouvellement à prévoir, certification échue le ${fr(c.proch)}`);
+      o.push(`${c.prog} — renouvellement à prévoir, certification valable jusqu’au ${fr(c.proch)}`);
   }
   for (const e of evaluations()) if (e.Statut === 'à planifier')
     o.push(`${nomProg(ref1(e.Programme))} ${(refs(e.Type_d_evaluation)[0] || '').toLowerCase()} — dates à caler`
