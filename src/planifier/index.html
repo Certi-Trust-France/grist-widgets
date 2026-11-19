@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Planifier une évaluation</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; color: #1e293b;
+       margin: 0; background: #f8fafc; height: 100vh; display: flex; flex-direction: column;
+       overflow: hidden; }
+
+.toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+           padding: 7px 12px; background: #1e3a8a; color: #fff; }
+.toolbar b { font-size: 13px; }
+.chip { background: rgba(255,255,255,.16); border-radius: 10px; padding: 1px 9px; font-size: 11px; }
+.spacer { flex: 1; }
+
+#main { flex: 1; overflow-y: auto; }
+.sect { background: #fff; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+.sect h4 { margin: 0 0 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+           color: #64748b; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.empty { padding: 28px 16px; text-align: center; color: #64748b; font-size: 13px; line-height: 1.6; }
+.err { background: #fef2f2; color: #991b1b; padding: 7px 12px; font-size: 12px;
+       border-bottom: 1px solid #fecaca; }
+
+.btn { border: none; border-radius: 5px; padding: 5px 13px; font-size: 12px; font-weight: 600;
+       cursor: pointer; font-family: inherit; }
+.btn-p { background: #16a34a; color: #fff; }
+.btn-g { background: #e2e8f0; color: #334155; }
+.btn:disabled { opacity: .45; cursor: default; }
+.lien { color: #1d4ed8; cursor: pointer; font-size: 11px; }
+.seg { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 5px; overflow: hidden; }
+.seg button { border: none; background: #fff; color: #475569; font-size: 11px; font-weight: 600;
+              padding: 5px 11px; cursor: pointer; font-family: inherit; }
+.seg button.on { background: #1e3a8a; color: #fff; }
+
+.carte { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; border: 1px solid #e2e8f0;
+         border-radius: 6px; padding: 8px 11px; margin-bottom: 6px; cursor: pointer; background: #fff; }
+.carte:hover { border-color: #93c5fd; }
+.carte.on { border-color: #1e3a8a; background: #eff6ff; }
+.carte .lib { font-weight: 600; font-size: 13px; }
+.carte .meta { font-size: 11px; color: #475569; }
+.kv { font-size: 11px; color: #64748b; }
+.kv b { display: block; font-size: 14px; color: #0f172a; font-weight: 600; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+.pill.ap { background: #FD9D28; color: #fff; }
+.pill.ok { background: #dcfce7; color: #166534; }
+.pill.no { background: #fee2e2; color: #991b1b; }
+
+.contacts { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; }
+.contacts a { color: #1d4ed8; text-decoration: none; }
+.contacts .r { font-size: 10px; background: #e0e7ff; color: #3730a3; border-radius: 8px;
+               padding: 0 6px; margin-left: 4px; }
+
+table.eq { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+table.eq th { font-weight: 600; color: #64748b; font-size: 10px; padding: 2px 3px;
+              vertical-align: bottom; text-align: center; }
+table.eq th.sem { cursor: pointer; border-radius: 4px 4px 0 0; }
+table.eq th.sem:hover { background: #e0e7ff; }
+table.eq th.sem.on { background: #1e3a8a; color: #fff; }
+table.eq th.g { text-align: left; padding-left: 4px; }
+table.eq td { padding: 2px 3px; }
+table.eq td.nom { white-space: nowrap; padding-right: 8px; }
+table.eq tr.sel td { background: #eff6ff; }
+table.eq tr.synth td { border-top: 1px solid #cbd5e1; padding-top: 5px; font-weight: 600; }
+.tri { font-weight: 600; }
+.emp { font-size: 10px; color: #94a3b8; margin-left: 5px; }
+.bdg { display: inline-block; width: 24px; text-align: center; border-radius: 4px; font-size: 10px;
+       padding: 1px 0; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+.bdg.on { background: #1e3a8a; border-color: #1e3a8a; color: #fff; }
+.bdg.off { opacity: .25; cursor: default; }
+.wk { display: flex; gap: 1px; justify-content: center; cursor: pointer; }
+.wk i { width: 6px; height: 15px; border-radius: 1px; background: #86efac; }
+.wk i.busy { background: #fca5a5; }
+.wk i.abs  { background: #cbd5e1; }
+.wk i.prev { background: #fcd34d; }
+.wk.on { outline: 2px solid #1e3a8a; outline-offset: 1px; border-radius: 3px; }
+.wk2 i { height: 9px; }
+.lg { font-size: 11px; color: #64748b; }
+
+table.j { width: 100%; border-collapse: collapse; background: #fff; font-size: 12px; }
+table.j th { background: #f1f5f9; color: #475569; font-weight: 600; text-align: left; padding: 5px 8px;
+             border-bottom: 1px solid #cbd5e1; font-size: 10px; text-transform: uppercase; }
+table.j td { padding: 4px 8px; border-bottom: 1px solid #f1f5f9; }
+table.j tr.sep td { background: #f8fafc; font-weight: 600; font-size: 11px; color: #1e3a8a; }
+table.j input[type=date] { border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 4px;
+                           font-size: 12px; font-family: inherit; }
+table.j input[type=number] { width: 54px; border: 1px solid #cbd5e1; border-radius: 4px;
+                             padding: 2px 4px; font-size: 12px; font-family: inherit; }
+.ok2 { color: #15803d; } .ko { color: #b91c1c; font-weight: 600; } .mu { color: #94a3b8; }
+
+.pied { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; padding: 9px 12px;
+        background: #fff; border-top: 1px solid #cbd5e1; }
+.note2 { font-size: 11px; color: #64748b; padding: 0 12px 9px; background: #fff; line-height: 1.5; }
+
+.fond { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: flex;
+        align-items: center; justify-content: center; padding: 20px; z-index: 10; }
+.modal { background: #fff; border-radius: 8px; max-width: 720px; width: 100%; max-height: 86vh;
+         display: flex; flex-direction: column; overflow: hidden; }
+.modal header { padding: 11px 14px; border-bottom: 1px solid #e2e8f0; font-weight: 600; }
+.modal .corps { padding: 12px 14px; overflow-y: auto; font-size: 12px; line-height: 1.6; }
+.modal footer { padding: 10px 14px; border-top: 1px solid #e2e8f0; display: flex; gap: 8px;
+                justify-content: flex-end; }
+.modal ul { margin: 6px 0; padding-left: 18px; }
+.modal .rec { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: #f1f5f9;
+              border-radius: 4px; padding: 5px 7px; margin-bottom: 3px; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <b>📅 Planifier</b>
+  <span class="chip" id="tEnt">—</span>
+  <span class="chip" id="tResp"></span>
+  <span class="spacer"></span>
+  <span class="chip" id="tDate"></span>
+</div>
+<div id="erreur" class="err hidden"></div>
+<div id="main"><div class="empty">Chargement…</div></div>
+<div id="modal"></div>
+
+<script>
+/* ------------------------------------------------------------------ constantes */
+
+const T_UO = 'Unites_d_oeuvre';
+const T_ABS = 'Absences_previsions';
+const NB_SEM = 12;
+const INTERNE = /certi.?trust/i;
+
+/* Les six jalons demandés plus le pilotage. Les libellés doivent exister à l'identique
+   dans les choix de Unites_d_oeuvre.Unite_d_oeuvre : les formules Grist et les widgets
+   plan-evaluation / ordre-mission les comparent caractère par caractère. */
+const MODELE = [
+  { uo: "Plan d'évaluation",            sem: 0, dec: 0, qui: [['RE', 1]] },
+  { uo: 'Journée de lancement',         sem: 0, dec: 1, qui: [['RE', 0.5], ['ET', 0.5]] },
+  { uo: 'Revue documentaire',           sem: 1, dec: 0, qui: [['ET', 2]] },
+  { uo: 'évaluation siège',             sem: 2, dec: 0, qui: [['RE', 1.5], ['ET', 1.5]] },
+  { uo: 'évaluation prestation témoin', sem: 2, dec: 3, qui: [['ET', 2]] },
+  { uo: 'Rédaction du rapport',         sem: 3, dec: 0, qui: [['RE', 1], ['ET', 1]] },
+  { uo: 'Réunion de clôture',           sem: 3, dec: 3, qui: [['RE', 0.5], ['ET', 0.5]] },
+];
+const MODELE_TOTAL = MODELE.reduce((s, m) => s + m.qui.reduce((t, q) => t + q[1], 0), 0);
+
+const STATUTS_CLOS = new Set(['Terminé', 'Annulé']);
+const TYPE_PREV = 'Prévision';      // valeur exacte du Choice Absences_previsions.Type
+
+const state = {
+  table: null, entId: null, evalId: null, D: null,
+  re: null, et: null, semaine: null, mode: 'prev',
+  internes: true, lignes: [], busy: false, choixUO: null,
+};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const eur = n => (n || 0).toLocaleString('fr-FR') + ' €';
+const nbj = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
+
+/* ------------------------------------------------------------------ dates */
+/* Grist stocke les dates en secondes, à minuit UTC. Toute la chaîne (planning,
+   plan d'évaluation, ordre de mission) suppose cette convention. */
+const jourUTC = ds => Date.UTC(+ds.slice(0, 4), +ds.slice(5, 7) - 1, +ds.slice(8, 10)) / 1000;
+const dsDe = sec => new Date(sec * 1000).toISOString().slice(0, 10);
+const fr = ds => ds ? ds.slice(8, 10) + '/' + ds.slice(5, 7) + '/' + ds.slice(0, 4) : '—';
+const plus = (ds, n) => { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+                          return d.toISOString().slice(0, 10); };
+const ouvre = ds => { let d = ds; while ([0, 6].includes(new Date(d + 'T00:00:00Z').getUTCDay()))
+                        d = plus(d, 1); return d; };
+const aujourdhui = () => new Date().toISOString().slice(0, 10);
+
+/* Les semaines affichées : les NB_SEM lundis à partir du lundi qui vient. */
+function semaines() {
+  let l = aujourdhui();
+  do { l = plus(l, 1); } while (new Date(l + 'T00:00:00Z').getUTCDay() !== 1);
+  return Array.from({ length: NB_SEM }, (_, s) => {
+    const debut = plus(l, s * 7);
+    return { debut, jours: Array.from({ length: 5 }, (_, k) => plus(debut, k)) };
+  });
+}
+const SEM = semaines();
+const numSem = ds => {
+  const t = new Date(ds + 'T00:00:00Z');
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  return Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
+};
+
+/* ------------------------------------------------------------------ Grist */
+
+grist.ready({ requiredAccess: 'full' });
+
+grist.selectedTable.getTableId().then(tid => {
+  state.table = tid;
+  if (tid !== 'Entreprises' && tid !== 'Evaluations') {
+    montrerErreur('Ce widget doit être lié à la table Entreprises (fiche client) ou Evaluations. '
+      + 'Il est actuellement lié à « ' + tid + ' ».');
+  }
+}).catch(() => {});
+
+grist.onRecord(rec => {
+  if (!rec || !rec.id) return;
+  if (state.table === 'Evaluations') {
+    if (rec.id === state.evalId) return;
+    state.evalId = rec.id; state.entId = null;
+  } else {
+    if (rec.id === state.entId) return;
+    state.entId = rec.id; state.evalId = null;
+  }
+  reinit();
+  if (!state.busy) charger();
+});
+
+function reinit() {
+  state.re = state.et = state.semaine = null;
+  state.lignes = []; state.mode = 'prev';
+}
+
+function montrerErreur(msg) {
+  const e = $('erreur');
+  e.textContent = msg || '';
+  e.classList.toggle('hidden', !msg);
+}
+
+/* fetchTable renvoie un format colonnes ; les RefList arrivent en ['L', id, …]. */
+const lignesDe = t => (t && t.id ? t.id : []).map((id, i) => {
+  const r = { id };
+  for (const k of Object.keys(t)) r[k] = t[k][i];
+  return r;
+});
+const refs = v => (Array.isArray(v) && v[0] === 'L') ? v.slice(1).filter(x => x) : [];
+const ref1 = v => (typeof v === 'number' ? v : (v && (v.rowId || v.id)) || 0);
+
+async function charger() {
+  state.busy = true;
+  try {
+    const noms = ['Evaluations', 'Entreprises', 'Evaluateurs', T_UO, T_ABS, 'Contacts',
+                  'Programmes', '_grist_Tables', '_grist_Tables_column'];
+    const res = await Promise.all(noms.map(n => grist.docApi.fetchTable(n).catch(() => null)));
+    const D = {};
+    noms.forEach((n, i) => { D[n] = lignesDe(res[i]); });
+    state.D = D;
+
+    const tb = D._grist_Tables.find(t => t.tableId === T_UO);
+    const col = D._grist_Tables_column.find(c => c.parentId === tb?.id && c.colId === 'Unite_d_oeuvre');
+    try { state.choixUO = JSON.parse(col?.widgetOptions || '{}').choices || null; }
+    catch (e) { state.choixUO = null; }
+
+    if (state.evalId && !state.entId) {
+      const ev = D.Evaluations.find(e => e.id === state.evalId);
+      state.entId = ev ? ref1(ev.Entreprise) : null;
+    }
+    montrerErreur('');
+    rendre();
+  } catch (e) {
+    console.error(e);
+    montrerErreur('Erreur de chargement : ' + (e.message || e));
+  } finally {
+    state.busy = false;
+  }
+}
+
+/* ------------------------------------------------------------------ données dérivées */
+
+const D = () => state.D;
+const parId = (tbl, id) => D()[tbl].find(r => r.id === id) || null;
+const nomEvr = e => ((e.Evaluateur_Prenom || '') + ' ' + (e.Evaluateur_Nom || '')).trim() || ('#' + e.id);
+const estInterne = e => INTERNE.test(e.Employeur || '');
+
+function evaluationsAPlanifier() {
+  return D().Evaluations
+    .filter(e => ref1(e.Entreprise) === state.entId)
+    .filter(e => !e.Terminee && !STATUTS_CLOS.has(e.Statut))
+    .sort((a, b) => (a.Libelle || '').localeCompare(b.Libelle || '', 'fr'));
+}
+
+const evalCourante = () => state.evalId ? parId('Evaluations', state.evalId) : null;
+
+/* Agenda de chaque évaluateur : unités d'œuvre datées puis absences et prévisions.
+   Les jours ouvrés seuls consomment une journée, comme dans le widget planning. */
+function agendas() {
+  const occ = new Map();
+  const poser = (id, ds, txt, type) => {
+    if (!id) return;
+    if (!occ.has(id)) occ.set(id, new Map());
+    if (!occ.get(id).has(ds)) occ.get(id).set(ds, { txt, type });
+  };
+  for (const u of D()[T_UO]) {
+    if (!u.date_debut_incluse) continue;
+    const ids = new Set([ref1(u.RE), ...refs(u.ETA), ...refs(u.ETM), ...refs(u.OBS),
+                         ...refs(u.evaluateurs)].filter(Boolean));
+    const lib = u.Unite_d_oeuvre || 'mission';
+    let ds = dsDe(u.date_debut_incluse), reste = Math.max(1, Math.ceil(u.Jours || 1));
+    while (reste > 0) {
+      if (![0, 6].includes(new Date(ds + 'T00:00:00Z').getUTCDay())) {
+        for (const id of ids) poser(id, ds, lib, 'uo');
+        reste--;
+      }
+      ds = plus(ds, 1);
+    }
+  }
+  for (const a of D()[T_ABS]) {
+    const id = ref1(a.Evaluateur);
+    if (!id || !a.Date) continue;
+    let ds = dsDe(a.Date);
+    for (let k = 0; k < Math.max(1, Math.ceil(a.Duree || 1)); k++) {
+      if (![0, 6].includes(new Date(ds + 'T00:00:00Z').getUTCDay())) {
+        poser(id, ds, a.Libelle || a.Type || 'absence',
+              a.Type === TYPE_PREV ? 'prev' : 'abs');
+      }
+      ds = plus(ds, 1);
+    }
+  }
+  return occ;
+}
+
+/* ------------------------------------------------------------------ répartition */
+
+/* La répartition type est calée sur les jours vendus, au quart de journée près.
+   L'écart de l'arrondi est absorbé par la ligne la plus grosse. */
+function repartition(cible) {
+  const k = (cible && cible > 0) ? cible / MODELE_TOTAL : 1;
+  const out = MODELE.map(m => ({ ...m, qui: m.qui.map(([r, j]) =>
+    [r, Math.max(0.25, Math.round(j * k * 4) / 4)]) }));
+  if (cible && cible > 0) {
+    const tot = out.reduce((s, m) => s + m.qui.reduce((t, q) => t + q[1], 0), 0);
+    let d = Math.round((cible - tot) * 4) / 4;
+    if (d) {
+      let gm = out[0], gi = 0;
+      for (const m of out) for (let i = 0; i < m.qui.length; i++)
+        if (m.qui[i][1] > gm.qui[gi][1]) { gm = m; gi = i; }
+      gm.qui[gi][1] = Math.max(0.25, gm.qui[gi][1] + d);
+    }
+  }
+  return out;
+}
+
+function poserJalons() {
+  const ev = evalCourante();
+  if (state.semaine === null || !state.re || !state.et || !ev) { state.lignes = []; return; }
+  const base = SEM[state.semaine].debut;
+  const vendus = typeof ev.JH_vendus === 'number' && ev.JH_vendus > 0 ? ev.JH_vendus : null;
+  state.lignes = [];
+  for (const m of repartition(vendus)) {
+    const ds = ouvre(plus(base, m.sem * 7 + m.dec));
+    for (const [role, j] of m.qui)
+      state.lignes.push({ uo: m.uo, role, id: role === 'RE' ? state.re : state.et, j, ds });
+  }
+}
+
+/* Un créneau de 2,5 jours devient deux journées pleines puis une demie, week-ends sautés. */
+function enJournees(ds, j) {
+  const out = [];
+  let reste = j, d = ds;
+  let garde = 0;
+  while (reste > 0.001 && garde++ < 60) {
+    d = ouvre(d);
+    const part = Math.min(1, reste);
+    out.push([d, part]);
+    reste -= part;
+    d = plus(d, 1);
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ rendu */
+
+function rendre() {
+  if (!state.D) return;
+  if (!state.entId) { $('main').innerHTML = '<div class="empty">Sélectionner une entreprise.</div>'; return; }
+
+  const ent = parId('Entreprises', state.entId);
+  $('tEnt').textContent = ent ? (ent.Denomination || '') + (ent.code ? ' · ' + ent.code : '') : '—';
+  $('tResp').textContent = ent && ent.Responsable_de_compte ? 'Compte : ' + ent.Responsable_de_compte : '';
+  $('tDate').textContent = 'au ' + fr(aujourdhui());
+
+  const evs = evaluationsAPlanifier();
+  if (!evs.length) {
+    $('main').innerHTML = '<div class="empty">Aucune évaluation en cours ni à planifier pour ce client.</div>';
+    return;
+  }
+  if (!state.evalId || !evs.some(e => e.id === state.evalId)) {
+    state.evalId = evs.find(e => e.Statut === 'à planifier')?.id || evs[0].id;
+    reinit(); state.evalId = state.evalId;
+  }
+
+  $('main').innerHTML =
+    blocEvaluations(evs) + blocContacts() + blocEquipe() + blocJalons();
+  if (state.semaine !== null) majPied();
+}
+
+function blocEvaluations(evs) {
+  const c = evs.map(e => {
+    const prog = parId('Programmes', ref1(e.Programme));
+    const types = Array.isArray(e.Type_d_evaluation) ? e.Type_d_evaluation.slice(1) : [];
+    const nbUO = D()[T_UO].filter(u => ref1(u.Evaluation) === e.id).length;
+    return `<div class="carte ${e.id === state.evalId ? 'on' : ''}" data-ev="${e.id}">
+      <div style="flex:1 1 240px">
+        <div class="lib">${esc(e.Libelle || '#' + e.id)}</div>
+        <div class="meta">${esc(prog?.Nom_du_programme || '')} · ${esc(types.join(', '))}
+          ${e.Ref_proposition ? ' · ' + esc(e.Ref_proposition) : ''}</div>
+      </div>
+      <div class="kv">Statut<b><span class="pill ${e.Statut === 'à planifier' ? 'ap' : 'ok'}">${esc(e.Statut || '—')}</span></b></div>
+      <div class="kv">Devis<b>${e.Signee ? '<span class="pill ok">signé</span>' : '<span class="pill no">non signé</span>'}</b></div>
+      <div class="kv">Montant<b>${e.Montant_Eval_Devis ? eur(e.Montant_Eval_Devis) : '—'}</b></div>
+      <div class="kv">Jours vendus<b>${e.JH_vendus ?? '—'}</b></div>
+      <div class="kv">Déjà posés<b>${e.JH ? nbj(e.JH) : 0}${nbUO ? ' <span class="mu">(' + nbUO + ' UO)</span>' : ''}</b></div>
+    </div>`;
+  }).join('');
+  return `<div class="sect"><h4>Évaluations de ce client</h4>${c}</div>`;
+}
+
+function blocContacts() {
+  const cs = D().Contacts.filter(c => ref1(c.Entreprise) === state.entId);
+  const h = cs.map(c => `<span>${esc(((c.Prenom || '') + ' ' + (c.Nom || '')).trim())}
+    ${c.Responsable_de_programme ? '<span class="r">responsable programme</span>' : ''}
+    ${c.Courriel ? ' · <a href="mailto:' + esc(c.Courriel) + '">' + esc(c.Courriel) + '</a>' : ''}
+    ${c.telephone ? ' · ' + esc(c.telephone) : ''}</span>`).join('');
+  return `<div class="sect"><h4>Contacts</h4>
+    <div class="contacts">${h || '<span class="mu">Aucun contact enregistré.</span>'}</div></div>`;
+}
+
+function candidats() {
+  const ev = evalCourante();
+  if (!ev) return { liste: [], req: [], eq: [], externes: 0 };
+  const req = refs(ev.RE_qualifies), eq = refs(ev.Evaluateurs_qualifies);
+  const tous = [...new Set([...req, ...eq])].map(id => parId('Evaluateurs', id)).filter(Boolean);
+  const externes = tous.filter(e => !estInterne(e)).length;
+  const liste = (state.internes ? tous.filter(estInterne) : tous)
+    .sort((a, b) => nomEvr(a).localeCompare(nomEvr(b), 'fr'));
+  return { liste, req, eq, externes };
+}
+
+function blocEquipe() {
+  const { liste, req, eq, externes } = candidats();
+  const occ = agendas();
+  if (!liste.length) {
+    return `<div class="sect"><h4>Équipe</h4><div class="lg">
+      Aucun évaluateur ${state.internes ? 'Certi-Trust ' : ''}qualifié pour cette évaluation.
+      ${externes ? '<span class="lien" data-act="bascule">Afficher les ' + externes + ' externes qualifiés</span>' : ''}
+      </div></div>`;
+  }
+  if (state.re && !liste.some(e => e.id === state.re)) state.re = null;
+  if (state.et && !liste.some(e => e.id === state.et)) state.et = null;
+  if (!state.re) state.re = liste.find(e => req.includes(e.id))?.id || null;
+  if (!state.et) state.et = liste.find(e => eq.includes(e.id) && e.id !== state.re)?.id || null;
+
+  const cell = (id, petit) => {
+    const m = occ.get(id) || new Map();
+    return SEM.map((s, i) => {
+      const bars = s.jours.map(ds => {
+        const o = m.get(ds);
+        return `<i class="${o ? (o.type === 'uo' ? 'busy' : o.type) : ''}" title="${esc(fr(ds) + ' — ' + (o ? o.txt : 'libre'))}"></i>`;
+      }).join('');
+      return `<td><div class="wk ${petit ? 'wk2' : ''} ${state.semaine === i ? 'on' : ''}"
+                data-sem="${i}">${bars}</div></td>`;
+    }).join('');
+  };
+
+  let h = '<thead><tr><th class="g">Évaluateur</th><th>RE</th><th>ET</th><th>€/j</th>';
+  SEM.forEach((s, i) => { h += `<th class="sem ${state.semaine === i ? 'on' : ''}" data-sem="${i}">
+    S${numSem(s.debut)}<br>${s.debut.slice(8, 10)}/${s.debut.slice(5, 7)}</th>`; });
+  h += '</tr></thead><tbody>';
+  for (const e of liste) {
+    const pRE = req.includes(e.id), pET = eq.includes(e.id);
+    const sel = e.id === state.re || e.id === state.et;
+    h += `<tr class="${sel ? 'sel' : ''}">
+      <td class="nom"><span class="tri">${esc(e.Evaluateur_Trigramme || '')}</span> ${esc(nomEvr(e))}
+        ${state.internes ? '' : '<span class="emp">' + esc(e.Employeur || 'employeur non renseigné') + '</span>'}</td>
+      <td><span class="bdg ${pRE ? (e.id === state.re ? 'on' : '') : 'off'}"
+            ${pRE ? `data-role="re" data-id="${e.id}"` : ''}>RE</span></td>
+      <td><span class="bdg ${pET ? (e.id === state.et ? 'on' : '') : 'off'}"
+            ${pET ? `data-role="et" data-id="${e.id}"` : ''}>ET</span></td>
+      <td class="mu" style="text-align:right">${e.Cout_Jour_HT ?? '—'}</td>
+      ${cell(e.id, !sel)}</tr>`;
+  }
+  const mRE = occ.get(state.re) || new Map(), mET = occ.get(state.et) || new Map();
+  h += '<tr class="synth"><td class="nom">Les deux ensemble</td><td colspan="3"></td>';
+  SEM.forEach((s, i) => {
+    const bars = s.jours.map(ds =>
+      `<i class="${mRE.get(ds) || mET.get(ds) ? 'busy' : ''}" title="${esc(fr(ds))}"></i>`).join('');
+    const n = s.jours.filter(ds => !mRE.get(ds) && !mET.get(ds)).length;
+    h += `<td><div class="wk ${state.semaine === i ? 'on' : ''}" data-sem="${i}"
+            title="${n}/5 jours libres pour les deux">${bars}</div></td>`;
+  });
+  h += '</tr></tbody>';
+
+  return `<div class="sect">
+    <h4><span>${state.internes ? 'Équipe Certi-Trust qualifiée' : 'Tous les évaluateurs qualifiés'}
+        — ${liste.length} personnes</span><span class="spacer"></span>
+      ${externes ? `<span class="lien" data-act="bascule">${state.internes
+        ? 'Afficher aussi les ' + externes + ' externes qualifiés' : 'Masquer les externes'}</span>` : ''}</h4>
+    <div style="overflow-x:auto"><table class="eq">${h}</table></div>
+    <div class="lg" style="margin-top:7px">
+      <span style="color:#16a34a">■</span> libre &nbsp;
+      <span style="color:#dc2626">■</span> sur une mission &nbsp;
+      <span style="color:#f59e0b">■</span> prévisionnel &nbsp;
+      <span style="color:#94a3b8">■</span> absence ou congé &nbsp;·&nbsp;
+      clique un <b>RE</b> et un <b>ET</b>, puis une colonne de semaine.
+    </div></div>`;
+}
+
+function blocJalons() {
+  if (state.semaine === null) return '';
+  poserJalons();
+  if (!state.lignes.length) return '';
+  const occ = agendas();
+  const manquants = state.choixUO
+    ? [...new Set(state.lignes.map(l => l.uo))].filter(u => !state.choixUO.includes(u)) : [];
+
+  let h = '', dernier = null;
+  state.lignes.forEach((l, i) => {
+    if (l.uo !== dernier) { h += `<tr class="sep"><td colspan="5">${esc(l.uo)}</td></tr>`; dernier = l.uo; }
+    const o = (occ.get(l.id) || new Map()).get(l.ds);
+    const e = parId('Evaluateurs', l.id);
+    h += `<tr>
+      <td class="mu" style="padding-left:18px">${l.role}</td>
+      <td><input type="date" value="${l.ds}" data-i="${i}" data-f="ds"></td>
+      <td><input type="number" step="0.25" min="0" value="${l.j}" data-i="${i}" data-f="j"></td>
+      <td>${esc((e?.Evaluateur_Trigramme ? e.Evaluateur_Trigramme + ' — ' : '') + (e ? nomEvr(e) : ''))}</td>
+      <td>${o ? '<span class="ko">⚠ ' + esc(o.txt) + '</span>' : '<span class="ok2">libre</span>'}</td>
+    </tr>`;
+  });
+
+  return `${manquants.length ? '<div class="err">Libellés absents des choix de ' + T_UO
+      + ' : ' + esc(manquants.join(', ')) + '. Les corriger avant d\'enregistrer, sinon le plan '
+      + 'd\'évaluation et l\'ordre de mission ne les verront pas.</div>' : ''}
+    <table class="j"><thead><tr>
+      <th style="width:190px">Jalon</th><th style="width:132px">Date</th><th style="width:72px">Jours</th>
+      <th style="width:200px">Qui</th><th>Agenda</th></tr></thead><tbody>${h}</tbody></table>
+    <div class="pied">
+      <div class="kv">Jours posés<b id="kP">—</b></div>
+      <div class="kv">Jours vendus<b id="kV">—</b></div>
+      <div class="kv">Écart<b id="kE">—</b></div>
+      <div class="kv">Coût évaluateurs<b id="kC">—</b></div>
+      <div class="kv">Période<b id="kR">—</b></div>
+      <div class="spacer"></div>
+      <span id="kAl" class="kv"></span>
+      <div class="seg">
+        <button class="${state.mode === 'prev' ? 'on' : ''}" data-mode="prev">Prévisionnel</button>
+        <button class="${state.mode === 'conf' ? 'on' : ''}" data-mode="conf">Confirmé</button>
+      </div>
+      <button class="btn btn-p" data-act="enregistrer">${state.mode === 'prev'
+        ? '🕓 Poser en prévisionnel' : '🔒 Confirmer et créer les unités d’œuvre'}</button>
+    </div>
+    <div class="note2">${state.mode === 'prev'
+      ? 'Le prévisionnel réserve les agendas dans <b>' + T_ABS + '</b>, en type « ' + TYPE_PREV + ' ». '
+        + 'Il apparaît aussitôt dans le planning mais ne touche ni l’évaluation, ni le plan, '
+        + 'ni l’ordre de mission, et ne compte ni en charge ni en chiffre d’affaires.'
+      : 'Le confirmé crée les <b>unités d’œuvre</b> : les dates remontent sur la ligne d’évaluation, '
+        + 'et le plan, la stratégie et les ordres de mission suivent. Le prévisionnel posé pour cette '
+        + 'évaluation est retiré au passage.'}</div>`;
+}
+
+function majPied() {
+  const occ = agendas();
+  const ev = evalCourante();
+  const jours = state.lignes.reduce((s, l) => s + l.j, 0);
+  const cout = state.lignes.reduce((s, l) =>
+    s + l.j * (parId('Evaluateurs', l.id)?.Cout_Jour_HT || 0), 0);
+  const ds = state.lignes.map(l => l.ds).sort();
+  const conflits = state.lignes.filter(l => (occ.get(l.id) || new Map()).get(l.ds)).length;
+  const vendus = ev && typeof ev.JH_vendus === 'number' ? ev.JH_vendus : null;
+  if (!$('kP')) return;
+  $('kP').textContent = nbj(jours) + ' j';
+  $('kV').textContent = vendus === null ? '—' : nbj(vendus) + ' j';
+  $('kE').textContent = vendus === null ? '—'
+    : (jours - vendus > 0 ? '+' : '') + nbj(jours - vendus) + ' j';
+  $('kC').textContent = eur(cout);
+  $('kR').textContent = fr(ds[0]) + ' → ' + fr(ds[ds.length - 1]);
+  $('kAl').innerHTML = conflits
+    ? `<span class="ko">${conflits} créneau${conflits > 1 ? 'x' : ''} sur un agenda déjà pris</span>`
+    : '<span class="ok2">Aucun conflit d’agenda</span>';
+}
+
+/* ------------------------------------------------------------------ écriture */
+
+const libellePrev = ev => 'Prévisionnel — ' + (ev.Libelle || ('évaluation ' + ev.id));
+
+function actions() {
+  const ev = evalCourante();
+  if (state.mode === 'prev') {
+    const lib = libellePrev(ev);
+    return state.lignes.flatMap(l => enJournees(l.ds, l.j).map(([ds, duree]) =>
+      ['AddRecord', T_ABS, null,
+       { Evaluateur: l.id, Date: jourUTC(ds), Duree: duree, Type: TYPE_PREV, Libelle: lib }]));
+  }
+  const lib = libellePrev(ev);
+  const aRetirer = D()[T_ABS]
+    .filter(a => a.Type === TYPE_PREV && a.Libelle === lib)
+    .map(a => ['RemoveRecord', T_ABS, a.id]);
+  const creations = state.lignes.map(l => ['AddRecord', T_UO, null, {
+    Evaluation: ev.id,
+    Unite_d_oeuvre: l.uo,
+    date_debut_incluse: jourUTC(l.ds),
+    Jours: l.j,
+    RE: l.role === 'RE' ? l.id : 0,
+    ETA: l.role === 'ET' ? ['L', l.id] : ['L'],
+    ETM: ['L'],
+    OBS: ['L'],
+  }]);
+  return [...creations, ...aRetirer];
+}
+
+/* Rien n'est écrit sans que le détail ait été montré et confirmé. */
+function confirmer() {
+  const act = actions();
+  if (!act.length) return;
+  const ev = evalCourante();
+  const ajouts = act.filter(a => a[0] === 'AddRecord');
+  const retraits = act.filter(a => a[0] === 'RemoveRecord');
+  const detail = state.lignes.map(l => {
+    const e = parId('Evaluateurs', l.id);
+    return `<div class="rec">${esc(l.uo)} · ${fr(l.ds)} · ${nbj(l.j)} j · ${l.role} `
+      + `${esc(e?.Evaluateur_Trigramme || nomEvr(e || {}))}</div>`;
+  }).join('');
+
+  $('modal').innerHTML = `<div class="fond"><div class="modal">
+    <header>${state.mode === 'prev' ? 'Poser en prévisionnel' : 'Créer les unités d’œuvre'}
+      — ${esc(ev.Libelle || '')}</header>
+    <div class="corps">
+      ${detail}
+      <p style="margin-top:10px"><b>Ce qui sera écrit dans Grist :</b></p>
+      <ul>
+        <li>${ajouts.length} ligne${ajouts.length > 1 ? 's' : ''} ajoutée${ajouts.length > 1 ? 's' : ''}
+            dans <b>${state.mode === 'prev' ? T_ABS : T_UO}</b></li>
+        ${retraits.length ? '<li>' + retraits.length + ' ligne' + (retraits.length > 1 ? 's' : '')
+          + ' de prévisionnel retirée' + (retraits.length > 1 ? 's' : '') + '</li>' : ''}
+        ${state.mode === 'prev'
+          ? '<li>L’évaluation, le plan et les ordres de mission ne bougent pas</li>'
+          : '<li>Les dates, le RE, les ETA, les JH et les coûts de l’évaluation se mettront à jour '
+            + 'tout seuls, ainsi que le plan, la stratégie et les ordres de mission</li>'}
+      </ul>
+    </div>
+    <footer>
+      <button class="btn btn-g" data-act="annuler">Annuler</button>
+      <button class="btn btn-p" data-act="appliquer">Confirmer l’écriture</button>
+    </footer></div></div>`;
+}
+
+async function appliquer() {
+  const act = actions();
+  $('modal').innerHTML = '';
+  if (!act.length) return;
+  state.busy = true;
+  try {
+    await grist.docApi.applyUserActions(act);   // un seul lot : un seul Ctrl+Z côté Grist
+    state.lignes = [];
+    state.semaine = null;
+    await charger();
+  } catch (e) {
+    console.error(e);
+    montrerErreur('Échec de l’écriture : ' + (e.message || e));
+  } finally {
+    state.busy = false;
+  }
+}
+
+/* ------------------------------------------------------------------ événements */
+
+document.addEventListener('click', ev => {
+  const t = ev.target.closest('[data-ev],[data-sem],[data-role],[data-mode],[data-act]');
+  if (!t) return;
+  if (t.dataset.act === 'annuler') { $('modal').innerHTML = ''; return; }
+  if (t.dataset.act === 'appliquer') { appliquer(); return; }
+  if (t.dataset.act === 'enregistrer') { confirmer(); return; }
+  if (t.dataset.act === 'bascule') { state.internes = !state.internes; rendre(); return; }
+  if (t.dataset.mode) { state.mode = t.dataset.mode; rendre(); return; }
+  if (t.dataset.role) {
+    const id = +t.dataset.id;
+    if (t.dataset.role === 're') { state.re = id; if (state.et === id) state.et = null; }
+    else { state.et = id; if (state.re === id) state.re = null; }
+    rendre(); return;
+  }
+  if (t.dataset.sem !== undefined) { state.semaine = +t.dataset.sem; rendre(); return; }
+  if (t.dataset.ev) {
+    const id = +t.dataset.ev;
+    if (id !== state.evalId) { state.evalId = id; reinit(); state.evalId = id; rendre(); }
+  }
+});
+
+document.addEventListener('change', ev => {
+  const t = ev.target;
+  if (t.dataset.i === undefined) return;
+  const l = state.lignes[+t.dataset.i];
+  if (!l) return;
+  if (t.dataset.f === 'ds') l.ds = t.value;
+  else l.j = Math.max(0, Math.round(+t.value * 100) / 100);
+  majPied();
+});
+</script>
+</body>
+</html>

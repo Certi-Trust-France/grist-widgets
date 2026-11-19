@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Console client</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; color: #1e293b;
+       margin: 0; background: #f8fafc; height: 100vh; display: flex; flex-direction: column;
+       overflow: hidden; }
+
+.toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+           padding: 7px 12px; background: #1e3a8a; color: #fff; }
+.toolbar b { font-size: 13px; }
+.chip { background: rgba(255,255,255,.16); border-radius: 10px; padding: 1px 9px; font-size: 11px; }
+.chip.al { background: #b91c1c; }
+.spacer { flex: 1; }
+.onglets { flex-shrink: 0; display: flex; gap: 2px; padding: 0 10px; background: #1e3a8a; }
+.onglets button { border: none; background: rgba(255,255,255,.12); color: #dbeafe; font-size: 12px;
+                  font-weight: 600; padding: 6px 13px; border-radius: 5px 5px 0 0; cursor: pointer;
+                  font-family: inherit; }
+.onglets button.on { background: #fff; color: #1e3a8a; }
+
+#vue { flex: 1; overflow-y: auto; }
+.sect { background: #fff; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+.sect h4 { margin: 0 0 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+           color: #64748b; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.sect h4 .spacer { flex: 1; }
+.empty { padding: 28px 16px; text-align: center; color: #64748b; line-height: 1.6; }
+.err { background: #fef2f2; color: #991b1b; padding: 7px 12px; font-size: 12px;
+       border-bottom: 1px solid #fecaca; }
+
+table.t { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.t th { background: #f1f5f9; color: #475569; font-weight: 600; text-align: left; padding: 5px 8px;
+             border-bottom: 1px solid #cbd5e1; font-size: 10px; text-transform: uppercase;
+             letter-spacing: .03em; white-space: nowrap; }
+table.t td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+table.t td.n { text-align: right; white-space: nowrap; }
+table.t tr:hover td { background: #f8fafc; }
+
+.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
+.pill.ap { background: #FD9D28; color: #fff; }
+.pill.ok { background: #dcfce7; color: #166534; }
+.pill.no { background: #fee2e2; color: #991b1b; }
+.pill.wa { background: #fef3c7; color: #92400e; }
+.pill.gr { background: #e2e8f0; color: #475569; }
+
+.mod { border-bottom: 1px dashed #93c5fd; cursor: text; display: inline-block; min-width: 40px; }
+.mod:hover { background: #eff6ff; }
+.mod:focus { outline: 2px solid #1e3a8a; background: #fff; border-radius: 3px; }
+.cad { color: #94a3b8; cursor: help; font-size: 11px; }
+.lg { font-size: 11px; color: #64748b; line-height: 1.6; }
+.mu { color: #94a3b8; }
+.ko { color: #b91c1c; font-weight: 600; }
+.ok2 { color: #15803d; }
+
+.btn { border: none; border-radius: 5px; padding: 5px 13px; font-size: 12px; font-weight: 600;
+       cursor: pointer; font-family: inherit; }
+.btn-p { background: #16a34a; color: #fff; }
+.btn-b { background: #1e3a8a; color: #fff; }
+.btn-g { background: #e2e8f0; color: #334155; }
+.btn:disabled { opacity: .45; cursor: default; }
+.lien { color: #1d4ed8; cursor: pointer; font-size: 11px; }
+
+.cr { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cr textarea { width: 100%; min-height: 150px; border: 1px solid #cbd5e1; border-radius: 5px;
+               padding: 7px 9px; font-family: inherit; font-size: 12px; line-height: 1.5; resize: vertical; }
+.cr input[type=text], .cr input[type=date] { border: 1px solid #cbd5e1; border-radius: 4px;
+               padding: 3px 6px; font-family: inherit; font-size: 12px; }
+.cr label.l { display: block; font-size: 12px; padding: 3px 0; }
+.apercu { background: #0f172a; color: #e2e8f0; border-radius: 6px; padding: 11px 13px;
+          font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; max-height: 50vh; overflow-y: auto; }
+.note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 5px; padding: 8px 10px;
+        font-size: 12px; color: #78350f; line-height: 1.55; }
+#toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: #0f172a;
+         color: #fff; padding: 7px 14px; border-radius: 6px; font-size: 12px; opacity: 0;
+         transition: opacity .2s; pointer-events: none; z-index: 20; }
+#toast.on { opacity: 1; }
+.hidden { display: none; }
+@media (max-width: 860px) { .cr { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <b id="tNom">—</b>
+  <span class="chip" id="tCode"></span>
+  <span class="chip" id="tResp"></span>
+  <span class="spacer"></span>
+  <span class="chip" id="tAl"></span>
+</div>
+<div class="onglets" id="ong"></div>
+<div id="erreur" class="err hidden"></div>
+<div id="vue"><div class="empty">Chargement…</div></div>
+<div id="toast"></div>
+
+<script>
+/* ------------------------------------------------------------------ outils */
+
+const ONGLETS = [['pano','Panorama'], ['eval','Évaluations & devis'],
+                 ['aud','Auditeurs & examens'], ['ctc','Contacts'], ['cr','Compte rendu']];
+
+const state = { entId: null, D: null, onglet: 'pano', busy: false, cr: {},
+                modele: 'reunion', evalCR: null, editModele: false };
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const eur = n => (n == null || n === '') ? '—' : Number(n).toLocaleString('fr-FR') + ' €';
+const nbj = n => n == null || n === '' ? '—' : (Math.round(n * 100) / 100).toString().replace('.', ',');
+
+const dsDe = sec => (typeof sec === 'number' && sec)
+  ? new Date(sec * 1000).toISOString().slice(0, 10) : null;
+const fr = ds => ds ? ds.slice(8, 10) + '/' + ds.slice(5, 7) + '/' + ds.slice(0, 4) : '—';
+const aujourdhui = () => new Date().toISOString().slice(0, 10);
+const moisVers = ds => ds ? Math.round((new Date(ds) - new Date(aujourdhui())) / 86400000 / 30.4) : null;
+
+const lignesDe = t => (t && t.id ? t.id : []).map((id, i) => {
+  const r = { id };
+  for (const k of Object.keys(t)) r[k] = t[k][i];
+  return r;
+});
+const refs = v => (Array.isArray(v) && v[0] === 'L') ? v.slice(1).filter(x => x) : [];
+const ref1 = v => (typeof v === 'number' ? v : (v && (v.rowId || v.id)) || 0);
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2200);
+}
+function erreur(msg) {
+  const e = $('erreur');
+  e.textContent = msg || ''; e.classList.toggle('hidden', !msg);
+}
+
+/* ------------------------------------------------------------------ Grist */
+
+grist.ready({ requiredAccess: 'full' });
+
+grist.selectedTable.getTableId().then(tid => {
+  if (tid && tid !== 'Entreprises') {
+    erreur('Ce widget doit être lié à la table Entreprises. Il est lié à « ' + tid + ' ».');
+  }
+}).catch(() => {});
+
+grist.onRecord(rec => {
+  if (!rec || !rec.id) return;
+  if (rec.id === state.entId) return;
+  state.entId = rec.id;
+  state.cr = {};
+  if (!state.busy) charger();
+});
+
+const TABLES = ['Entreprises', 'Contacts', 'Cycles_services', 'Programmes', 'Evaluations',
+                'Qualification_individuelle', 'Candidats', 'Qualifications_List',
+                'Examens_ecrits', 'Examens_oraux', 'LIS_12',
+                'Unites_d_oeuvre', 'Evaluateurs', 'Documents_Referentiel'];
+
+async function charger() {
+  state.busy = true;
+  try {
+    const res = await Promise.all(TABLES.map(n => grist.docApi.fetchTable(n).catch(() => null)));
+    const D = {};
+    TABLES.forEach((n, i) => { D[n] = lignesDe(res[i]); });
+    state.D = D;
+    erreur('');
+    rendre();
+  } catch (e) {
+    console.error(e);
+    erreur('Erreur de chargement : ' + (e.message || e));
+  } finally {
+    state.busy = false;
+  }
+}
+
+async function ecrire(actions, msg) {
+  if (!actions.length) return;
+  try {
+    await grist.docApi.applyUserActions(actions);   // un lot = un seul Ctrl+Z côté Grist
+    toast(msg || 'Enregistré');
+    await charger();
+  } catch (e) {
+    console.error(e);
+    erreur('Échec de l’écriture : ' + (e.message || e));
+  }
+}
+
+/* ------------------------------------------------------------------ données */
+
+const D = () => state.D;
+const parId = (t, id) => D()[t].find(r => r.id === id) || null;
+const nomProg = id => (parId('Programmes', id) || {}).Nom_du_programme || '';
+const ent = () => parId('Entreprises', state.entId);
+
+const cycles = () => D().Cycles_services
+  .filter(c => ref1(c.Denomination) === state.entId)
+  .map(c => ({ id: c.id, prog: nomProg(ref1(c.Programme)), debut: dsDe(c.date_debut_cycle),
+               surv: dsDe(c.Date_surveillance_certification), fin: dsDe(c.date_fin_certification),
+               proch: dsDe(c.Prochaine_echeance), comm: c.Commentaires || '',
+               cert: (parId('LIS_12', ref1(c.Certificat)) || {}).Numero_de_certificat || '' }))
+  .sort((a, b) => (a.proch || '').localeCompare(b.proch || ''));
+
+const evaluations = () => D().Evaluations
+  .filter(e => ref1(e.Entreprise) === state.entId)
+  .sort((a, b) => (b.Libelle || '').localeCompare(a.Libelle || '', 'fr'));
+
+const contacts = () => D().Contacts.filter(c => ref1(c.Entreprise) === state.entId);
+
+function qualifications() {
+  const m = new Map();
+  for (const q of D().Qualification_individuelle) {
+    if (ref1(q.Denomination) !== state.entId) continue;
+    const ql = parId('Qualifications_List', ref1(q.Qualification)) || {};
+    const portee = ql.Qualifications || ql.Qualification_code || '—';
+    const prog = nomProg(ref1(q.Programme)) || '—';
+    const k = prog + '§' + portee;
+    if (!m.has(k)) m.set(k, { prog, portee, valides: 0, expire: 0, noms: [] });
+    const r = m.get(k);
+    const fin = dsDe(q.Fin_validite);
+    if (fin && fin < aujourdhui()) { r.expire++; return_noop(); }
+    else {
+      r.valides++;
+      const c = parId('Candidats', ref1(q.Candidat)) || {};
+      const nom = ((c.First_Name || '') + ' ' + (c.Last_Name || '')).trim();
+      if (nom && !r.noms.includes(nom)) r.noms.push(nom);
+    }
+  }
+  return [...m.values()].sort((a, b) =>
+    (a.prog + a.portee).localeCompare(b.prog + b.portee, 'fr'));
+}
+function return_noop() { /* la qualification expirée n'alimente pas la liste des noms */ }
+
+function examens() {
+  const out = [];
+  const grp = (tbl, type, champPasse) => {
+    const m = new Map();
+    for (const x of D()[tbl]) {
+      if (ref1(x.Denomination) !== state.entId) continue;
+      const k = nomProg(ref1(x.Programme)) || '—';
+      if (!m.has(k)) m.set(k, { type, prog: k, n: 0, ok: 0, ko: 0, avenir: 0 });
+      const r = m.get(k);
+      r.n++;
+      const s = String(x.succes_echec || '');
+      if (/succ/i.test(s)) r.ok++; else if (s) r.ko++;
+      if (champPasse && !x[champPasse]) r.avenir++;
+    }
+    out.push(...m.values());
+  };
+  grp('Examens_ecrits', 'Écrits', 'Examen_passe');
+  grp('Examens_oraux', 'Oraux', null);
+  return out;
+}
+
+function alertes() {
+  const A = [];
+  for (const c of cycles()) {
+    if (c.surv && c.surv < aujourdhui())
+      A.push({ n: 'ko', t: `${c.prog} · surveillance dépassée depuis le ${fr(c.surv)}` });
+    const m = moisVers(c.proch);
+    if (m !== null && m <= 12)
+      A.push({ n: m <= 6 ? 'ko' : 'wa',
+               t: `${c.prog} · certification échue le ${fr(c.proch)} (dans ${m} mois)` });
+  }
+  for (const e of evaluations()) if (e.Statut === 'à planifier')
+    A.push({ n: 'wa', t: `${nomProg(ref1(e.Programme))} ${(refs(e.Type_d_evaluation)[0] || '').toLowerCase()} à planifier` });
+  for (const q of qualifications()) if (q.expire)
+    A.push({ n: 'wa', t: `${q.prog} · ${q.expire} qualification(s) expirée(s) — ${q.portee}` });
+  return A;
+}
+
+/* ------------------------------------------------------------------ rendu */
+
+const cad = t => `<span class="cad" title="${esc(t)}">🔒</span>`;
+const mod = (v, tbl, id, col, titre) =>
+  `<span class="mod" contenteditable="true" data-tbl="${tbl}" data-id="${id}" data-col="${col}"
+     title="${esc(titre || 'modifiable — la valeur part dans Grist en sortant du champ')}"
+   >${esc(v == null || v === '' ? '' : v)}</span>`;
+
+function rendre() {
+  if (!state.D) return;
+  if (!state.entId || !ent()) {
+    $('vue').innerHTML = '<div class="empty">Sélectionner une entreprise.</div>';
+    return;
+  }
+  const e = ent();
+  $('tNom').textContent = e.Denomination || '';
+  $('tCode').textContent = e.code || '';
+  $('tResp').textContent = 'Compte : ' + (e.Responsable_de_compte || '—');
+  const A = alertes();
+  const g = A.filter(a => a.n === 'ko').length;
+  $('tAl').className = 'chip' + (g ? ' al' : '');
+  $('tAl').textContent = A.length
+    ? `${A.length} point${A.length > 1 ? 's' : ''} à traiter${g ? ' · ' + g + ' urgent' + (g > 1 ? 's' : '') : ''}`
+    : 'Rien à signaler';
+  $('ong').innerHTML = ONGLETS.map(([k, l]) =>
+    `<button class="${state.onglet === k ? 'on' : ''}" data-ong="${k}">${l}</button>`).join('');
+
+  $('vue').innerHTML = { pano: vuePano, eval: vueEval, aud: vueAud, ctc: vueCtc, cr: vueCR }[state.onglet]();
+  if (state.onglet === 'cr') restaurerCR();
+}
+
+function vuePano() {
+  const A = alertes();
+  const l = cycles().map(c => {
+    const m = moisVers(c.proch);
+    const survKO = c.surv && c.surv < aujourdhui();
+    return `<tr>
+      <td><b>${esc(c.prog)}</b></td>
+      <td>${fr(c.debut)} ${cad('Calculé : rédaction du rapport de l’évaluation initiale.')}</td>
+      <td>${survKO ? '<span class="ko">' + fr(c.surv) + '</span>' : fr(c.surv)}
+          ${cad('Calculé : 18 mois après le début de cycle.')}</td>
+      <td>${fr(c.fin)} ${cad('Calculé : 3 ans après le début de cycle.')}</td>
+      <td class="n">${m === null ? '—' : `<span class="pill ${m <= 6 ? 'no' : m <= 12 ? 'wa' : 'gr'}">dans ${m} mois</span>`}</td>
+      <td>${esc(c.cert || '—')}</td>
+      <td style="width:26%">${mod(c.comm, 'Cycles_services', c.id, 'Commentaires')}</td>
+    </tr>`;
+  }).join('');
+  const e = ent();
+  return `<div class="sect"><h4>À traiter avec le client</h4>
+      ${A.length ? '<ul class="lg" style="margin:0;padding-left:18px">'
+        + A.map(a => `<li class="${a.n === 'ko' ? 'ko' : ''}">${esc(a.t)}</li>`).join('') + '</ul>'
+        : '<div class="lg">Rien à signaler.</div>'}</div>
+    <div class="sect"><h4>Programmes et cycles de qualification</h4>
+      ${l ? `<table class="t"><thead><tr><th>Programme</th><th>Début de cycle</th><th>Surveillance</th>
+        <th>Fin de certification</th><th>Échéance</th><th>Certificat</th><th>Commentaire</th>
+        </tr></thead><tbody>${l}</tbody></table>` : '<div class="lg">Aucun cycle enregistré.</div>'}
+      <div class="lg" style="margin-top:7px">Les trois dates sont calculées par Grist depuis les
+        évaluations. Pour les décaler, décaler l’évaluation — c’est ce qui garantit qu’un seul
+        chiffre circule.</div></div>
+    <div class="sect"><h4>Identité</h4>
+      <div class="lg">Dénomination ${mod(e.Denomination, 'Entreprises', e.id, 'Denomination')}
+        &nbsp;·&nbsp; Code ${mod(e.code, 'Entreprises', e.id, 'code')}
+        &nbsp;·&nbsp; SIREN ${mod(e.SIREN, 'Entreprises', e.id, 'SIREN')}
+        &nbsp;·&nbsp; SIRET ${mod(e.SIRET, 'Entreprises', e.id, 'SIRET')}</div></div>`;
+}
+
+function vueEval() {
+  const l = evaluations().map(e => {
+    const t = refs(e.Type_d_evaluation)[0] || '';
+    const deb = dsDe(e.Date_Debut_prevue), fin = dsDe(e.Date_fin_prevue);
+    return `<tr>
+      <td><b>${esc(e.Libelle || '#' + e.id)}</b>
+        <div class="mu">${esc(nomProg(ref1(e.Programme)))} · ${esc(t)}</div></td>
+      <td><span class="pill ${e.Statut === 'à planifier' ? 'ap' : e.Statut === 'Terminé' ? 'gr' : 'ok'}">${esc(e.Statut || '—')}</span></td>
+      <td>${e.Signee ? '<span class="pill ok">signé</span>' : '<span class="pill no">non signé</span>'}</td>
+      <td class="n">${eur(e.Montant_Eval_Devis)}</td>
+      <td class="n">${nbj(e.JH_vendus)}</td>
+      <td class="n">${nbj(e.JH)}</td>
+      <td class="n">${(typeof e.JH_vendus === 'number' && typeof e.JH === 'number')
+          ? nbj(e.JH_vendus - e.JH) : '—'}</td>
+      <td>${deb ? fr(deb) + ' → ' + fr(fin) : '<span class="mu">non planifiée</span>'}</td>
+      <td class="mu" style="max-width:230px">${esc(e.Equipe_planning || '')}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="sect"><h4>Évaluations</h4>
+    ${l ? `<table class="t"><thead><tr><th>Évaluation</th><th>Statut</th><th>Devis</th><th>Montant</th>
+      <th>J. vendus</th><th>J. réalisés</th><th>Reste</th><th>Période</th><th>Équipe au planning</th>
+      </tr></thead><tbody>${l}</tbody></table>` : '<div class="lg">Aucune évaluation.</div>'}
+    <div class="lg" style="margin-top:7px">Jours réalisés et équipe viennent des unités d’œuvre du
+      planning. Pour poser des dates, utiliser le widget <b>Planifier</b>.</div></div>`;
+}
+
+function vueAud() {
+  const Q = qualifications();
+  const q = Q.map(r => `<tr>
+      <td><b>${esc(r.prog)}</b></td><td>${esc(r.portee)}</td>
+      <td class="n"><b>${r.valides}</b></td>
+      <td class="n">${r.expire ? '<span class="ko">' + r.expire + '</span>' : '—'}</td>
+      <td class="mu">${esc(r.noms.join(', '))}</td></tr>`).join('');
+  const ex = examens().map(e => `<tr><td>${e.type}</td><td><b>${esc(e.prog)}</b></td>
+      <td class="n">${e.n}</td><td class="n">${e.ok || '—'}</td><td class="n">${e.ko || '—'}</td>
+      <td class="n">${e.avenir || '—'}</td></tr>`).join('');
+  const pers = new Set(Q.flatMap(r => r.noms)).size;
+  const tot = Q.reduce((s, r) => s + r.valides, 0);
+  return `<div class="sect">
+      <h4>Auditeurs qualifiés par portée — ${pers} personnes, ${tot} qualifications valides</h4>
+      ${q ? `<table class="t"><thead><tr><th>Programme</th><th>Portée</th><th>Valides</th>
+        <th>Expirées</th><th>Qui</th></tr></thead><tbody>${q}</tbody></table>`
+        : '<div class="lg">Aucune qualification individuelle enregistrée.</div>'}</div>
+    <div class="sect"><h4>Examens</h4>
+      ${ex ? `<table class="t"><thead><tr><th>Type</th><th>Programme</th><th>Total</th><th>Réussis</th>
+        <th>Échoués</th><th>À venir</th></tr></thead><tbody>${ex}</tbody></table>`
+        : '<div class="lg">Aucun examen.</div>'}</div>`;
+}
+
+function vueCtc() {
+  const l = contacts().map(c => `<tr>
+      <td>${mod(c.Prenom, 'Contacts', c.id, 'Prenom')} ${mod(c.Nom, 'Contacts', c.id, 'Nom')}</td>
+      <td>${mod(c.Courriel, 'Contacts', c.id, 'Courriel')}</td>
+      <td>${mod(c.telephone, 'Contacts', c.id, 'telephone')}</td>
+      ${['Responsable_de_programme', 'Responsable_examens', 'Facturation', 'Representant_legal']
+        .map(f => `<td class="n"><input type="checkbox" ${c[f] ? 'checked' : ''}
+          data-tbl="Contacts" data-id="${c.id}" data-col="${f}" data-bool="1"></td>`).join('')}
+    </tr>`).join('');
+  return `<div class="sect"><h4>Contacts — ${contacts().length} personnes
+      <span class="spacer"></span>
+      <span class="lien" data-act="addContact">+ Ajouter un contact</span></h4>
+    ${l ? `<table class="t"><thead><tr><th>Nom</th><th>Courriel</th><th>Téléphone</th>
+      <th>Programme</th><th>Examens</th><th>Facturation</th><th>Représentant légal</th>
+      </tr></thead><tbody>${l}</tbody></table>` : '<div class="lg">Aucun contact.</div>'}
+    <div class="lg" style="margin-top:7px">La table Contacts n’a aucune colonne calculée : tout est
+      modifiable ici, et part dans Grist en sortant du champ.</div></div>`;
+}
+
+/* ------------------------------------------------- modèles de courrier */
+
+/* Les modèles sont stockés dans les options du widget : ils se modifient ici,
+   restent dans le document et suivent le widget d'un poste à l'autre. */
+const MODELES_DEFAUT = {
+  reunion: {
+    nom: 'Compte rendu de réunion',
+    texte: null,          // null = compte rendu construit par le widget
+  },
+  organisation: {
+    nom: 'Organisation de l’évaluation',
+    texte: `Bonjour à tous,
+
+Comme convenu, nous revenons vers vous pour organiser la surveillance de votre service {PROGRAMME}.
+Nous avons pour ce faire défini l’équipe et les modalités suivantes :
+Responsable d’évaluation : {RE}
+Évaluateur technique d’architecture : {ETA}
+
+Date prévue d’évaluation :
+Semaine {SEMAINE} avec une intervention prévue les {DATES_INTERVENTION}.
+
+Le devis {DEVIS_REF} qui vous a été adressé et validé le {DEVIS_DATE} précise les charges d’intervention.
+Pour établir le plan d’évaluation, pourriez-vous nous préciser la nature de la ou des prestations qualifiées que vous souhaitez présenter en soutenance ?
+
+Nous allons envoyer le plan d’évaluation à l’ANSSI cette semaine avec ces informations.
+
+Prérequis et critères d’évaluation :
+Référentiels :
+{REFERENTIELS}
+
+Corpus documentaire attendu pour la semaine {SEMAINE_CORPUS} :
+
+Processus de délivrance de prestation, manuel qualité et procédures associées
+Convention de service type, note de cadrage type, formulaire de consentement type, rapports de prestation type par activité
+Matrice de compétences, attestations individuelles de compétence, plan de formation, dossiers individuels des consultants
+Analyse de risques, PSSI, dossier d’homologation Diffusion Restreinte et sa décision, tableau de bord SSI
+Base des méthodes, outils et techniques ; registre des plaintes ; registre des incidents
+Liste exhaustive des prestations qualifiées réalisées depuis l’évaluation initiale avec les conventions de service, notes de cadrage, plans de prestation et rapports de prestation correspondants
+Plan d’actions correctives de l’évaluation initiale et preuves de mise en œuvre pour chacune des non-conformités
+Documentation d’architecture technique et fonctionnelle, cartographie réseau, documentation des configurations, politique de gestion des comptes de domaine, politique de journalisation, politique de sauvegarde
+
+Bien cordialement,
+{AUTEUR}`,
+  },
+};
+
+let MODELES = JSON.parse(JSON.stringify(MODELES_DEFAUT));
+
+grist.onOptions(opts => {
+  if (opts && opts.modeles && typeof opts.modeles === 'object') {
+    MODELES = { ...MODELES_DEFAUT, ...opts.modeles };
+    if (state.onglet === 'cr' && state.D) rendre();
+  }
+});
+
+async function sauverModeles() {
+  try {
+    await grist.setOption('modeles', MODELES);
+    toast('Modèle enregistré dans le document');
+  } catch (e) {
+    console.error(e);
+    erreur('Impossible d’enregistrer le modèle : ' + (e.message || e));
+  }
+}
+
+/* ------------------------------------------------- données du courrier */
+
+const uosDe = id => D().Unites_d_oeuvre.filter(u => ref1(u.Evaluation) === id);
+const nomEvr = id => {
+  const e = parId('Evaluateurs', id);
+  return e ? ((e.Evaluateur_Prenom || '') + ' ' + (e.Evaluateur_Nom || '')).trim() : '';
+};
+const semaineISO = ds => {
+  if (!ds) return null;
+  const t = new Date(ds + 'T00:00:00Z');
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  return Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
+};
+/* Les jours d'une UO, week-ends sautés : même règle que le planning. */
+function joursUO(u) {
+  const out = [];
+  let ds = dsDe(u.date_debut_incluse), reste = Math.max(1, Math.ceil(u.Jours || 1));
+  let garde = 0;
+  while (ds && reste > 0 && garde++ < 60) {
+    if (![0, 6].includes(new Date(ds + 'T00:00:00Z').getUTCDay())) { out.push(ds); reste--; }
+    const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1);
+    ds = d.toISOString().slice(0, 10);
+  }
+  return out;
+}
+
+function champsCourrier(ev) {
+  if (!ev) return {};
+  const uos = uosDe(ev.id);
+  const deType = (...t) => uos.filter(u => t.includes(u.Unite_d_oeuvre));
+  const siege = deType('évaluation siège');
+  const jSiege = siege.flatMap(joursUO).sort();
+  const sem = semaineISO(jSiege[0]);
+  const re = ref1(ev.RE) || siege.map(u => ref1(u.RE)).find(Boolean)
+             || uos.map(u => ref1(u.RE)).find(Boolean);
+  const eta = [...new Set(uos.flatMap(u => refs(u.ETA)))];
+  const etm = [...new Set(uos.flatMap(u => refs(u.ETM)))];
+  const prog = parId('Programmes', ref1(ev.Programme)) || {};
+  const refDocs = [...refs(prog.Referentiel), ref1(prog.Trame)]
+    .map(i => parId('Documents_Referentiel', i))
+    .filter(d => d && d.Document_Name)
+    .map(d => d.Document_Name + (d.Version ? ', version ' + d.Version : ''));
+  const sig = String(ev.Signee || '');
+  const dSig = (sig.match(/(\d{2}\/\d{2}\/\d{4})/) || [])[1] || '';
+  const lanc = deType('Journée de lancement').flatMap(joursUO).sort();
+  const clot = deType('Réunion de clôture').flatMap(joursUO).sort();
+  const rap  = deType('Rédaction du rapport').flatMap(joursUO).sort();
+  return {
+    ENTREPRISE: ent().Denomination || '',
+    PROGRAMME: nomProg(ref1(ev.Programme)),
+    TYPE: (refs(ev.Type_d_evaluation)[0] || '').toLowerCase(),
+    EVALUATION: ev.Libelle || '',
+    RE: re ? nomEvr(re) : '',
+    ETA: eta.map(nomEvr).filter(Boolean).join(', '),
+    ETM: etm.map(nomEvr).filter(Boolean).join(', '),
+    EQUIPE: ev.Equipe_planning || '',
+    SEMAINE: sem || '',
+    SEMAINE_CORPUS: sem ? sem - 2 : '',
+    DATES_INTERVENTION: jSiege.map(d => d.slice(8, 10) + '/' + d.slice(5, 7)).join(' et '),
+    DATE_LANCEMENT: fr(lanc[0]),
+    DATE_SIEGE: fr(jSiege[0]),
+    DATE_CLOTURE: fr(clot[0]),
+    DATE_RAPPORT: fr(rap[rap.length - 1]),
+    DEVIS_REF: ev.Ref_proposition || '',
+    DEVIS_DATE: dSig,
+    MONTANT: ev.Montant_Eval_Devis ? eur(ev.Montant_Eval_Devis) : '',
+    JOURS_VENDUS: nbj(ev.JH_vendus),
+    REFERENTIELS: refDocs.join('\n'),
+    DATE_DU_JOUR: fr(aujourdhui()),
+    AUTEUR: ($('crAuteur') ? $('crAuteur').value : '') || '',
+  };
+}
+
+/* Un champ sans valeur devient « à compléter » : la trace reste visible à la relecture. */
+function resoudre(texte, champs) {
+  const manquants = new Set();
+  const out = texte.replace(/\{([A-Z_]+)\}/g, (m, k) => {
+    const v = champs[k];
+    if (v === undefined) return m;
+    if (v === '' || v === null) { manquants.add(k); return '[à compléter : ' + k.toLowerCase() + ']'; }
+    return v;
+  });
+  return { out, manquants: [...manquants] };
+}
+
+/* ---------------------------------------------------------- compte rendu */
+
+function odjAuto() {
+  const o = [];
+  for (const c of cycles()) {
+    if (c.surv && c.surv < aujourdhui())
+      o.push(`${c.prog} — surveillance dépassée depuis le ${fr(c.surv)}`);
+    const m = moisVers(c.proch);
+    if (m !== null && m <= 18)
+      o.push(`${c.prog} — renouvellement à prévoir, certification échue le ${fr(c.proch)}`);
+  }
+  for (const e of evaluations()) if (e.Statut === 'à planifier')
+    o.push(`${nomProg(ref1(e.Programme))} ${(refs(e.Type_d_evaluation)[0] || '').toLowerCase()} — dates à caler`
+      + (typeof e.JH_vendus === 'number' ? ` (${nbj(e.JH_vendus)} jours vendus)` : ''));
+  for (const q of qualifications()) if (q.expire)
+    o.push(`${q.prog} — ${q.portee} : ${q.expire} qualification(s) à renouveler`);
+  return o;
+}
+
+function vueCR() {
+  const C = contacts();
+  const odj = odjAuto();
+  const evs = evaluations().filter(e => e.Statut !== 'Terminé' && e.Statut !== 'Annulé');
+  if (!state.modele) state.modele = 'reunion';
+  if (!state.evalCR && evs.length) state.evalCR = evs[0].id;
+  const m = MODELES[state.modele] || MODELES.reunion;
+  const libre = m.texte != null;
+
+  const choixModele = `<label class="lg">Modèle<br>
+    <select id="crModele" style="padding:3px 5px">
+      ${Object.entries(MODELES).map(([k, v]) =>
+        `<option value="${k}" ${state.modele === k ? 'selected' : ''}>${esc(v.nom)}</option>`).join('')}
+    </select></label>`;
+  const choixEval = libre ? `<label class="lg">Évaluation concernée<br>
+    <select id="crEval" style="padding:3px 5px;max-width:260px">
+      ${evs.map(e => `<option value="${e.id}" ${state.evalCR === e.id ? 'selected' : ''}
+        >${esc(e.Libelle || '#' + e.id)}</option>`).join('')
+        || '<option value="">aucune évaluation en cours</option>'}
+    </select></label>` : '';
+
+  if (libre) return `<div class="sect"><h4>Courrier au client
+      <span class="spacer"></span>
+      <span class="lien" data-act="editModele">${state.editModele ? 'Fermer l’éditeur' : 'Modifier le modèle'}</span></h4>
+    ${state.editModele ? editeurModele(m) : ''}
+    <div class="cr">
+      <div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          ${choixModele}${choixEval}
+          <label class="lg">Signé par<br><input type="text" id="crAuteur" style="width:170px"></label>
+        </div>
+        <div class="lg" style="margin-bottom:3px"><b>Destinataires</b></div>
+        <div style="margin-bottom:10px;max-height:120px;overflow-y:auto">
+          ${C.map(c => `<label class="l"><input type="checkbox" class="part"
+            data-n="${esc(((c.Prenom || '') + ' ' + (c.Nom || '')).trim())}"
+            data-m="${esc(c.Courriel || '')}" ${c.Responsable_de_programme ? 'checked' : ''}>
+            ${esc(((c.Prenom || '') + ' ' + (c.Nom || '')).trim())}
+            <span class="mu">${esc(c.Courriel || '')}</span></label>`).join('')
+            || '<span class="mu">Aucun contact enregistré.</span>'}
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <button class="btn btn-b" data-act="genCR">Générer</button>
+          <button class="btn btn-g" data-act="copyCR">Copier</button>
+          <button class="btn btn-g" data-act="mailCR">Ouvrir dans le courriel</button>
+        </div>
+        <div class="lg" id="crManque" style="margin-top:7px"></div>
+      </div>
+      <div>
+        <div class="lg" style="margin-bottom:3px"><b>Aperçu — modifiable avant envoi</b></div>
+        <textarea id="crTexte" style="min-height:52vh;font-size:12px"></textarea>
+      </div>
+    </div></div>`;
+
+  return `<div class="sect"><h4>Compte rendu de réunion
+      <span class="spacer"></span>
+      <span class="lien" data-act="editModele">${state.editModele ? 'Fermer l’éditeur' : 'Modifier les modèles'}</span></h4>
+    ${state.editModele ? editeurModele(m) : ''}
+    <div class="cr">
+      <div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          ${choixModele}
+          <label class="lg">Date<br><input type="date" id="crDate" value="${aujourdhui()}"></label>
+          <label class="lg">Objet<br><input type="text" id="crObjet" style="width:230px"
+            value="Point de suivi qualification"></label>
+          <label class="lg">Rédigé par<br><input type="text" id="crAuteur" style="width:170px"></label>
+        </div>
+        <div class="lg" style="margin-bottom:3px"><b>Participants</b></div>
+        <div style="margin-bottom:10px;max-height:130px;overflow-y:auto">
+          ${C.map(c => `<label class="l"><input type="checkbox" class="part"
+            data-n="${esc(((c.Prenom || '') + ' ' + (c.Nom || '')).trim())}"
+            data-m="${esc(c.Courriel || '')}">
+            ${esc(((c.Prenom || '') + ' ' + (c.Nom || '')).trim())}
+            <span class="mu">${esc(c.Courriel || '')}</span></label>`).join('')
+            || '<span class="mu">Aucun contact enregistré.</span>'}
+        </div>
+        <div class="lg" style="margin-bottom:3px"><b>Ordre du jour proposé</b>
+          <span class="mu">— construit depuis les données du client</span></div>
+        <div style="margin-bottom:10px">
+          ${odj.map(t => `<label class="l"><input type="checkbox" checked class="odjc"
+            data-t="${esc(t)}"> ${esc(t)}</label>`).join('')
+            || '<span class="mu">Rien à signaler.</span>'}
+        </div>
+        <div class="lg" style="margin-bottom:3px"><b>Notes et décisions</b></div>
+        <textarea id="crNotes" placeholder="Ce qui s’est dit, les décisions, qui fait quoi…"></textarea>
+        <div style="margin-top:8px;display:flex;gap:7px;flex-wrap:wrap">
+          <button class="btn btn-b" data-act="genCR">Générer</button>
+          <button class="btn btn-g" data-act="copyCR">Copier</button>
+          <button class="btn btn-g" data-act="mailCR">Ouvrir dans le courriel</button>
+          <button class="btn btn-p" disabled title="Aucune table ne peut l’accueillir aujourd’hui">
+            Enregistrer dans Grist</button>
+        </div>
+      </div>
+      <div>
+        <div class="lg" style="margin-bottom:3px"><b>Aperçu — modifiable avant envoi</b></div>
+        <textarea id="crTexte" style="min-height:48vh;font-size:12px"></textarea>
+      </div>
+    </div>
+    <div class="note" style="margin-top:12px"><b>Enregistrement indisponible :</b> aucune table du
+      document n’accueille un compte rendu de réunion. Il faudrait une table
+      <b>Comptes_rendus</b> — entreprise, date, objet, participants, contenu, envoyé le.
+      Le bouton s’activera une fois cette table créée.</div></div>`;
+}
+
+/* L'éditeur de modèle écrit dans les options du widget, pas dans le code. */
+function editeurModele(m) {
+  if (m.texte == null) {
+    return `<div class="note" style="margin-bottom:10px">Le compte rendu de réunion est construit
+      par le widget à partir des données du client : il n’a pas de modèle texte à modifier.
+      Choisis un autre modèle pour l’éditer, ou pars du bouton ci-dessous.
+      <div style="margin-top:7px"><button class="btn btn-g" data-act="nouveauModele">
+        Créer un modèle à partir de celui-ci</button></div></div>`;
+  }
+  const champs = ['ENTREPRISE', 'PROGRAMME', 'TYPE', 'EVALUATION', 'RE', 'ETA', 'ETM', 'EQUIPE',
+    'SEMAINE', 'SEMAINE_CORPUS', 'DATES_INTERVENTION', 'DATE_LANCEMENT', 'DATE_SIEGE',
+    'DATE_CLOTURE', 'DATE_RAPPORT', 'DEVIS_REF', 'DEVIS_DATE', 'MONTANT', 'JOURS_VENDUS',
+    'REFERENTIELS', 'DATE_DU_JOUR', 'AUTEUR'];
+  return `<div style="border:1px solid #cbd5e1;border-radius:6px;padding:10px;margin-bottom:11px;
+       background:#f8fafc">
+    <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end;margin-bottom:7px">
+      <label class="lg">Nom du modèle<br>
+        <input type="text" id="mdNom" value="${esc(m.nom)}" style="width:260px"></label>
+      <span class="spacer"></span>
+      <button class="btn btn-p" data-act="saveModele">Enregistrer le modèle</button>
+      <button class="btn btn-g" data-act="resetModele">Revenir au modèle d’origine</button>
+      <button class="btn btn-g" data-act="nouveauModele">Dupliquer</button>
+    </div>
+    <textarea id="mdTexte" style="min-height:240px;font-family:ui-monospace,Menlo,monospace;
+      font-size:11.5px">${esc(m.texte)}</textarea>
+    <div class="lg" style="margin-top:6px"><b>Champs disponibles</b> — à écrire entre accolades :
+      ${champs.map(c => `<code style="background:#e2e8f0;border-radius:3px;padding:0 4px;
+        margin-right:3px;cursor:pointer" data-act="insChamp" data-c="${c}">{${c}}</code>`).join('')}
+    </div></div>`;
+}
+
+function texteCR() {
+  const e = ent();
+  const parts = [...document.querySelectorAll('.part:checked')].map(c => c.dataset.n);
+  const pts = [...document.querySelectorAll('.odjc:checked')].map(c => c.dataset.t);
+  const notes = ($('crNotes').value || '').trim();
+  const auteur = ($('crAuteur').value || '').trim();
+  const evs = evaluations().filter(x => x.Statut !== 'Terminé');
+  return [
+    'COMPTE RENDU DE RÉUNION', '',
+    (e.Denomination || '') + (e.code ? ' (' + e.code + ')' : ''),
+    'Objet : ' + ($('crObjet').value || ''),
+    'Date : ' + fr($('crDate').value),
+    'Participants : ' + (parts.join(', ') || '—'), '',
+    'SITUATION AU ' + fr(aujourdhui()),
+    ...cycles().map(c => `  • ${c.prog} — cycle ouvert le ${fr(c.debut)}, surveillance ${fr(c.surv)}, `
+      + `certification jusqu’au ${fr(c.fin)}`),
+    '', 'POINTS ABORDÉS',
+    ...(pts.length ? pts.map((p, i) => `  ${i + 1}. ${p}`) : ['  —']),
+    '', 'NOTES ET DÉCISIONS',
+    notes ? notes.split('\n').map(l => '  ' + l).join('\n') : '  —',
+    '', 'ÉVALUATIONS EN COURS',
+    ...(evs.length ? evs.map(x => `  • ${x.Libelle} — ${x.Statut}`
+      + (typeof x.JH_vendus === 'number' ? `, ${nbj(x.JH_vendus)} j vendus dont ${nbj(x.JH)} réalisés` : '')
+      + (dsDe(x.Date_Debut_prevue) ? `, du ${fr(dsDe(x.Date_Debut_prevue))} au ${fr(dsDe(x.Date_fin_prevue))}`
+                                   : ', non planifiée')) : ['  —']),
+    '', auteur ? 'Rédigé par ' + auteur + ' — Certi-Trust FRANCE SAS' : 'Certi-Trust FRANCE SAS',
+  ].join('\n');
+}
+
+/* Génération : soit le compte rendu construit par le widget, soit un modèle à champs. */
+function genererTexte() {
+  const m = MODELES[state.modele] || MODELES.reunion;
+  if (m.texte == null) { $('crTexte').value = texteCR(); $('crManque') && ($('crManque').innerHTML = ''); return; }
+  const ev = evaluations().find(e => e.id === state.evalCR);
+  const { out, manquants } = resoudre(m.texte, champsCourrier(ev));
+  $('crTexte').value = out;
+  if ($('crManque')) {
+    $('crManque').innerHTML = manquants.length
+      ? `<span class="ko">${manquants.length} champ(s) sans valeur :</span> `
+        + manquants.map(k => k.toLowerCase()).join(', ')
+        + ` — le plus souvent parce que l’évaluation n’est pas encore planifiée.`
+      : '<span class="ok2">Tous les champs sont renseignés.</span>';
+  }
+}
+
+function objetCourrier() {
+  const m = MODELES[state.modele] || MODELES.reunion;
+  const e = ent().Denomination || '';
+  if (m.texte == null) return `Compte rendu — ${e} — ${($('crObjet') || {}).value || ''}`;
+  const ev = evaluations().find(x => x.id === state.evalCR);
+  return `${e} — ${m.nom}${ev ? ' — ' + nomProg(ref1(ev.Programme)) : ''}`;
+}
+
+/* La saisie est conservée en mémoire : un changement d'onglet reconstruit le DOM. */
+function memoriserCR() {
+  if (!$('crTexte')) return;
+  state.cr = {
+    date: ($('crDate') || {}).value, objet: ($('crObjet') || {}).value,
+    auteur: ($('crAuteur') || {}).value, notes: ($('crNotes') || {}).value,
+    parts: [...document.querySelectorAll('.part')].map(c => c.checked),
+    odj: [...document.querySelectorAll('.odjc')].map(c => c.checked),
+    sortie: $('crTexte').value,
+  };
+}
+function restaurerCR() {
+  const s = state.cr;
+  if (!s || !$('crTexte')) return;
+  if ($('crDate') && s.date) $('crDate').value = s.date;
+  if ($('crObjet') && s.objet) $('crObjet').value = s.objet;
+  if ($('crAuteur')) $('crAuteur').value = s.auteur || '';
+  if ($('crNotes')) $('crNotes').value = s.notes || '';
+  document.querySelectorAll('.part').forEach((c, i) => { if (s.parts) c.checked = !!s.parts[i]; });
+  document.querySelectorAll('.odjc').forEach((c, i) => { if (s.odj) c.checked = !!s.odj[i]; });
+  if (s.sortie) $('crTexte').value = s.sortie;
+}
+
+/* ------------------------------------------------------------------ actions */
+
+document.addEventListener('click', async ev => {
+  const t = ev.target.closest('[data-ong],[data-act]');
+  if (!t) return;
+  if (t.dataset.ong) {
+    memoriserCR();
+    state.onglet = t.dataset.ong;
+    rendre();
+    return;
+  }
+  const a = t.dataset.act;
+  if (a === 'addContact') {
+    await ecrire([['AddRecord', 'Contacts', null, { Entreprise: state.entId }]], 'Contact ajouté');
+  } else if (a === 'genCR') {
+    genererTexte();
+  } else if (a === 'copyCR') {
+    try { await navigator.clipboard.writeText($('crTexte').value); toast('Texte copié'); }
+    catch (e) { toast('Copie impossible : sélectionner le texte à la main'); }
+  } else if (a === 'mailCR') {
+    if (!$('crTexte').value.trim()) genererTexte();
+    const dest = [...document.querySelectorAll('.part:checked')]
+      .map(c => c.dataset.m).filter(Boolean).join(',');
+    window.open(`mailto:${dest}?subject=${encodeURIComponent(objetCourrier())}`
+      + `&body=${encodeURIComponent($('crTexte').value)}`, '_blank');
+  } else if (a === 'editModele') {
+    memoriserCR(); state.editModele = !state.editModele; rendre();
+  } else if (a === 'saveModele') {
+    const m = MODELES[state.modele];
+    m.nom = $('mdNom').value.trim() || m.nom;
+    m.texte = $('mdTexte').value;
+    await sauverModeles();
+    memoriserCR(); rendre();
+  } else if (a === 'resetModele') {
+    if (MODELES_DEFAUT[state.modele]) {
+      MODELES[state.modele] = JSON.parse(JSON.stringify(MODELES_DEFAUT[state.modele]));
+      await sauverModeles(); rendre();
+    } else { toast('Ce modèle n’a pas d’original : il a été créé ici.'); }
+  } else if (a === 'nouveauModele') {
+    const src = MODELES[state.modele];
+    const cle = 'm' + Date.now().toString(36);
+    MODELES[cle] = { nom: (src.nom || 'Modèle') + ' (copie)',
+                     texte: src.texte != null ? src.texte : 'Bonjour,\n\n{ENTREPRISE}\n' };
+    state.modele = cle; state.editModele = true;
+    await sauverModeles(); rendre();
+  } else if (a === 'insChamp') {
+    const ta = $('mdTexte');
+    if (!ta) return;
+    const p = ta.selectionStart || 0;
+    ta.value = ta.value.slice(0, p) + '{' + t.dataset.c + '}' + ta.value.slice(ta.selectionEnd || p);
+    ta.focus(); ta.selectionStart = ta.selectionEnd = p + t.dataset.c.length + 2;
+  }
+});
+
+/* Changement de modèle ou d'évaluation : on régénère pour que l'aperçu suive. */
+document.addEventListener('change', ev => {
+  if (ev.target.id === 'crModele') {
+    memoriserCR(); state.modele = ev.target.value; state.cr.sortie = ''; rendre();
+    if ($('crTexte')) genererTexte();
+  } else if (ev.target.id === 'crEval') {
+    state.evalCR = +ev.target.value || null;
+    genererTexte();
+  }
+});
+
+/* Édition sur place : on n'écrit qu'à la sortie du champ, et seulement si la valeur a changé. */
+document.addEventListener('focusin', ev => {
+  if (ev.target.classList && ev.target.classList.contains('mod')) {
+    ev.target.dataset.avant = ev.target.textContent;
+  }
+});
+document.addEventListener('focusout', async ev => {
+  const el = ev.target;
+  if (!el.classList || !el.classList.contains('mod')) return;
+  const v = el.textContent.trim();
+  if (v === (el.dataset.avant || '').trim()) return;
+  const col = el.dataset.col;
+  let val = v === '' ? null : v;
+  if (['SIREN'].includes(col)) val = v === '' ? null : Number(v.replace(/\s/g, '')) || null;
+  await ecrire([['UpdateRecord', el.dataset.tbl, +el.dataset.id, { [col]: val }]], 'Modifié');
+});
+document.addEventListener('change', async ev => {
+  const el = ev.target;
+  if (el.dataset && el.dataset.bool) {
+    await ecrire([['UpdateRecord', el.dataset.tbl, +el.dataset.id,
+                   { [el.dataset.col]: el.checked }]], 'Modifié');
+  }
+});
+</script>
+</body>
+</html>
