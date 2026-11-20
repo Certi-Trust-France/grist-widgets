@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Suivi des évaluations</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; color: #1e293b;
+       margin: 0; background: #eef2f7; height: 100vh; display: flex; flex-direction: column;
+       overflow: hidden; }
+
+.toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+           padding: 7px 12px; background: #1e3a8a; color: #fff; }
+.toolbar b { font-size: 13px; }
+.chip { background: rgba(255,255,255,.16); border-radius: 10px; padding: 1px 9px; font-size: 11px; }
+.chip.al { background: #b91c1c; }
+.spacer { flex: 1; }
+.onglets { flex-shrink: 0; display: flex; gap: 2px; padding: 0 10px; background: #1e3a8a; }
+.onglets button { border: none; background: rgba(255,255,255,.12); color: #dbeafe; font-size: 12px;
+                  font-weight: 600; padding: 6px 13px; border-radius: 5px 5px 0 0; cursor: pointer;
+                  font-family: inherit; }
+.onglets button.on { background: #eef2f7; color: #1e3a8a; }
+
+.filtres { flex-shrink: 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+           padding: 7px 12px; background: #fff; border-bottom: 1px solid #cbd5e1; font-size: 12px; }
+.filtres select, .filtres input[type=search] { border: 1px solid #cbd5e1; border-radius: 4px;
+           padding: 3px 6px; font-family: inherit; font-size: 12px; }
+.filtres label { color: #64748b; font-size: 11px; }
+.err { background: #fef2f2; color: #991b1b; padding: 6px 12px; font-size: 12px;
+       border-bottom: 1px solid #fecaca; }
+
+#zone { flex: 1; overflow: auto; padding: 10px; }
+.empty { padding: 30px; text-align: center; color: #64748b; line-height: 1.6; }
+
+.board { display: flex; gap: 9px; align-items: flex-start; min-height: 100%; }
+.col { flex: 0 0 212px; background: #e2e8f0; border-radius: 7px; padding: 6px; }
+.col.drop { background: #dbeafe; outline: 2px dashed #1e3a8a; }
+.col h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+          color: #475569; display: flex; align-items: center; gap: 6px; padding: 0 2px; }
+.col h3 .n { background: #cbd5e1; border-radius: 9px; padding: 0 6px; font-size: 10px; }
+.col h3 .abs { color: #b45309; cursor: help; }
+.col.fini { flex: 0 0 152px; opacity: .72; }
+
+.carte { background: #fff; border-radius: 6px; padding: 7px 8px; margin-bottom: 6px;
+         box-shadow: 0 1px 2px rgba(15,23,42,.1); cursor: pointer; border-left: 3px solid #94a3b8; }
+.carte:hover { box-shadow: 0 2px 7px rgba(15,23,42,.18); }
+.carte.sel { outline: 2px solid #1e3a8a; }
+.carte .cli { font-weight: 600; font-size: 12.5px; line-height: 1.25; }
+.carte .meta { font-size: 10.5px; color: #64748b; margin-top: 1px; }
+.carte .bas { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 10.5px;
+              color: #475569; flex-wrap: wrap; }
+.tri { background: #1e3a8a; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 10px;
+       font-weight: 600; }
+.tri.et { background: #0891b2; }
+.bar { height: 4px; background: #e2e8f0; border-radius: 2px; margin-top: 5px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: #2563eb; }
+.al { color: #b91c1c; font-size: 10.5px; margin-top: 4px; }
+.pac { border-left-color: #2563eb; } .pas { border-left-color: #0891b2; }
+.pam { border-left-color: #7c3aed; } .pdi { border-left-color: #c2410c; }
+.pri { border-left-color: #15803d; } .sec { border-left-color: #a16207; }
+
+#panneau { position: fixed; top: 0; right: 0; width: 420px; max-width: 94vw; height: 100vh;
+           background: #fff; box-shadow: -4px 0 18px rgba(15,23,42,.2); display: flex;
+           flex-direction: column; transform: translateX(100%); transition: transform .18s; z-index: 10; }
+#panneau.on { transform: none; }
+#panneau header { padding: 10px 12px; background: #1e3a8a; color: #fff; display: flex; gap: 8px;
+                  align-items: flex-start; }
+#panneau header b { font-size: 13px; }
+#panneau .corps { flex: 1; overflow-y: auto; padding: 11px 12px; }
+#panneau h5 { margin: 12px 0 5px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+              color: #64748b; }
+#panneau h5:first-child { margin-top: 0; }
+.kv { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 2px 0;
+      border-bottom: 1px solid #f1f5f9; }
+.kv b { font-weight: 600; text-align: right; }
+.jal { display: flex; gap: 7px; align-items: center; font-size: 11.5px; padding: 3px 0;
+       border-bottom: 1px solid #f8fafc; }
+.jal .p { width: 14px; }
+.jal.ok .p::before { content: '✔'; color: #16a34a; }
+.jal .d { color: #64748b; width: 68px; }
+.jal .n { margin-left: auto; color: #94a3b8; white-space: nowrap; }
+.btn { border: none; border-radius: 5px; padding: 5px 11px; font-size: 11.5px; font-weight: 600;
+       cursor: pointer; font-family: inherit; text-decoration: none; display: inline-block; }
+.btn-b { background: #1e3a8a; color: #fff; } .btn-g { background: #e2e8f0; color: #334155; }
+.fermer { margin-left: auto; background: rgba(255,255,255,.2); color: #fff; border: none;
+          border-radius: 4px; width: 24px; height: 24px; cursor: pointer; font-size: 14px; }
+
+.frise { background: #fff; border-radius: 6px; padding: 10px 12px; }
+table.fr { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.fr th { text-align: left; font-size: 10px; text-transform: uppercase; color: #64748b;
+              padding: 4px 6px; border-bottom: 1px solid #cbd5e1; }
+table.fr td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+.ligne { position: relative; height: 16px; background: #f1f5f9; border-radius: 3px; }
+.ligne i { position: absolute; top: 3px; height: 10px; border-radius: 2px; background: #bfdbfe; }
+.ligne .pt { position: absolute; top: 1px; width: 2px; height: 14px; background: #1e3a8a; }
+.ligne .pt.ko { background: #dc2626; width: 3px; }
+.ligne .pt.ok { background: #16a34a; }
+.ligne .pt.auj { background: #f59e0b; }
+.lg { font-size: 11px; color: #64748b; line-height: 1.5; }
+.mu { color: #94a3b8; } .ko { color: #b91c1c; } .ok2 { color: #15803d; }
+#toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: #0f172a;
+         color: #fff; padding: 7px 14px; border-radius: 6px; font-size: 12px; opacity: 0;
+         transition: opacity .2s; pointer-events: none; z-index: 20; }
+#toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <b>📋 Suivi des évaluations</b>
+  <span class="chip" id="tN"></span>
+  <span class="chip al" id="tA" style="display:none"></span>
+  <span class="spacer"></span>
+  <span class="chip" id="tM"></span>
+</div>
+<div class="onglets" id="ong"></div>
+<div id="erreur" class="err" style="display:none"></div>
+<div class="filtres" id="filtres"></div>
+<div id="zone"><div class="empty">Chargement…</div></div>
+
+<div id="panneau"></div>
+<div id="toast"></div>
+
+<script>
+/* Colonnes du tableau. Les quatre premières et la dernière reprennent au caractère près les
+   choix existants de Evaluations.Statut ; les quatre autres sont les étapes fines proposées.
+   Tant qu'un libellé n'existe pas dans le Choice Grist, sa colonne s'affiche mais le dépôt
+   y est refusé : on n'écrit jamais une valeur que la colonne n'accepte pas. */
+const COLONNES = ['En attente devis', 'à planifier', 'Planifiée', 'En cours',
+                  'Rédaction', 'Facturation', 'Attente ANSSI', 'Terminé'];
+const FINES = ['Planifiée', 'Rédaction', 'Facturation', 'Attente ANSSI'];
+const CLASSE = { PACS: 'pac', PASSI: 'pas', 'PASSI_2.0': 'pas', PAMS: 'pam', PDIS: 'pdi',
+                 PRIS: 'pri', SecNumCloud: 'sec' };
+const SITE = ['Journée de lancement', 'évaluation siège', 'évaluation prestation témoin',
+              'Réunion de clôture'];
+const TABLES = ['Evaluations', 'Entreprises', 'Programmes', 'Evaluateurs', 'Unites_d_oeuvre',
+                'Propositions_prestation', 'Cycles_services', '_grist_Tables',
+                '_grist_Tables_column'];
+
+const S = { D: null, cartes: [], cycles: [], choix: [], onglet: 'board', sel: null, busy: false,
+            prog: '', re: '', alertes: false, q: '', fini: false, docUrl: '', curseurOK: null };
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nb = v => (typeof v === 'number' ? v : 0);
+const eur = n => !n ? '—' : Math.round(n).toLocaleString('fr-FR') + ' €';
+const nbj = n => n == null ? '—' : (Math.round(n * 100) / 100).toString().replace('.', ',');
+const dsDe = sec => (typeof sec === 'number' && sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null;
+const fr = ds => ds ? ds.slice(8, 10) + '/' + ds.slice(5, 7) + '/' + ds.slice(2, 4) : '—';
+const frl = ds => ds ? ds.slice(8, 10) + '/' + ds.slice(5, 7) + '/' + ds.slice(0, 4) : '—';
+const AUJ = () => new Date().toISOString().slice(0, 10);
+const plus1 = ds => { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1);
+                      return d.toISOString().slice(0, 10); };
+const lignesDe = t => (t && t.id ? t.id : []).map((id, i) => {
+  const r = { id }; for (const k of Object.keys(t)) r[k] = t[k][i]; return r; });
+const refs = v => (Array.isArray(v) && v[0] === 'L') ? v.slice(1).filter(x => x) : [];
+const ref1 = v => (typeof v === 'number' ? v : (v && (v.rowId || v.id)) || 0);
+
+function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600); }
+function erreur(m) { const e = $('erreur'); e.textContent = m || ''; e.style.display = m ? '' : 'none'; }
+
+/* ------------------------------------------------------------------ Grist */
+
+grist.ready({ requiredAccess: 'full', allowSelectBy: true });
+grist.onOptions(o => { S.docUrl = ((o && o.docUrl) || '').replace(/\/+$/, ''); if (S.D) rendre(); });
+grist.onRecord(rec => { if (rec && rec.id) { S.sel = rec.id; if (S.D) rendre(false); } });
+
+grist.selectedTable.getTableId().then(t => {
+  if (t && t !== 'Evaluations')
+    erreur('Ce widget doit être lié à la table Evaluations. Il est lié à « ' + t + ' ».');
+}).catch(() => {});
+
+async function charger() {
+  S.busy = true;
+  try {
+    const res = await Promise.all(TABLES.map(n => grist.docApi.fetchTable(n).catch(() => null)));
+    const D = {}; TABLES.forEach((n, i) => { D[n] = lignesDe(res[i]); });
+    S.D = D;
+    const tb = D._grist_Tables.find(t => t.tableId === 'Evaluations');
+    const col = D._grist_Tables_column.find(c => c.parentId === tb?.id && c.colId === 'Statut');
+    try { S.choix = JSON.parse(col?.widgetOptions || '{}').choices || []; } catch (e) { S.choix = []; }
+    construire();
+    erreur('');
+    rendre();
+  } catch (e) {
+    console.error(e);
+    erreur('Erreur de chargement : ' + (e.message || e));
+  } finally { S.busy = false; }
+}
+
+/* ------------------------------------------------------------- préparation */
+
+const parId = (t, id) => S.D[t].find(r => r.id === id) || null;
+const nomProg = id => (parId('Programmes', id) || {}).Nom_du_programme || '';
+const tri = id => { const e = parId('Evaluateurs', id); return e
+  ? (e.Evaluateur_Trigramme || (e.Evaluateur_Nom || '').slice(0, 3).toUpperCase()) : ''; };
+
+/* Les jours d'une unité d'œuvre, week-ends sautés — même règle que le planning. */
+function joursUO(u) {
+  const out = []; let ds = dsDe(u.date_debut_incluse);
+  let reste = Math.max(1, Math.ceil(nb(u.Jours) || 1)), garde = 0;
+  while (ds && reste > 0 && garde++ < 60) {
+    if (![0, 6].includes(new Date(ds + 'T00:00:00Z').getUTCDay())) { out.push(ds); reste--; }
+    ds = plus1(ds);
+  }
+  return out;
+}
+
+function construire() {
+  const auj = AUJ();
+  S.cartes = S.D.Evaluations.filter(e => e.Statut !== 'Annulé').map(e => {
+    const uos = S.D.Unites_d_oeuvre.filter(u => ref1(u.Evaluation) === e.id)
+      .map(u => ({ u, js: joursUO(u) }))
+      .sort((a, b) => (a.js[0] || '9999').localeCompare(b.js[0] || '9999'));
+    const dates = uos.flatMap(x => x.js).sort();
+    const tot = uos.reduce((s, x) => s + nb(x.u.Jours), 0);
+    const fait = uos.reduce((s, x) => s + (x.js.length && x.js[x.js.length - 1] < auj ? nb(x.u.Jours) : 0), 0);
+    const jrs = t => uos.filter(x => t.includes(x.u.Unite_d_oeuvre)).flatMap(x => x.js).sort();
+    const lanc = jrs(['Journée de lancement']), site = jrs(SITE), rap = jrs(['Rédaction du rapport']);
+    const po = parId('Propositions_prestation', ref1(e.PO)) || {};
+    const reste = nb(po.Reste_a_facturer), facture = nb(po.Facture);
+    const ent = parId('Entreprises', ref1(e.Entreprise)) || {};
+    const ets = [...new Set(uos.flatMap(x => [...refs(x.u.ETA), ...refs(x.u.ETM)]).map(tri))].filter(Boolean);
+    const re = tri(ref1(e.RE)) || tri(uos.map(x => ref1(x.u.RE)).find(Boolean) || 0);
+
+    const al = [];
+    if (!e.Signee && e.Statut !== 'En attente devis') al.push('devis non signé');
+    if (!dates.length && ['à planifier', 'En cours'].includes(e.Statut)) al.push('aucune date posée');
+    if (uos.some(x => !ref1(x.u.RE) && !refs(x.u.ETA).length && !refs(x.u.ETM).length))
+      al.push('UO sans personne');
+    if (e.Statut === 'Terminé' && reste > 1) al.push('reste à facturer');
+    if (e.Statut === 'En cours' && dates.length && !dates.some(d => d >= auj))
+      al.push('plus aucune date à venir');
+
+    return { id: e.id, lib: e.Libelle || ('#' + e.id), client: ent.Denomination || '',
+      prog: nomProg(ref1(e.Programme)), type: (refs(e.Type_d_evaluation)[0] || ''),
+      statut: e.Statut || '', montant: nb(e.Montant_Eval_Devis),
+      jhv: typeof e.JH_vendus === 'number' ? e.JH_vendus : null, jh: nb(e.JH),
+      re, ets, pct: tot ? Math.round(fait / tot * 100) : 0,
+      prochain: dates.find(d => d >= auj) || null, debut: dates[0] || null,
+      fin: dates[dates.length - 1] || null, lanc: lanc[0] || null,
+      siteFin: site[site.length - 1] || null, rapFin: rap[rap.length - 1] || null,
+      facture, reste, signee: e.Signee || '', ref: e.Ref_proposition || '',
+      nbuo: uos.length, alertes: al,
+      etape: etapeDe(e.Statut, { dates, lanc, site, rap, reste, auj }),
+      jalons: uos.map(x => ({ uo: x.u.Unite_d_oeuvre || '—', d: x.js[0] || null, j: nb(x.u.Jours),
+        qui: [...new Set([ref1(x.u.RE), ...refs(x.u.ETA), ...refs(x.u.ETM)].filter(Boolean).map(tri))],
+        passe: !!(x.js.length && x.js[x.js.length - 1] < auj) })) };
+  });
+
+  S.cycles = S.D.Cycles_services.map(c => {
+    const liees = [...refs(c.eval_initiale), ...refs(c.eval_autres), ref1(c.eval_renouvellement)]
+      .filter(Boolean).map(id => parId('Evaluations', id)).filter(Boolean);
+    const sv = liees.filter(e => refs(e.Type_d_evaluation).some(t => /surveillance/i.test(t)));
+    const etat = sv.some(e => e.Terminee || e.Statut === 'Terminé') ? 'faite'
+               : (sv.length ? 'encours' : 'absente');
+    return { client: (parId('Entreprises', ref1(c.Denomination)) || {}).Denomination || '',
+             prog: nomProg(ref1(c.Programme)), debut: dsDe(c.date_debut_cycle),
+             surv: dsDe(c.Date_surveillance_certification), fin: dsDe(c.date_fin_certification), sv: etat };
+  }).filter(c => c.client);
+}
+
+/* L'étape fine : le statut s'il est déjà fin, sinon déduite des jalons du planning. */
+function etapeDe(st, x) {
+  if (FINES.includes(st)) return st;
+  if (st === 'En attente devis') return st;
+  if (st === 'à planifier') return x.dates.length ? 'Planifiée' : 'à planifier';
+  if (st === 'Terminé') return x.reste > 1 ? 'Facturation' : 'Terminé';
+  if (!x.dates.length) return 'à planifier';
+  if (x.lanc.length && x.lanc[0] > x.auj) return 'Planifiée';
+  if (x.rap.length && x.rap[x.rap.length - 1] < x.auj) return x.reste > 1 ? 'Facturation' : 'Attente ANSSI';
+  if (x.site.length && x.site[x.site.length - 1] < x.auj) return 'Rédaction';
+  return 'En cours';
+}
+
+const visibles = () => S.cartes.filter(c =>
+  (!S.prog || c.prog === S.prog) &&
+  (!S.re || c.re === S.re || c.ets.includes(S.re)) &&
+  (!S.alertes || c.alertes.length) &&
+  (!S.q || (c.client + ' ' + c.lib).toLowerCase().includes(S.q.toLowerCase())));
+
+/* ------------------------------------------------------------------ rendu */
+
+function filtres() {
+  const progs = [...new Set(S.cartes.map(c => c.prog).filter(Boolean))].sort();
+  const gens = [...new Set(S.cartes.flatMap(c => [c.re, ...c.ets]).filter(Boolean))].sort();
+  $('filtres').innerHTML = `
+    <label>Programme <select id="fProg"><option value="">tous</option>
+      ${progs.map(p => `<option ${S.prog === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}
+    </select></label>
+    <label>Évaluateur <select id="fRe"><option value="">tous</option>
+      ${gens.map(g => `<option ${S.re === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+    </select></label>
+    <label><input type="checkbox" id="fAl" ${S.alertes ? 'checked' : ''}> à problème seulement</label>
+    <input type="search" id="fQ" placeholder="chercher un client…" value="${esc(S.q)}" style="width:180px">
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="fFini" ${S.fini ? 'checked' : ''}> afficher les terminées</label>`;
+  $('fProg').onchange = e => { S.prog = e.target.value; rendre(); };
+  $('fRe').onchange = e => { S.re = e.target.value; rendre(); };
+  $('fAl').onchange = e => { S.alertes = e.target.checked; rendre(); };
+  $('fQ').oninput = e => { S.q = e.target.value; rendre(); };
+  $('fFini').onchange = e => { S.fini = e.target.checked; rendre(); };
+}
+
+function carte(c) {
+  const gens = [c.re ? `<span class="tri">${esc(c.re)}</span>` : '',
+                ...c.ets.slice(0, 2).map(t => `<span class="tri et">${esc(t)}</span>`)].join('');
+  const date = c.prochain ? `📅 ${fr(c.prochain)}`
+    : (c.fin ? `<span class="mu">fini le ${fr(c.fin)}</span>` : '<span class="ko">aucune date</span>');
+  return `<div class="carte ${CLASSE[c.prog] || ''} ${S.sel === c.id ? 'sel' : ''}"
+            draggable="true" data-id="${c.id}">
+    <div class="cli">${esc(c.client)}</div>
+    <div class="meta">${esc(c.prog)} · ${esc(c.type.toLowerCase())}</div>
+    <div class="bas">${gens}<span class="spacer"></span>${date}</div>
+    <div class="bas"><span>${eur(c.montant)}</span>
+      <span class="mu">${nbj(c.jh)}/${c.jhv ?? '—'} j</span>
+      ${c.reste > 1 ? `<span class="spacer"></span><span class="ko">reste ${eur(c.reste)}</span>` : ''}</div>
+    ${c.pct ? `<div class="bar"><i style="width:${Math.min(100, c.pct)}%"></i></div>` : ''}
+    ${c.alertes.length ? `<div class="al">⚠ ${esc(c.alertes.join(' · '))}</div>` : ''}</div>`;
+}
+
+function vueBoard() {
+  const V = visibles();
+  const cols = COLONNES.filter(k => k !== 'Terminé' || S.fini);
+  $('zone').innerHTML = '<div class="board">' + cols.map(k => {
+    const l = V.filter(c => c.etape === k);
+    const absent = !S.choix.includes(k);
+    return `<div class="col ${k === 'Terminé' ? 'fini' : ''}" data-col="${esc(k)}">
+      <h3>${esc(k)}<span class="n">${l.length}</span>
+        ${absent ? '<span class="abs" title="Ce libellé n’existe pas encore dans les choix de Evaluations.Statut : le dépôt y est refusé.">⚠</span>' : ''}</h3>
+      ${l.map(carte).join('') || '<div class="lg" style="padding:6px 2px">—</div>'}</div>`;
+  }).join('') + '</div>';
+  glisser();
+}
+
+function glisser() {
+  let porte = null;
+  document.querySelectorAll('.carte').forEach(el => {
+    el.ondragstart = e => { porte = +el.dataset.id; e.dataTransfer.effectAllowed = 'move'; };
+  });
+  document.querySelectorAll('.col').forEach(col => {
+    col.ondragover = e => { e.preventDefault(); col.classList.add('drop'); };
+    col.ondragleave = () => col.classList.remove('drop');
+    col.ondrop = async e => {
+      e.preventDefault(); col.classList.remove('drop');
+      const c = S.cartes.find(x => x.id === porte);
+      const k = col.dataset.col;
+      if (!c || c.etape === k) return;
+      if (!S.choix.includes(k)) {
+        toast(`« ${k} » n’existe pas encore dans les choix de Statut : rien n’a été écrit.`);
+        return;
+      }
+      await ecrire([['UpdateRecord', 'Evaluations', c.id, { Statut: k }]], `${c.client} → ${k}`);
+    };
+  });
+}
+
+async function ecrire(actions, msg) {
+  try {
+    await grist.docApi.applyUserActions(actions);
+    toast(msg || 'Enregistré');
+    await charger();
+  } catch (e) {
+    console.error(e);
+    erreur('Échec de l’écriture : ' + (e.message || e));
+  }
+}
+
+/* ------------------------------------------------------------------ panneau */
+
+function lien(page, section, col, id, texte, classe) {
+  if (!S.docUrl) return '';
+  const u = `${S.docUrl}/p/${page}#a1.s${section}.r${id}.c${col}`;
+  return `<a class="btn ${classe || 'btn-g'}" target="_top" href="${esc(u)}">${esc(texte)}</a>`;
+}
+
+function panneau(id) {
+  const c = S.cartes.find(x => x.id === id);
+  if (!c) return;
+  const jal = c.jalons.map(j => `<div class="jal ${j.passe ? 'ok' : ''}">
+      <span class="p"></span><span class="d">${fr(j.d)}</span><span>${esc(j.uo)}</span>
+      <span class="n">${nbj(j.j)} j ${j.qui.join(' ') || '<span class="ko">personne</span>'}</span>
+    </div>`).join('') || '<div class="lg">Aucune unité d’œuvre posée.</div>';
+  $('panneau').innerHTML = `
+    <header><div><b>${esc(c.client)}</b>
+      <div style="font-size:11px;opacity:.85">${esc(c.lib)}</div></div>
+      <button class="fermer" data-f="1">×</button></header>
+    <div class="corps">
+      <h5>Avancement — ${c.pct} %</h5>
+      <div class="bar" style="height:7px"><i style="width:${Math.min(100, c.pct)}%"></i></div>
+      ${c.alertes.length ? `<div class="al" style="margin-top:7px">⚠ ${esc(c.alertes.join(' · '))}</div>` : ''}
+      <h5>Dossier</h5>
+      <div class="kv"><span>Programme</span><b>${esc(c.prog)} · ${esc(c.type.toLowerCase())}</b></div>
+      <div class="kv"><span>Étape</span><b>${esc(c.etape)}</b></div>
+      <div class="kv"><span>Statut dans Grist</span><b>${esc(c.statut)}</b></div>
+      <div class="kv"><span>Proposition</span><b>${esc(c.ref || '—')}</b></div>
+      <div class="kv"><span>Devis</span><b>${c.signee ? esc(c.signee) : '<span class="ko">non signé</span>'}</b></div>
+      <h5>Charge et argent</h5>
+      <div class="kv"><span>Montant</span><b>${eur(c.montant)}</b></div>
+      <div class="kv"><span>Jours vendus / réalisés</span><b>${c.jhv ?? '—'} / ${nbj(c.jh)}</b></div>
+      <div class="kv"><span>Facturé</span><b>${eur(c.facture)}</b></div>
+      <div class="kv"><span>Reste à facturer</span><b class="${c.reste > 1 ? 'ko' : ''}">${eur(c.reste)}</b></div>
+      <div class="lg" style="margin-top:4px">Source : la proposition de prestation. Le carnet de
+        commandes reste la référence en facturation.</div>
+      <h5>Jalons — ${c.nbuo} unités d’œuvre</h5>
+      ${jal}
+      <h5>Actions</h5>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-b" data-a="plan" data-id="${c.id}">📅 Planifier</button>
+      </div>
+      <div class="lg" id="aide" style="margin-top:6px"></div>
+    </div>`;
+  $('panneau').classList.add('on');
+  curseur(c.id);
+}
+
+/* setCursorPos déplace le curseur de la table liée : les widgets « sélectionnés par »
+   ce bloc suivent. L'API peut ne pas être disponible selon la version de Grist. */
+function curseur(id) {
+  const aide = $('aide');
+  try {
+    const p = grist.setCursorPos({ rowId: id });
+    if (p && typeof p.then === 'function') {
+      p.then(() => { S.curseurOK = true; majAide(); })
+       .catch(() => { S.curseurOK = false; majAide(); });
+    } else { S.curseurOK = true; majAide(); }
+  } catch (e) { S.curseurOK = false; majAide(); }
+  function majAide() {
+    if (!aide) return;
+    aide.innerHTML = S.curseurOK
+      ? 'Le bloc « Planifier » de cette page est passé sur cette évaluation.'
+      : 'Cette version de Grist ne laisse pas le widget déplacer le curseur : '
+        + 'sélectionne la ligne dans le tableau Évaluations de la page pour que le bloc suive.';
+  }
+}
+
+/* ------------------------------------------------------------------ cycles */
+
+function vueCycles() {
+  const A = 2024, B = 2031, SPAN = B - A, T = AUJ();
+  const pos = ds => ds ? ((new Date(ds) - new Date(A + '-01-01')) / 86400000 / 365.25 / SPAN * 100) : null;
+  const l = S.cycles
+    .filter(c => !S.prog || c.prog === S.prog)
+    .filter(c => !S.q || c.client.toLowerCase().includes(S.q.toLowerCase()))
+    .sort((a, b) => a.client.localeCompare(b.client, 'fr') || a.prog.localeCompare(b.prog))
+    .map(c => {
+      const p0 = pos(c.debut), p1 = pos(c.fin), ps = pos(c.surv);
+      return `<tr>
+        <td style="white-space:nowrap">${esc(c.client)}</td><td><b>${esc(c.prog)}</b></td>
+        <td style="width:50%"><div class="ligne">
+          ${(p0 != null && p1 != null) ? `<i style="left:${p0}%;width:${Math.max(1, p1 - p0)}%"></i>` : ''}
+          ${ps != null ? `<span class="pt ${c.sv === 'faite' ? 'ok' : (c.surv < T ? 'ko' : '')}"
+             style="left:${ps}%" title="surveillance ${frl(c.surv)}"></span>` : ''}
+          <span class="pt auj" style="left:${pos(T)}%" title="aujourd’hui"></span></div></td>
+        <td class="lg" style="white-space:nowrap">${frl(c.debut)} → ${frl(c.fin)}</td>
+        <td>${c.sv === 'faite' ? '<span class="ok2">surv. faite</span>'
+            : c.sv === 'encours' ? '<span class="mu">surv. en cours</span>'
+            : (c.surv && c.surv < T ? '<span class="ko">surv. en retard</span>' : '<span class="mu">—</span>')}</td>
+      </tr>`;
+    }).join('');
+  $('zone').innerHTML = `<div class="frise">
+    <table class="fr"><thead><tr><th>Client</th><th>Prog.</th>
+      <th>${A} → ${B}</th><th>Cycle</th><th>Surveillance</th></tr></thead><tbody>${l}</tbody></table>
+    <div class="lg" style="margin-top:8px">Barre bleue : le cycle de 3 ans. Repère vert ou rouge :
+      l’échéance de surveillance à 18 mois, selon qu’elle est faite ou non. Repère orange :
+      aujourd’hui. Un client sans cycle n’apparaît pas ici.</div></div>`;
+}
+
+/* ------------------------------------------------------------------ routage */
+
+function rendre(refaireFiltres = true) {
+  if (!S.D) return;
+  const V = visibles();
+  $('tN').textContent = V.length + ' évaluations';
+  const a = V.filter(c => c.alertes.length).length;
+  $('tA').textContent = a + ' à problème';
+  $('tA').style.display = a ? '' : 'none';
+  const manquants = COLONNES.filter(k => !S.choix.includes(k));
+  $('tM').textContent = manquants.length
+    ? manquants.length + ' étapes à créer dans Statut' : 'étapes à jour';
+  $('ong').innerHTML = [['board', 'Suivi des évaluations'], ['cyc', 'Cycles clients']]
+    .map(([k, l]) => `<button class="${S.onglet === k ? 'on' : ''}" data-o="${k}">${l}</button>`).join('');
+  if (refaireFiltres) filtres();
+  S.onglet === 'board' ? vueBoard() : vueCycles();
+}
+
+document.addEventListener('click', e => {
+  const o = e.target.closest('[data-o]');
+  if (o) { S.onglet = o.dataset.o; rendre(); return; }
+  if (e.target.closest('[data-f]')) { $('panneau').classList.remove('on'); return; }
+  const a = e.target.closest('[data-a]');
+  if (a) { curseur(+a.dataset.id); toast('Bloc « Planifier » positionné sur cette évaluation'); return; }
+  const c = e.target.closest('.carte');
+  if (c) { S.sel = +c.dataset.id; panneau(S.sel); rendre(false); }
+});
+
+charger();
+</script>
+</body>
+</html>
