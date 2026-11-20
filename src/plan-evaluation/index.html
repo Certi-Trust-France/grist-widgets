@@ -75,6 +75,14 @@
   td.act button { opacity:0; }
   tr:hover td.act button { opacity:1; }
   .aide { font-size:11px; color:var(--gris); margin:-4px 0 10px; }
+  .gen { border:1px dashed var(--marine); border-radius:4px; padding:8px 10px; margin:0 0 14px; font-size:12px; }
+  .gen-t { font-weight:bold; color:var(--marine); margin-bottom:6px; }
+  .gen .aide { margin:0 0 6px; }
+  .gen-l { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:4px 0; }
+  .gen-conf { background:var(--manque-bg); color:var(--manque); }
+  .gen-th summary { cursor:pointer; color:var(--marine); margin-top:4px; }
+  .gen-th table { margin-top:6px; font-size:11.5px; }
+  .gen-retire td { opacity:.45; }
   .flash { animation:flash 1.4s; }
   @keyframes flash { 0% { box-shadow:0 0 0 3px var(--manque); } 100% { box-shadow:0 0 0 0 transparent; } }
   #toast { position:fixed; bottom:12px; right:12px; background:var(--txt); color:#fff; padding:6px 12px; border-radius:6px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:9; }
@@ -232,6 +240,204 @@ const AGENDAS_PASSI = [
     ['15:30 – 16:00', 'Notes des évaluateurs', 'N.A.', 'RE et ETA'],
     ['16:30 – 17:30', 'Réunion de clôture de l’évaluation', 'N.A.', 'RE et ETA']] },
 ];
+
+/* ═════════ Calcul des agendas du siège (2026-11-20) ═════════
+   Portage à l'identique de plan_generation.py (application audit-anssi), qui produit aussi catalogue-plan.json
+   (python -m audit_anssi catalogue-plan) : thèmes d'entretien RE / ETA, une ligne par vérification. Le bloc entre
+   CALCUL-PLAN-DEBUT et CALCUL-PLAN-FIN est exécuté par le test de parité d'audit-anssi : il doit rester autonome. */
+// CALCUL-PLAN-DEBUT
+const PlanCalcul = (() => {
+  const mn = s => +s.slice(0, 2) * 60 + +s.slice(3, 5);
+  const hh = x => `${String(Math.floor(x / 60)).padStart(2, '0')}h${String(x % 60).padStart(2, '0')}`;
+  const arrondi1 = x => { const y = x * 10, f = Math.floor(y + 1e-9), d = y - f; return (Math.abs(d - 0.5) < 1e-9 ? (f % 2 ? f + 1 : f) : Math.round(y)) / 10; };
+  function plages(ns) {
+    const out = []; let i = 0;
+    while (i < ns.length) {
+      let j = i; while (j + 1 < ns.length && ns[j + 1] === ns[j] + 1) j++;
+      out.push(i === j ? String(ns[i]) : (j > i + 1 ? `${ns[i]}–${ns[j]}` : `${ns[i]}, ${ns[j]}`)); i = j + 1;
+    }
+    return out.join(', ');
+  }
+  function clauses(cles) {
+    const ch = [], ghy = [], ii = [];
+    for (const c of cles) {
+      if (!c) continue;
+      if (/^G\d/.test(c)) { const n = +c.slice(1); if (!ghy.includes(n)) ghy.push(n); }
+      else if (/^I\d/.test(c)) { const n = +c.slice(1); if (!ii.includes(n)) ii.push(n); }
+      else if (!ch.includes(c)) ch.push(c);
+    }
+    const out = [];
+    if (ch.length) out.push(ch.join(', '));
+    if (ghy.length) out.push('GHY ' + plages(ghy.sort((a, b) => a - b)));
+    if (ii.length) out.push('II 901 obj. ' + plages(ii.sort((a, b) => a - b)));
+    return out.join('\n') || 'N.A.';
+  }
+  function parametres(p, niveau) {
+    const d = { jours: null, poids_document: 0.4, presentation: true, cloture: true, durees: {}, retires: [], evaluateurs: {} };
+    const r = Object.assign(d, p || {});
+    if (!r.jours) r.jours = niveau === 'élevé' ? 2 : 1;
+    return r;
+  }
+  function themes(C, prog, niveau, activites, p) {
+    const X = C.programmes[prog], ni = X.niveaux.indexOf(niveau), acts = new Set(activites || []);
+    const par = new Map();
+    let temoin = 0;
+    for (const [t, niv, a, s, cl] of X.verifications) {
+      if (!niv.includes(ni)) continue;
+      if (acts.size && a && !a.some(x => acts.has(x))) continue;
+      if (t === 'TEMOIN') { temoin++; continue; }
+      if (!par.has(t)) par.set(t, []);
+      par.get(t).push([s[ni], cl]);
+    }
+    const out = X.themes.filter(t => par.has(t.id)).map(t => {
+      const vs = par.get(t.id), seance = vs.reduce((a, v) => a + v[0], 0);
+      return { id: t.id, evaluateur: p.evaluateurs[t.id] || t.evaluateur, titre: t.titre, interlocuteurs: t.interlocuteurs,
+        clauses: clauses(vs.map(v => v[1])), nb: vs.length, seance, charge: arrondi1(seance + (vs.length - seance) * Number(p.poids_document)),
+        retire: p.retires.includes(t.id), duree_forcee: p.durees[t.id] || null };
+    });
+    return { themes: out, temoin, total: out.reduce((a, t) => a + t.nb, 0) + temoin };
+  }
+  function joursModele(C, p, ev) {
+    const jours = [], n = Number(p.jours);
+    for (let j = 0; j < n; j++) {
+      let J = C.journee.map(x => x.slice());
+      if (j > 0) J[0] = ['09:00', '09:15', 'Point de reprise'];
+      if (j === 0 && ev === 'RE' && p.presentation) J = [...C.presentation.map(x => x.slice()), ['10:30', '11:00', null], ...J.slice(2)];
+      if (j === n - 1 && p.cloture) J = [...J.slice(0, -2), ['16:15', '17:00', null],
+        ['17:00', '17:30', 'Point entre évaluateurs et préparation de la réunion de clôture'], ['17:30', '18:00', 'Réunion de clôture']];
+      jours.push(J);
+    }
+    return jours;
+  }
+  function repartir(C, ths, jours) {
+    const Q = C.quantum;
+    const blocs = []; jours.forEach((J, j) => J.forEach(([a, b, t]) => { if (t === null) blocs.push([j, mn(a), mn(b)]); }));
+    const dispo = Math.floor(blocs.reduce((s, [, a, b]) => s + b - a, 0) / Q);
+    ths = ths.filter(t => !t.retire);
+    const info = { dispo_min: dispo * Q, depassement_min: 0 };
+    if (!ths.length || !blocs.length) return [[], info];
+    const forces = new Map(ths.filter(t => t.duree_forcee).map(t => [t.id, Math.max(1, Math.floor(Number(t.duree_forcee) / Q))]));
+    const libres = ths.filter(t => !forces.has(t.id));
+    const sf = [...forces.values()].reduce((a, b) => a + b, 0);
+    const reste = Math.max(dispo - sf, libres.length);
+    const tot = libres.reduce((a, t) => a + t.charge, 0) || 1;
+    const q = new Map(libres.map(t => [t.id, t.charge / tot * reste]));
+    const base = new Map([...q].map(([k, x]) => [k, Math.max(1, Math.trunc(x))]));
+    const somme = () => [...base.values()].reduce((a, b) => a + b, 0);
+    const argmax = f => { let m = null, v = -Infinity; for (const k of q.keys()) { const y = f(k); if (y > v) { v = y; m = k; } } return m; };
+    while (libres.length && somme() < reste) { const k = argmax(k => q.get(k) - base.get(k)); base.set(k, base.get(k) + 1); }
+    while (libres.length && somme() > reste && Math.max(...base.values()) > 1) { const k = argmax(k => base.get(k) - q.get(k)); base.set(k, base.get(k) - 1); }
+    for (const [k, v] of forces) base.set(k, v);
+    info.depassement_min = Math.max(0, somme() - dispo) * Q;
+    const dur = new Map([...base].map(([k, n]) => [k, n * Q]));
+    const place = [], file = ths.map(t => t.id); let bi = 0, t0 = blocs[0][1];
+    while (file.length) {
+      const k = file[0], j = blocs[bi][0], b = blocs[bi][2], r = b - t0, d = dur.get(k), dernier = bi === blocs.length - 1;
+      const prec = place[place.length - 1];
+      if (d <= r || dernier) { place.push([j, t0, t0 + d, k]); t0 += d; file.shift(); }
+      else if (d - r <= Q && file.length > 1 && !forces.has(k)) { dur.set(file[1], dur.get(file[1]) + d - r); place.push([j, t0, b, k]); t0 = b; file.shift(); }
+      else if (r <= Q && prec && prec[0] === j && prec[2] === t0 && !forces.has(prec[3])) { prec[2] += r; dur.set(k, d - r); t0 = b; }
+      else { place.push([j, t0, b, k]); dur.set(k, d - r); t0 = b; }
+      if (t0 >= blocs[bi][2] && !dernier) { bi++; t0 = blocs[bi][1]; }
+    }
+    const parId = new Map(ths.map(t => [t.id, t])), vus = new Set(), cr = [];
+    for (const [j, a, b, k] of place) {
+      const t = parId.get(k);
+      cr.push({ jour: j, debut: a, fin: b, id: k, sujet: t.titre + (vus.has(k) ? ' (suite)' : ''), clauses: t.clauses, nb: t.nb, interlocuteurs: t.interlocuteurs });
+      vus.add(k);
+    }
+    return [cr, info];
+  }
+  function agendas(C, prog, niveau, activites, pBrut) {
+    const p = parametres(pBrut, niveau), th = themes(C, prog, niveau, activites, p);
+    const out = { themes: th, parametres: p, evaluateurs: {} };
+    for (const ev of ['RE', 'ETA']) {
+      const jours = joursModele(C, p, ev), mine = th.themes.filter(t => t.evaluateur === ev);
+      const [cr, info] = repartir(C, mine, jours);
+      const lignes = jours.map((J, j) => [...J.filter(x => x[2]).map(([a, b, t]) => ({ jour: j, debut: mn(a), fin: mn(b), sujet: t,
+        clauses: /Pause|Déjeuner/.test(t) ? '' : 'N.A.', fixe: true })), ...cr.filter(c => c.jour === j)].sort((x, y) => x.debut - y.debut));
+      const nb = mine.filter(t => !t.retire).reduce((a, t) => a + t.nb, 0);
+      out.evaluateurs[ev] = { jours: lignes, nb, dispo_min: info.dispo_min, depassement_min: info.depassement_min,
+        densite: arrondi1(nb / Math.max(1, info.dispo_min / C.quantum)) };
+    }
+    return out;
+  }
+  return { agendas, themes, parametres, hh };
+})();
+// CALCUL-PLAN-FIN
+
+let CAT = null;                     // catalogue-plan.json (chargé au démarrage, à côté de index.html)
+let confirmerCalcul = 0;            // second clic exigé avant de remplacer des agendas modifiés à la main
+let themesOuverts = false;          // tableau des thèmes déplié (conservé entre deux rendus)
+fetch('catalogue-plan.json').then(r => r.ok ? r.json() : null).then(c => { CAT = c; rendre(); }).catch(() => { CAT = null; });
+
+// Programme, niveau et activités de l'évaluation, lus dans les cases du plan (donc modifiables par l'évaluateur).
+function entreesCalcul() {
+  const prog = ctx.progCourt, X = CAT && CAT.programmes[prog];
+  if (!X) return { erreur: CAT ? `Programme ${prog || '?'} absent du catalogue (PASSI, PACS, PRIS).` : 'Catalogue des thèmes non chargé.' };
+  const nv = lignesDe(val('EVAL_NIVEAU')).map(norm).find(l => l === 'substantiel' || l === 'eleve');
+  if (!nv) return { erreur: 'Niveau non renseigné : cocher Substantiel ou Élevé dans « Niveau ».' };
+  const niveau = nv === 'eleve' ? 'élevé' : 'substantiel';
+  const codes = lignesDe(val('EVAL_PORTEES')).map(codeDe).filter(Boolean).map(c => X.alias_activites[c] || c);
+  const activites = [...new Set(codes.filter(c => X.activites.includes(c)))];
+  return { prog, niveau, activites, X };
+}
+function agendasCalcules(E, a) {
+  const n = a.parametres.jours, cols = ['Créneau', 'Sujets', `Clauses ${E.prog}`, 'Évaluateur(s)'];
+  const dateJour = j => n === 1 || j === 0 ? '{DATE_SIEGE_DEBUT}' : (j === n - 1 ? '{DATE_SIEGE_FIN}' : `jour ${j + 1}`);
+  const L = [{ type: 'texte', titre: 'Étude documentaire – à distance – entre le {DATE_DOC_DEBUT} et le {DATE_DOC_FIN}',
+    texte: 'L’étude documentaire aura lieu entre le {DATE_DOC_DEBUT} et le {DATE_DOC_FIN}.\nLes évaluateurs feront des points de synchronisation avec le prestataire pendant la période de revue documentaire.\nÀ la fin de l’évaluation documentaire, une restitution à chaud sera réalisée afin de présenter les écarts qui auraient été constatés.' }];
+  for (const ev of ['RE', 'ETA']) a.evaluateurs[ev].jours.forEach((jour, j) => L.push({ type: 'table', titre: `Évaluation du siège : ${dateJour(j)} sur site (${ev})`, cols: cols.slice(),
+    lignes: jour.map(c => [`${PlanCalcul.hh(c.debut)} – ${PlanCalcul.hh(c.fin)}`, c.sujet, c.clauses || '', c.fixe && /Pause|Déjeuner/.test(c.sujet) ? '' : ev]) }));
+  const [prep, obs, clot] = E.X.temoin;
+  L.push({ type: 'table', titre: 'Évaluation de la prestation témoin : {DATE_TEMOIN}', cols: cols.slice(), lignes: [
+    ['09h00 – 10h00', 'Observation de la réunion d’ouverture de la prestation chez le client et démarrage de la mission', prep[prep.length - 1], 'RE et ETA'],
+    ['10h00 – 12h30', 'Observation du déroulé de la prestation chez le client (entretiens, collecte d’information…)', obs.join(', '), 'RE et ETA'],
+    ['12h30 – 13h30', 'Déjeuner', '', ''],
+    ['13h30 – 17h00', 'Observation du déroulé de la prestation (suite)\nRevue des exigences relatives à la préparation de la prestation avec l’équipe (convention, préparation, revue documentaire, déclenchement)', [...obs, ...prep, ...clot].join(', '), 'RE et ETA'],
+    ['17h00 – 18h00', 'Débriefing', 'N.A.', 'RE et ETA']] });
+  return L;
+}
+function panneauCalcul() {
+  const E = entreesCalcul();
+  let h = '<div class="gen"><div class="gen-t">Calcul des agendas du siège</div>';
+  if (E.erreur) return h + `<div class="aide">${esc(E.erreur)}</div></div>`;
+  const a = PlanCalcul.agendas(CAT, E.prog, E.niveau, E.activites, P.generation), p = a.parametres, th = a.themes;
+  const conf = confirmerCalcul > Date.now();
+  h += `<div class="aide">${esc(E.prog)} · niveau ${esc(E.niveau)}${E.X.activites.length ? ' · activités : ' + esc(E.activites.join(', ') || 'toutes (aucune portée reconnue)') : ''}`
+    + ` — ${th.total} vérification(s) de la portée : ${th.total - th.temoin} au siège, ${th.temoin} en prestation témoin. Durée d’un thème proportionnelle à sa charge : 1 par vérification`
+    + ` ayant un point à traiter en séance, ${nombre(p.poids_document)} si elle se prouve par un document.</div>`;
+  h += `<div class="gen-l">Jours au siège <select data-gen="jours">${[1, 2, 3].map(j => `<option ${j === p.jours ? 'selected' : ''}>${j}</option>`).join('')}</select>`
+    + ` <label>Poids d’une vérification documentaire <input data-gen="poids_document" value="${nombre(p.poids_document)}" size="4"></label>`
+    + ` <label><input type="checkbox" data-gen="presentation" ${p.presentation ? 'checked' : ''}> ouverture et présentation en début de jour 1 (RE)</label>`
+    + ` <label><input type="checkbox" data-gen="cloture" ${p.cloture ? 'checked' : ''}> réunion de clôture en fin de dernier jour</label></div>`;
+  h += '<div class="gen-l">' + ['RE', 'ETA'].map(ev => { const x = a.evaluateurs[ev];
+    return `<span class="pastille ${x.depassement_min || x.densite > 5 ? 'p-manque' : 'p-grist'}" title="vérifications par quart d’heure disponible">${ev} : ${x.nb} vérif. · ${nombre(x.densite)} / quart d’heure${x.depassement_min ? ` · dépassement ${x.depassement_min} min` : ''}</span>`; }).join(' ')
+    + ` <button data-act="gen-calculer" class="${conf ? 'gen-conf' : ''}">${conf ? 'Confirmer : remplacer les agendas actuels' : 'Calculer les agendas'}</button></div>`;
+  h += `<details class="gen-th"${themesOuverts ? ' open' : ''}><summary>Thèmes d’entretien (évaluateur, durée forcée, retrait)</summary><table><thead><tr><th>Thème</th><th>Évaluateur</th><th>Clauses</th><th>Vérif.</th><th>En séance</th><th>Charge</th><th>Durée forcée (min)</th><th>Retirer</th></tr></thead><tbody>`;
+  for (const t of th.themes) h += `<tr class="${t.retire ? 'gen-retire' : ''}"><td><b>${esc(t.titre)}</b><div class="aide" style="margin:0">${esc(t.interlocuteurs)}</div></td>`
+    + `<td><select data-gen="ev|${t.id}">${['RE', 'ETA'].map(e => `<option ${e === t.evaluateur ? 'selected' : ''}>${e}</option>`).join('')}</select></td>`
+    + `<td style="white-space:pre-wrap">${esc(t.clauses)}</td><td>${t.nb}</td><td>${t.seance}</td><td>${nombre(t.charge)}</td>`
+    + `<td><input type="number" min="15" step="15" data-gen="duree|${t.id}" value="${t.duree_forcee || ''}" placeholder="auto" style="width:64px"></td>`
+    + `<td><input type="checkbox" data-gen="retire|${t.id}" ${t.retire ? 'checked' : ''}></td></tr>`;
+  return h + '</tbody></table></details></div>';
+}
+function majGeneration(el) {
+  const E = entreesCalcul(); if (E.erreur) return;
+  const p = PlanCalcul.parametres(clone(P.generation || {}), E.niveau), [k, id] = el.dataset.gen.split('|');
+  if (k === 'jours') p.jours = Number(el.value);
+  else if (k === 'poids_document') { const x = num(el.value); if (x !== null && x >= 0 && x <= 1) p.poids_document = x; }
+  else if (k === 'presentation' || k === 'cloture') p[k] = el.checked;
+  else if (k === 'ev') { const def = (E.X.themes.find(t => t.id === id) || {}).evaluateur; if (el.value === def) delete p.evaluateurs[id]; else p.evaluateurs[id] = el.value; }
+  else if (k === 'duree') { const x = parseInt(el.value, 10); if (x >= 15) p.durees[id] = x; else delete p.durees[id]; }
+  else if (k === 'retire') p.retires = el.checked ? [...new Set([...p.retires, id])] : p.retires.filter(x => x !== id);
+  P.generation = p;
+}
+function calculerAgendas() {
+  const E = entreesCalcul(); if (E.erreur) { toast(E.erreur, 4000); return; }
+  P.generation = PlanCalcul.parametres(P.generation, E.niveau);
+  P.agendas = agendasCalcules(E, PlanCalcul.agendas(CAT, E.prog, E.niveau, E.activites, P.generation));
+}
 
 /* ═════════ Les deux documents ═════════
    Un même widget, bascule Plan / Stratégie dans la barre (ou ?doc=strategie dans l'URL pour ouvrir sur la stratégie).
@@ -650,7 +856,7 @@ const RENDU = {
       + (saisi ? `<button data-act="tb-raz" data-cle="${b.cle}">${esc(b.raz)}</button>` : '') + '</div>';
   },
   agendas: () => {
-    let h = '<h2 class="sec">Agendas</h2><div class="aide">Les titres et textes acceptent les jetons {DATE_LANCEMENT}, {DATE_DOC_DEBUT}, {DATE_DOC_FIN}, {DATE_SIEGE_DEBUT}, {DATE_SIEGE_FIN}, {DATE_TEMOIN}, {DATE_CLOTURE}, remplacés par les jalons.</div>';
+    let h = '<h2 class="sec">Agendas</h2><div class="aide">Les titres et textes acceptent les jetons {DATE_LANCEMENT}, {DATE_DOC_DEBUT}, {DATE_DOC_FIN}, {DATE_SIEGE_DEBUT}, {DATE_SIEGE_FIN}, {DATE_TEMOIN}, {DATE_CLOTURE}, remplacés par les jalons.</div>' + panneauCalcul();
     agendas().forEach((a, i) => {
       h += `<h2 class="ag v ${P.agendas ? 'saisi' : 'modele'}" data-ag="${i}|titre" title="Titre (cliquer pour modifier)">${esc(resoudre(a.titre))}</h2>`;
       if (a.type === 'texte') h += `<div class="v txt ${P.agendas ? 'saisi' : 'modele'}" data-ag="${i}|texte">${htmlRiche(resoudre(a.texte))}</div>`;
@@ -701,6 +907,12 @@ $('doc').addEventListener('click', e => {
   if (vc) { if (ouvert !== vc.dataset.k) { ouvert = vc.dataset.k; rendre(); } return; }
   const c = e.target.closest('[data-k],[data-tb],[data-ag]');
   if (c && !c.querySelector('.ed')) editer(c);
+});
+
+$('doc').addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('gen-th')) themesOuverts = e.target.open; }, true);
+$('doc').addEventListener('change', e => {
+  const g = e.target.closest('[data-gen]');
+  if (g) muter(() => majGeneration(g));
 });
 
 function cible(cell) {
@@ -757,6 +969,13 @@ function nettoyer() {
 
 async function action(d) {
   if (d.act === 'cc-fermer') { ouvert = null; rendre(); return; }
+  if (d.act === 'gen-calculer') {
+    // Agendas déjà modifiés à la main : second clic demandé (pas de confirm(), bloqué dans l'iframe Grist).
+    if (P.agendas && confirmerCalcul < Date.now()) { confirmerCalcul = Date.now() + 5000; rendre(); setTimeout(rendre, 5100); return; }
+    confirmerCalcul = 0;
+    await muter(calculerAgendas);
+    return;
+  }
   const i = Number(d.i);
   await muter(() => {
     if (d.act === 'raz') delete P.champs[d.k];
