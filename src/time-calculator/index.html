@@ -1472,7 +1472,8 @@ function toast(msg) {
    Création dans Propositions_prestation
 ────────────────────────────────────────── */
 const COLS = {
-  [TABLE_CH]: ['Libelle_CH', 'Proposition_commerciale', 'TEM_404', 'Json_CH', 'Statut'],
+  [TABLE_CH]: ['Libelle_CH', 'Proposition_commerciale', 'TEM_404', 'Json_CH', 'Statut',
+               'JH_evaluation', 'JH_surveillance'],
   [TABLE_PL]: ['Libelle_PL', 'Entreprise', 'TEM_404', 'Json_PL', 'Json_client', 'Saisie', 'Montant_HT', 'Date_creation', 'Date_modification', 'Statut'],
 };
 
@@ -1497,6 +1498,12 @@ function champsCH(x, i, lib, plId, dates) {
     Commentaires: etat.commentaires.trim(),
     Montant_Jour_HT: resultat.tjm,
     Montant_PO: x.ht,
+    // Les jours vendus, en clair et pas seulement dans le Json_CH : Evaluations.JH_vendus
+    // lit JH_surveillance pour une surveillance et JH_evaluation sinon. Sans ces deux
+    // colonnes, l'évaluation créée depuis la revue de dossier naît à zéro jour et le
+    // widget Planifier n'a rien pour caler la répartition.
+    JH_evaluation:   x.e.type === 'Surveillance' ? null : x.jh,
+    JH_surveillance: x.e.type === 'Surveillance' ? x.jh : null,
     Libelle_CH: lib.ch[i],
     Proposition_commerciale: plId,
     TEM_404: etat.temId,
