@@ -49,6 +49,15 @@ body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; color
 .pill.ok { background: #dcfce7; color: #166534; }
 .pill.no { background: #fee2e2; color: #991b1b; }
 
+/* Bandeau compact : affiché à la place de la liste des évaluations et des contacts
+   quand le widget est ouvert depuis une évaluation (table liée = Evaluations). */
+.bandeau { display: flex; align-items: center; gap: 7px 14px; flex-wrap: wrap;
+           padding: 7px 12px 8px; }
+.bandeau .lib { font-weight: 600; font-size: 13px; }
+.bandeau .meta { font-size: 11px; color: #64748b; }
+.bandeau .kvl { font-size: 11px; color: #64748b; white-space: nowrap; }
+.bandeau .kvl b { font-size: 12px; color: #0f172a; font-weight: 600; }
+
 .contacts { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; }
 .contacts a { color: #1d4ed8; text-decoration: none; }
 .contacts .r { font-size: 10px; background: #e0e7ff; color: #3730a3; border-radius: 8px;
@@ -380,14 +389,50 @@ function rendre() {
     $('main').innerHTML = '<div class="empty">Aucune évaluation en cours ni à planifier pour ce client.</div>';
     return;
   }
+  /* Ouvert depuis une évaluation, le curseur commande : on ne bascule jamais sur une
+     autre ligne en douce. Si celle du curseur est close, on le dit. */
+  if (compact() && state.evalId && !evs.some(e => e.id === state.evalId)) {
+    const e = parId('Evaluations', state.evalId);
+    $('main').innerHTML = `<div class="empty">« ${esc(e?.Libelle || '#' + state.evalId)} » est
+      ${esc(e?.Statut || 'close')}${e?.Terminee ? ' et marquée terminée' : ''}.<br>
+      Il n’y a rien à planifier dessus.</div>`;
+    return;
+  }
   if (!state.evalId || !evs.some(e => e.id === state.evalId)) {
     state.evalId = evs.find(e => e.Statut === 'à planifier')?.id || evs[0].id;
     reinit(); state.evalId = state.evalId;
   }
 
   $('main').innerHTML =
-    blocEvaluations(evs) + blocContacts() + blocEquipe() + blocJalons();
+    (compact() ? blocBandeau() : blocEvaluations(evs) + blocContacts())
+    + blocEquipe() + blocJalons();
   if (state.semaine !== null) majPied();
+}
+
+/* Le widget sait à quelle table il est lié. Depuis une évaluation, la fiche client,
+   la liste des évaluations et les contacts sont déjà à l'écran à côté : on les saute
+   et on va droit à la grille de disponibilité. */
+const compact = () => state.table === 'Evaluations';
+
+function blocBandeau() {
+  const e = evalCourante();
+  if (!e) return '';
+  const prog = parId('Programmes', ref1(e.Programme));
+  const types = Array.isArray(e.Type_d_evaluation) ? e.Type_d_evaluation.slice(1) : [];
+  const nbUO = D()[T_UO].filter(u => ref1(u.Evaluation) === e.id).length;
+  const sous = [prog?.Nom_du_programme, types.join(', '), e.Ref_proposition]
+    .filter(Boolean).map(esc).join(' · ');
+  return `<div class="sect bandeau">
+    <span class="lib">${esc(e.Libelle || '#' + e.id)}</span>
+    <span class="pill ${e.Statut === 'à planifier' ? 'ap' : 'ok'}">${esc(e.Statut || '—')}</span>
+    ${sous ? '<span class="meta">' + sous + '</span>' : ''}
+    <span class="spacer"></span>
+    <span class="kvl">Devis <b>${e.Signee ? 'signé' : 'non signé'}</b>${
+      e.Montant_Eval_Devis ? ' · <b>' + eur(e.Montant_Eval_Devis) + '</b>' : ''}</span>
+    <span class="kvl">Vendus <b>${e.JH_vendus ?? '—'} j</b></span>
+    <span class="kvl">Posés <b>${e.JH ? nbj(e.JH) : 0} j</b>${
+      nbUO ? ' <span class="mu">(' + nbUO + ' UO)</span>' : ''}</span>
+  </div>`;
 }
 
 function blocEvaluations(evs) {
