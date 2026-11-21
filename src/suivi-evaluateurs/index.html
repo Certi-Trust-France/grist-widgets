@@ -75,6 +75,14 @@ body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, san
 .col h3 { margin: 0 0 6px; padding: 0 2px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
           color: var(--texte-doux); display: flex; align-items: center; gap: 6px; }
 .col h3 .n { background: var(--bord); color: var(--texte); border-radius: 9px; padding: 0 6px; font-size: 10px; }
+.col.drop { background: #dbeafe; outline: 2px dashed var(--bleu); }
+.col h3 .abs { color: var(--attente); cursor: help; }
+.carte[draggable=true] { cursor: grab; }
+.carte.pris { opacity: .45; }
+#toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: #0f172a;
+         color: #fff; padding: 7px 14px; border-radius: 6px; font-size: 12px; opacity: 0;
+         transition: opacity .2s; pointer-events: none; z-index: 20; max-width: 90vw; }
+#toast.on { opacity: 1; }
 .carte { background: var(--surface); border-radius: 6px; padding: 7px 8px; margin-bottom: 6px;
          box-shadow: var(--ombre); border-left: 3px solid var(--texte-pale); cursor: pointer; }
 .carte:hover { box-shadow: var(--ombre-2); }
@@ -167,18 +175,21 @@ td.n { text-align: right; white-space: nowrap; }
     <div class="zone" id="zone"><div class="vide">Chargement…</div></div>
   </section>
 </div>
+<div id="toast"></div>
 
 <script>
-/* Lecture seule. fetchTable sur des tables autres que la table liée impose 'full' :
-   le widget n'écrit jamais, les corrections se font dans les vues Grist natives. */
-const TABLES = ['Evaluations', 'Entreprises', 'Programmes', 'Evaluateurs', 'Unites_d_oeuvre'];
+/* Une seule écriture : le statut d'une évaluation, par glisser-déposer entre colonnes.
+   Tout le reste est en lecture ; fetchTable sur des tables autres que la table liée impose 'full'. */
+const TABLES = ['Evaluations', 'Entreprises', 'Programmes', 'Evaluateurs', 'Unites_d_oeuvre',
+                '_grist_Tables', '_grist_Tables_column'];
 const ETAPES = ['à planifier', 'Planifiée', 'En cours', 'Rédaction', 'Facturation', 'Attente ANSSI', 'Terminé'];
 const FINES = ['Planifiée', 'Rédaction', 'Facturation', 'Attente ANSSI'];
 const SITE = ['Journée de lancement', 'évaluation siège', 'évaluation prestation témoin', 'Réunion de clôture'];
 const TEMOIN = /prestation\s*t[ée]moin/i;
 
 const S = { D: null, gens: [], lignesTous: [], tri: '', onglet: 'missions',
-            role: '', prog: '', horizon: 90, temoin: false, q: '', fini: false, ouvert: null };
+            role: '', prog: '', horizon: 90, temoin: false, q: '', fini: false, ouvert: null,
+            choix: [], porte: null };
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -197,6 +208,8 @@ const lignesDe = t => (t && t.id ? t.id : []).map((id, i) => {
 const refs = v => (Array.isArray(v) && v[0] === 'L') ? v.slice(1).filter(x => x) : [];
 const ref1 = v => (typeof v === 'number' ? v : (v && (v.rowId || v.id)) || 0);
 function erreur(m) { const e = $('erreur'); e.textContent = m || ''; e.style.display = m ? '' : 'none'; }
+function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600); }
 
 grist.ready({ requiredAccess: 'full', allowSelectBy: true });
 /* Si le widget est posé à côté de la table Evaluateurs, la ligne sélectionnée pilote la vue. */
@@ -239,6 +252,11 @@ async function charger() {
     const D = {}; TABLES.forEach((n, i) => { D[n] = lignesDe(res[i]); });
     for (const n of TABLES) if (!D[n]) throw new Error('table « ' + n + ' » inaccessible');
     S.D = D;
+    /* Les choix réels de Evaluations.Statut : on refuse de déposer une carte dans une
+       colonne dont le libellé n'existe pas dans la colonne Choice. */
+    const tb = D._grist_Tables.find(t => t.tableId === 'Evaluations');
+    const col = D._grist_Tables_column.find(c => c.parentId === (tb || {}).id && c.colId === 'Statut');
+    try { S.choix = JSON.parse((col || {}).widgetOptions || '{}').choices || []; } catch (e) { S.choix = []; }
     construire();
     erreur('');
     rendre();
@@ -362,14 +380,17 @@ function vueMissions(ls) {
   const cols = ETAPES.filter(e => S.fini || e !== 'Terminé');
   return `<div class="board">${cols.map(et => {
     const dedans = ms.filter(x => x.m.etape === et);
-    return `<div class="col"><h3>${esc(et)}<span class="n">${dedans.length}</span></h3>
+    const absent = !S.choix.includes(et);
+    return `<div class="col" data-col="${esc(et)}"><h3>${esc(et)}<span class="n">${dedans.length}</span>
+        ${absent ? '<span class="abs" title="Ce libellé n’existe pas dans les choix de Evaluations.Statut : le dépôt y est refusé.">⚠</span>' : ''}</h3>
       ${dedans.map(({ m, js }) => {
         const suiv = js.filter(aVenir)[0];
         const rt = js.filter(enRetard);
         const roles = [...new Set(js.map(j => j.role))];
         const jours = js.reduce((s, j) => s + j.j, 0);
         const ouvert = S.ouvert === m.id;
-        return `<div class="carte ${esc((m.prog || '').replace(/[^\w.]/g, ''))}" data-id="${m.id}">
+        return `<div class="carte ${esc((m.prog || '').replace(/[^\w.]/g, ''))}"
+            draggable="true" data-id="${m.id}">
           <div class="cli">${esc(m.client)}</div>
           <div class="meta">${esc(m.prog)}${m.type ? ' · ' + esc(m.type) : ''}${m.pilote === S.tri ? ' · pilote' : ''}</div>
           <div class="bas">${roles.map(r => `<span class="role ${r}">${r}</span>`).join('')}
@@ -449,6 +470,46 @@ function vueCharge(ls) {
   </div>`;
 }
 
+/* Déplacer une carte écrit Evaluations.Statut. C'est la seule écriture du widget, et elle est
+   refusée si le libellé de la colonne n'est pas un choix existant : on n'écrit jamais une valeur
+   que la colonne Choice n'accepte pas. L'étape affichée est déduite du planning (etapeDe), donc
+   une carte peut revenir dans une autre colonne que celle du dépôt — c'est le planning qui tranche. */
+function glisser() {
+  for (const el of $('zone').querySelectorAll('.carte')) {
+    el.ondragstart = e => { S.porte = +el.dataset.id; e.dataTransfer.effectAllowed = 'move';
+                            el.classList.add('pris'); };
+    el.ondragend = () => el.classList.remove('pris');
+  }
+  for (const col of $('zone').querySelectorAll('.col')) {
+    col.ondragover = e => { e.preventDefault(); col.classList.add('drop'); };
+    col.ondragleave = () => col.classList.remove('drop');
+    col.ondrop = async e => {
+      e.preventDefault(); col.classList.remove('drop');
+      const id = S.porte; S.porte = null;
+      const cible = col.dataset.col;
+      const l = S.lignesTous.find(x => x.mission.id === id);
+      if (!l || l.mission.etape === cible) return;
+      if (!S.choix.includes(cible)) {
+        toast(`« ${cible} » n’existe pas dans les choix de Statut : rien n’a été écrit.`);
+        return;
+      }
+      await ecrire([['UpdateRecord', 'Evaluations', id, { Statut: cible }]],
+                   `${l.mission.client} → ${cible}`);
+    };
+  }
+}
+
+async function ecrire(actions, msg) {
+  try {
+    await grist.docApi.applyUserActions(actions);
+    toast(msg || 'Enregistré');
+    await charger();
+  } catch (e) {
+    console.error(e);
+    erreur('Échec de l’écriture : ' + (e.message || e));
+  }
+}
+
 const vide = () => '<div class="vide">Aucune mission pour ce filtre.<br>Élargis l’horizon ou retire un filtre.</div>';
 
 function rendre() {
@@ -458,9 +519,11 @@ function rendre() {
   rendreOnglets();
   $('zone').innerHTML = S.onglet === 'missions' ? vueMissions(ls)
     : S.onglet === 'jalons' ? vueJalons(ls) : vueCharge(ls);
-  if (S.onglet === 'missions')
+  if (S.onglet === 'missions') {
     for (const c of $('zone').querySelectorAll('.carte'))
       c.onclick = () => { S.ouvert = S.ouvert === +c.dataset.id ? null : +c.dataset.id; rendre(); };
+    glisser();
+  }
 
   const rt = ls.filter(enRetard);
   $('cMissions').textContent = missions(ls).length + ' mission' + (missions(ls).length > 1 ? 's' : '');
