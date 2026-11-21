@@ -183,11 +183,27 @@ async function charger() {
     try { S.choix = JSON.parse(col?.widgetOptions || '{}').choices || []; } catch (e) { S.choix = []; }
     construire();
     erreur('');
+    if (await autoDevisValide()) { await charger(); return; }
     rendre();
   } catch (e) {
     console.error(e);
     erreur('Erreur de chargement : ' + (e.message || e));
   } finally { S.busy = false; }
+}
+
+/* La signature du devis (Propositions_prestation.devis_signe) fait passer l'évaluation
+   de « En attente devis » à « à planifier » — seule cette transition est automatique ici,
+   le passage initial à « En attente devis » reste manuel. */
+async function autoDevisValide() {
+  const actions = [];
+  for (const e of S.D.Evaluations) {
+    if (e.Statut !== 'En attente devis') continue;
+    const po = parId('Propositions_prestation', ref1(e.PO));
+    if (po && po.devis_signe) actions.push(['UpdateRecord', 'Evaluations', e.id, { Statut: 'à planifier' }]);
+  }
+  if (!actions.length) return false;
+  await grist.docApi.applyUserActions(actions);
+  return true;
 }
 
 /* ------------------------------------------------------------- préparation */
@@ -339,7 +355,11 @@ function glisser() {
         toast(`« ${k} » n’existe pas encore dans les choix de Statut : rien n’a été écrit.`);
         return;
       }
-      await ecrire([['UpdateRecord', 'Evaluations', c.id, { Statut: k }]], `${c.client} → ${k}`);
+      // Terminer une évaluation déclenche sa facturation : on coche a_facturer en même temps.
+      const champs = { Statut: k };
+      if (k === 'Terminé') champs.a_facturer = true;
+      await ecrire([['UpdateRecord', 'Evaluations', c.id, champs]],
+        `${c.client} → ${k}` + (k === 'Terminé' ? ' (à facturer)' : ''));
     };
   });
 }

@@ -555,11 +555,34 @@ async function cycler(tri, d) {
   const evr = (EVALUATEURS.find(x => x.tri === tri) || {}).id; if (!evr) return;
   const b = S.blocs.find(x => x.ev === S.ev && x.tri === tri && x.d === d);
   if (b && b.verrouille) { toast('ce jour est déjà planifié dans une UO partagée — à modifier depuis le planning existant'); return; }
+  const ev = S.ev;
   if (!b) await app([['AddRecord', T_UO, null,
-    { Evaluation: S.ev, date_debut_incluse: secDeIso(d), Jours: 0.5, Unite_d_oeuvre: null, ...champsRole(ROLE_DEFAUT, evr) }]]);
+    { Evaluation: ev, date_debut_incluse: secDeIso(d), Jours: 0.5, Unite_d_oeuvre: null, ...champsRole(ROLE_DEFAUT, evr) }]]);
   else if (b.p === 0.5) await app([['UpdateRecord', T_UO, b.id, { Jours: 1 }]]);
   else await app([['RemoveRecord', T_UO, b.id]]);
   await recharger();
+  if (await ajusterStatut(ev)) await recharger();
+}
+
+/* La présence d'au moins un jour bloqué fait basculer Evaluations.Statut vers « En cours »,
+   son absence le fait revenir à « à planifier » — jamais les autres statuts (Terminé, Annulé,
+   Rédaction, Facturation, Attente ANSSI, En attente devis…), qui ne sont ni lus ni écrits ici.
+   C'est ce qui fait qu'une mission change d'onglet (1 → 2) dès qu'on commence à la bloquer. */
+async function ajusterStatut(evId) {
+  const e = S.D.Evaluations.find(x => x.id === evId);
+  if (!e) return false;
+  const aDesJours = bloques(evId) > 0;
+  if (aDesJours && e.Statut === 'à planifier') {
+    await app([['UpdateRecord', 'Evaluations', evId, { Statut: 'En cours' }]]);
+    toast('Statut de la mission → En cours');
+    return true;
+  }
+  if (!aDesJours && e.Statut === 'En cours') {
+    await app([['UpdateRecord', 'Evaluations', evId, { Statut: 'à planifier' }]]);
+    toast('Statut de la mission → à planifier');
+    return true;
+  }
+  return false;
 }
 
 /* --------------------------------------------- onglet 2 : la fiche mission */
