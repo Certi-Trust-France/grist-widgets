@@ -575,15 +575,16 @@ function vueFiche() {
       <div class="roles">${ROLES.map(r =>
         `<button class="${role === r ? 'on' : ''}" data-role="${esc(g.tri)}|${r}">${r}</button>`).join('')}</div>
       <div class="jours">${mes.map(b => { const bj = jal(b.jal);
-        return `<button class="jr ${bj ? 'pose' : 'libre'} ${b.id === S.editAff ? 'editing' : ''}"
-          data-aff="${b.verrouille ? '' : b.id}" ${b.verrouille ? 'disabled' : ''}
+        return `<button class="jr ${bj ? 'pose' : 'libre'} ${b.id === S.editAff ? 'editing' : ''}" data-aff="${b.id}"
           style="${bj ? 'background:' + bj.c : ''}"
-          title="${b.verrouille ? 'UO partagée avec d’autres personnes — à modifier depuis le planning existant' : (bj ? esc(bj.id) : 'aucun jalon')}">
+          title="${b.verrouille ? '🔒 UO partagée avec d’autres personnes — le jalon reste modifiable, pas le partage/fusion' : (bj ? esc(bj.id) : 'aucun jalon')}">
           ${b.verrouille ? '🔒 ' : ''}${frc(b.d)}${b.p < 1 ? ' ½' : ''}<small>${bj ? esc(bj.court) : 'à définir'}</small></button>`;
       }).join('') || '<span class="aide">Aucun jour bloqué pour cette personne.</span>'}</div>
       ${eb ? `<div class="affpop">
         <span class="aide">Jalon pour ${frc(eb.d)}${eb.p < 1 ? ' ½' : ''} :</span>
-        ${(() => {
+        ${eb.verrouille ? `<p class="aide diviser">🔒 UO partagée avec d’autres personnes (créée ailleurs) :
+          le jalon se change ici, mais partage/fusion en 2 × ½ j reste réservé aux UO à une seule personne —
+          à faire depuis le planning existant si besoin.</p>` : (() => {
           const soeur = mes.find(z => z.id !== eb.id && z.d === eb.d);
           if (eb.p === 1 && !soeur) return `<p class="aide diviser">
             <button class="jalchip" data-diviser="${eb.id}">partager la journée en 2 × ½ j</button>
@@ -643,7 +644,7 @@ function vueFiche() {
   for (const x of $('droite').querySelectorAll('[data-setjal]')) x.onclick = async () => {
     const i = x.dataset.setjal.indexOf('|');
     const id = x.dataset.setjal.slice(0, i), jid = x.dataset.setjal.slice(i + 1);
-    const b = S.blocs.find(z => z.id === +id); if (!b || b.verrouille) return;
+    const b = S.blocs.find(z => z.id === +id); if (!b) return;
     await app([['UpdateRecord', T_UO, b.id, { Unite_d_oeuvre: jid || null }]]);
     toast(jid ? `${frc(b.d)} → ${jal(jid).court}` : `${frc(b.d)} libéré`);
     await recharger();
