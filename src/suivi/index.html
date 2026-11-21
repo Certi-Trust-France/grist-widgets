@@ -124,13 +124,11 @@ table.fr td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; vertical-align
 <div id="toast"></div>
 
 <script>
-/* Colonnes du tableau. Les quatre premières et la dernière reprennent au caractère près les
-   choix existants de Evaluations.Statut ; les quatre autres sont les étapes fines proposées.
+/* Colonnes du tableau : exactement les choix de Evaluations.Statut, dans cet ordre — ce que
+   la carte affiche correspond toujours à ce qui est réellement écrit dans Grist (page 48).
    Tant qu'un libellé n'existe pas dans le Choice Grist, sa colonne s'affiche mais le dépôt
    y est refusé : on n'écrit jamais une valeur que la colonne n'accepte pas. */
-const COLONNES = ['En attente devis', 'à planifier', 'Planifiée', 'En cours',
-                  'Rédaction', 'Facturation', 'Attente ANSSI', 'Terminé'];
-const FINES = ['Planifiée', 'Rédaction', 'Facturation', 'Attente ANSSI'];
+const COLONNES = ['En attente devis', 'à planifier', 'En cours', 'Terminé'];
 const CLASSE = { PACS: 'pac', PASSI: 'pas', 'PASSI_2.0': 'pas', PAMS: 'pam', PDIS: 'pdi',
                  PRIS: 'pri', SecNumCloud: 'sec' };
 const SITE = ['Journée de lancement', 'évaluation siège', 'évaluation prestation témoin',
@@ -246,7 +244,7 @@ function construire() {
       siteFin: site[site.length - 1] || null, rapFin: rap[rap.length - 1] || null,
       facture, reste, signee: e.Signee || '', ref: e.Ref_proposition || '',
       nbuo: uos.length, alertes: al,
-      etape: etapeDe(e.Statut, { dates, lanc, site, rap, reste, auj }),
+      etape: e.Statut || '',
       jalons: uos.map(x => ({ uo: x.u.Unite_d_oeuvre || '—', d: x.js[0] || null, j: nb(x.u.Jours),
         qui: [...new Set([ref1(x.u.RE), ...refs(x.u.ETA), ...refs(x.u.ETM)].filter(Boolean).map(tri))],
         passe: !!(x.js.length && x.js[x.js.length - 1] < auj) })) };
@@ -262,19 +260,6 @@ function construire() {
              prog: nomProg(ref1(c.Programme)), debut: dsDe(c.date_debut_cycle),
              surv: dsDe(c.Date_surveillance_certification), fin: dsDe(c.date_fin_certification), sv: etat };
   }).filter(c => c.client);
-}
-
-/* L'étape fine : le statut s'il est déjà fin, sinon déduite des jalons du planning. */
-function etapeDe(st, x) {
-  if (FINES.includes(st)) return st;
-  if (st === 'En attente devis') return st;
-  if (st === 'à planifier') return x.dates.length ? 'Planifiée' : 'à planifier';
-  if (st === 'Terminé') return x.reste > 1 ? 'Facturation' : 'Terminé';
-  if (!x.dates.length) return 'à planifier';
-  if (x.lanc.length && x.lanc[0] > x.auj) return 'Planifiée';
-  if (x.rap.length && x.rap[x.rap.length - 1] < x.auj) return x.reste > 1 ? 'Facturation' : 'Attente ANSSI';
-  if (x.site.length && x.site[x.site.length - 1] < x.auj) return 'Rédaction';
-  return 'En cours';
 }
 
 const visibles = () => S.cartes.filter(c =>
