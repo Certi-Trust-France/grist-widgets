@@ -149,6 +149,14 @@ table.grid { border-collapse: separate; border-spacing: 0; }
 .jrplus span { font-weight: 700; font-size: 13px; line-height: 1; }
 .jrplus input[type=date] { border: none; background: transparent; font-family: inherit; font-size: 10px;
           color: inherit; width: 84px; padding: 0; cursor: pointer; }
+.carte.plus { border: 1px dashed var(--bord2); box-shadow: none; display: flex; flex-direction: column;
+              justify-content: center; }
+.ajoutEval { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+.ajoutEval select, .ajoutEval input[type=date] { border: 1px solid var(--bord); border-radius: 5px;
+  padding: 3px 6px; font-family: inherit; font-size: 11px; color: var(--texte); background: var(--surface); }
+.btn-ajouter { border: none; background: var(--bleu); color: #fff; font-family: inherit; font-size: 11px;
+  font-weight: 600; border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+.btn-ajouter:hover { background: var(--bleu-clair); }
 .jr.pose { color: #fff; border-color: transparent; }
 .vide-l { padding: 24px 10px; color: var(--texte-doux); font-size: 12px; line-height: 1.6; }
 
@@ -613,21 +621,33 @@ async function basculerBloc(blocId, tri) {
   if (await ajusterStatut(b.ev)) await recharger();
 }
 
-/* Ajout d'un jour via le sélecteur de date de la fiche mission (plutôt que de retourner cliquer
-   la bonne case dans l'onglet Planning) : même garde-fous que cycler (jour ouvré, pas de doublon),
-   mais crée directement un jour plein (1 j) puisque le geste est volontaire, pas un cycle au clic. */
-async function ajouterJourFiche(tri, ds) {
+/* Ajout d'un jour plein (1 j), depuis la fiche mission plutôt que depuis la grille du planning —
+   que ce soit pour une personne déjà présente sur la mission (ajouterJourFiche) ou pour en faire
+   entrer une nouvelle (ajouterEvaluateur) : même garde-fous que cycler (jour ouvré, pas de doublon). */
+async function ajouterJourPourEvaluateur(evId, tri, ds, role) {
   if (!ouvre(ds)) { toast('jour non travaillé (week-end ou férié)'); return; }
-  const evr = (EVALUATEURS.find(x => x.tri === tri) || {}).id; if (!evr) return;
   if (S.blocs.find(x => x.ev === S.ev && x.tri === tri && x.d === ds)) {
     toast('un jour est déjà bloqué ce jour-là pour cette personne sur cette mission'); return;
   }
-  const role = (blocsDe(S.ev).find(b => b.tri === tri && b.fonction) || {}).fonction || ROLE_DEFAUT;
   await app([['AddRecord', T_UO, null,
-    { Evaluation: S.ev, date_debut_incluse: secDeIso(ds), Jours: 1, Unite_d_oeuvre: null, ...champsRole(role, evr) }]]);
+    { Evaluation: S.ev, date_debut_incluse: secDeIso(ds), Jours: 1, Unite_d_oeuvre: null, ...champsRole(role, evId) }]]);
   await recharger();
   if (await ajusterStatut(S.ev)) await recharger();
   toast(`${frc(ds)} ajouté pour ${tri}`);
+}
+
+async function ajouterJourFiche(tri, ds) {
+  const evr = (EVALUATEURS.find(x => x.tri === tri) || {}).id; if (!evr) return;
+  const role = (blocsDe(S.ev).find(b => b.tri === tri && b.fonction) || {}).fonction || ROLE_DEFAUT;
+  await ajouterJourPourEvaluateur(evr, tri, ds, role);
+}
+
+/* Fait entrer un nouvel évaluateur sur la mission : tant qu'il n'a aucune UO, il n'apparaît pas
+   dans personnesDe()/gens, donc on crée directement son premier jour (rôle ETA par défaut,
+   à corriger ensuite avec les boutons RE/ETA/ETM/OBS de sa carte, comme pour les autres). */
+async function ajouterEvaluateur(evId, ds) {
+  const g = EVALUATEURS.find(e => e.id === evId); if (!g) return;
+  await ajouterJourPourEvaluateur(evId, g.tri, ds, ROLE_DEFAUT);
 }
 
 /* Copier une affectation déjà faite (bloc existant, quelle que soit sa mission ou son
@@ -727,6 +747,18 @@ function vueFiche() {
     </div>`;
   }).join('');
 
+  const disponibles = EVALUATEURS.filter(e => !gens.some(g => g.tri === e.tri));
+  const carteAjout = `<div class="carte plus">
+    <div class="ent"><span class="q"><b>+ Ajouter un évaluateur</b></span></div>
+    <div class="ajoutEval">
+      <select id="selNouvelEval"><option value="">évaluateur…</option>
+        ${disponibles.map(e => `<option value="${e.id}">${esc(e.tri)} — ${esc(e.nom)}</option>`).join('')}
+      </select>
+      <input type="date" id="dateNouvelEval">
+      <button id="btnAjouterEval" class="btn-ajouter">Ajouter</button>
+    </div>
+  </div>`;
+
   const p = planDe(S.ev);
   $('droite').innerHTML = `<div class="outils">
       <b style="color:var(--texte)">Fiche mission — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
@@ -737,16 +769,18 @@ function vueFiche() {
       <span class="sep">·</span>${esc(p.CRIT_REFERENTIEL || '—')}
       <span class="sep">·</span>contact ${esc(p.CONTACT_NOM || '—')}
       <button class="genplan" data-o="plan" style="margin:0 0 0 8px">voir le plan d’évaluation complet → onglet 3</button></div>
-    <div class="fiche">${gens.length ? `<div class="cartes">${cartes}</div>`
-      : `<div class="vide-l">Aucun jour n’est encore bloqué pour cette évaluation.<br>
-         Passe à l’onglet « Planning » pour réserver des dates, puis reviens ici les qualifier.</div>`}
+    <div class="fiche">${!gens.length ? `<p class="aide" style="margin-bottom:8px">Aucun jour n’est
+        encore bloqué pour cette évaluation : ajoute directement un premier évaluateur ci-dessous,
+        ou passe par l’onglet « Planning ».</p>` : ''}
+      <div class="cartes">${cartes}${carteAjout}</div>
       <p class="aide" style="margin-top:10px">Chaque bouton est un jour bloqué dans le planning.
         Un clic l’ouvre et affiche juste en dessous les jalons possibles ; un clic sur un jalon l’affecte,
         la fenêtre reste ouverte pour continuer sur un autre jour. Un jour entier peut se partager en deux
         demi-journées pour loger deux jalons (ex. lancement le matin, documentaire l’après-midi).
-        La fonction choisie en haut de chaque carte vaut pour toute la mission. Le « + » ouvre un calendrier
-        pour ajouter directement un nouveau jour bloqué (jour plein) à cette personne, sans repasser par
-        l’onglet Planning.</p></div>`;
+        La fonction choisie en haut de chaque carte vaut pour toute la mission. Le « + » d’une carte ouvre
+        un calendrier pour lui ajouter directement un nouveau jour bloqué (jour plein), sans repasser par
+        l’onglet Planning. La carte « + Ajouter un évaluateur » fait entrer une nouvelle personne sur la
+        mission avec son premier jour (rôle ETA par défaut, à corriger ensuite).</p></div>`;
 
   for (const x of $('droite').querySelectorAll('[data-o]'))
     x.onclick = () => { S.onglet = x.dataset.o; S.editAff = null; rendre(); };
@@ -770,6 +804,12 @@ function vueFiche() {
     const ds = x.value; if (!ds) return;
     await ajouterJourFiche(x.dataset.plus, ds);
     x.value = '';
+  };
+  const btnAjoutEval = $('btnAjouterEval');
+  if (btnAjoutEval) btnAjoutEval.onclick = async () => {
+    const evId = +($('selNouvelEval').value || 0), ds = $('dateNouvelEval').value;
+    if (!evId || !ds) { toast('choisis un évaluateur et une date'); return; }
+    await ajouterEvaluateur(evId, ds);
   };
   for (const x of $('droite').querySelectorAll('[data-setjal]')) x.onclick = async () => {
     const i = x.dataset.setjal.indexOf('|');
