@@ -724,7 +724,9 @@ function vueFiche() {
         <span>+</span><input type="date" data-plus="${esc(g.tri)}">
       </label></div>
       ${eb ? `<div class="affpop">
-        <span class="aide">Jalon pour ${frc(eb.d)}${eb.p < 1 ? ' ½' : ''} :</span>
+        <span class="aide">Jalon pour ${frc(eb.d)}${eb.p < 1 ? ' ½' : ''} :
+          ${!eb.verrouille ? `<button class="jalchip" style="--c:var(--alerte);margin-left:6px"
+            data-supprimer="${eb.id}">🗑 supprimer ce jour</button>` : ''}</span>
         ${eb.verrouille ? `<p class="aide diviser">🔒 UO partagée avec d’autres personnes (créée ailleurs) :
           le jalon se change ici, mais partage/fusion en 2 × ½ j reste réservé aux UO à une seule personne —
           à faire depuis le planning existant si besoin.</p>` : (() => {
@@ -818,6 +820,15 @@ function vueFiche() {
     await app([['UpdateRecord', T_UO, b.id, { Unite_d_oeuvre: jid || null }]]);
     toast(jid ? `${frc(b.d)} → ${jal(jid).court}` : `${frc(b.d)} libéré`);
     await recharger();
+  };
+  for (const x of $('droite').querySelectorAll('[data-supprimer]')) x.onclick = async () => {
+    const b = S.blocs.find(z => z.id === +x.dataset.supprimer); if (!b || b.verrouille) return;
+    const ev = b.ev, d = b.d;
+    await app([['RemoveRecord', T_UO, b.id]]);
+    S.editAff = null;
+    await recharger();
+    if (await ajusterStatut(ev)) await recharger();
+    toast(`${frc(d)} supprimé`);
   };
   for (const x of $('droite').querySelectorAll('[data-diviser]')) x.onclick = async () => {
     const b = S.blocs.find(z => z.id === +x.dataset.diviser); if (!b || b.p !== 1 || b.verrouille) return;
