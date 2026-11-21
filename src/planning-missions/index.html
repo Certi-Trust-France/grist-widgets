@@ -143,6 +143,12 @@ table.grid { border-collapse: separate; border-spacing: 0; }
       background: var(--surface); color: var(--texte); font-family: inherit; line-height: 1.35; text-align: left; }
 .jr small { display: block; font-size: 9px; opacity: .8; }
 .jr.libre { border-style: dashed; color: var(--alerte); border-color: var(--alerte); }
+.jrplus { display: inline-flex; align-items: center; gap: 4px; border: 1px dashed var(--bord2); border-radius: 5px;
+          padding: 2px 6px; font-size: 10.5px; color: var(--texte-doux); cursor: pointer; }
+.jrplus:hover { border-color: var(--bleu-clair); color: var(--bleu-clair); }
+.jrplus span { font-weight: 700; font-size: 13px; line-height: 1; }
+.jrplus input[type=date] { border: none; background: transparent; font-family: inherit; font-size: 10px;
+          color: inherit; width: 84px; padding: 0; cursor: pointer; }
 .jr.pose { color: #fff; border-color: transparent; }
 .vide-l { padding: 24px 10px; color: var(--texte-doux); font-size: 12px; line-height: 1.6; }
 
@@ -607,6 +613,23 @@ async function basculerBloc(blocId, tri) {
   if (await ajusterStatut(b.ev)) await recharger();
 }
 
+/* Ajout d'un jour via le sélecteur de date de la fiche mission (plutôt que de retourner cliquer
+   la bonne case dans l'onglet Planning) : même garde-fous que cycler (jour ouvré, pas de doublon),
+   mais crée directement un jour plein (1 j) puisque le geste est volontaire, pas un cycle au clic. */
+async function ajouterJourFiche(tri, ds) {
+  if (!ouvre(ds)) { toast('jour non travaillé (week-end ou férié)'); return; }
+  const evr = (EVALUATEURS.find(x => x.tri === tri) || {}).id; if (!evr) return;
+  if (S.blocs.find(x => x.ev === S.ev && x.tri === tri && x.d === ds)) {
+    toast('un jour est déjà bloqué ce jour-là pour cette personne sur cette mission'); return;
+  }
+  const role = (blocsDe(S.ev).find(b => b.tri === tri && b.fonction) || {}).fonction || ROLE_DEFAUT;
+  await app([['AddRecord', T_UO, null,
+    { Evaluation: S.ev, date_debut_incluse: secDeIso(ds), Jours: 1, Unite_d_oeuvre: null, ...champsRole(role, evr) }]]);
+  await recharger();
+  if (await ajusterStatut(S.ev)) await recharger();
+  toast(`${frc(ds)} ajouté pour ${tri}`);
+}
+
 /* Copier une affectation déjà faite (bloc existant, quelle que soit sa mission ou son
    ancienneté) vers un autre jour et/ou un autre consultant, sans toucher à l'original ni à
    son éventuel verrouillage. Le mode copie reste actif après un collage pour en faire
@@ -676,7 +699,10 @@ function vueFiche() {
           style="${bj ? 'background:' + bj.c : ''}"
           title="${b.verrouille ? '🔒 UO partagée avec d’autres personnes — le jalon reste modifiable, pas le partage/fusion' : (bj ? esc(bj.id) : 'aucun jalon')}">
           ${b.verrouille ? '🔒 ' : ''}${frc(b.d)}${b.p < 1 ? ' ½' : ''}<small>${bj ? esc(bj.court) : 'à définir'}</small></button>`;
-      }).join('') || '<span class="aide">Aucun jour bloqué pour cette personne.</span>'}</div>
+      }).join('') || '<span class="aide">Aucun jour bloqué pour cette personne.</span>'}
+      <label class="jrplus" title="Ajouter un jour bloqué pour ${esc(g.nom)} à une date au choix">
+        <span>+</span><input type="date" data-plus="${esc(g.tri)}">
+      </label></div>
       ${eb ? `<div class="affpop">
         <span class="aide">Jalon pour ${frc(eb.d)}${eb.p < 1 ? ' ½' : ''} :</span>
         ${eb.verrouille ? `<p class="aide diviser">🔒 UO partagée avec d’autres personnes (créée ailleurs) :
@@ -718,7 +744,9 @@ function vueFiche() {
         Un clic l’ouvre et affiche juste en dessous les jalons possibles ; un clic sur un jalon l’affecte,
         la fenêtre reste ouverte pour continuer sur un autre jour. Un jour entier peut se partager en deux
         demi-journées pour loger deux jalons (ex. lancement le matin, documentaire l’après-midi).
-        La fonction choisie en haut de chaque carte vaut pour toute la mission.</p></div>`;
+        La fonction choisie en haut de chaque carte vaut pour toute la mission. Le « + » ouvre un calendrier
+        pour ajouter directement un nouveau jour bloqué (jour plein) à cette personne, sans repasser par
+        l’onglet Planning.</p></div>`;
 
   for (const x of $('droite').querySelectorAll('[data-o]'))
     x.onclick = () => { S.onglet = x.dataset.o; S.editAff = null; rendre(); };
@@ -737,6 +765,11 @@ function vueFiche() {
     const id = +x.dataset.aff;
     S.editAff = S.editAff === id ? null : id;
     rendre();
+  };
+  for (const x of $('droite').querySelectorAll('[data-plus]')) x.onchange = async () => {
+    const ds = x.value; if (!ds) return;
+    await ajouterJourFiche(x.dataset.plus, ds);
+    x.value = '';
   };
   for (const x of $('droite').querySelectorAll('[data-setjal]')) x.onclick = async () => {
     const i = x.dataset.setjal.indexOf('|');
