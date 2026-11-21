@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Planification des missions</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+/* Deux temps, trois onglets, une seule donnée (table Blocages_planning) :
+   1) Planning : on bloque des jours pour un évaluateur sur une évaluation, sans dire ce qu'il y fera.
+   2) Fiche mission : on donne à chaque jour bloqué son jalon, et à chaque évaluateur sa fonction.
+   3) Plan d'évaluation : relecture des mêmes champs que le widget « plan-evaluation ».
+   Grille verticale reprise du widget « Planning consultants ». */
+:root {
+  --bleu: #1e3a8a; --bleu-clair: #2563eb;
+  --fond: #eef2f7; --surface: #fff; --surface-2: #e2e8f0; --bord: #cbd5e1; --bord2: #94a3b8;
+  --texte: #1e293b; --texte-doux: #64748b; --texte-pale: #94a3b8;
+  --alerte: #b91c1c; --alerte-fond: #fef2f2; --ok: #15803d; --ok-fond: #f0fdf4; --attente: #b45309;
+  --we: #f1f5f9; --ferie: #fef3c7; --auj: #fde68a; --cible: #bbf7d0;
+  --ombre: 0 1px 2px rgba(15,23,42,.10);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 13px;
+       color: var(--texte); background: var(--fond); display: flex; flex-direction: column;
+       overflow: hidden; font-variant-numeric: tabular-nums; }
+
+.bandeau { flex-shrink: 0; background: var(--bleu); color: #fff; padding: 7px 12px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bandeau b { font-size: 13.5px; }
+.chip { background: rgba(255,255,255,.16); border-radius: 10px; padding: 1px 9px; font-size: 11px; white-space: nowrap; }
+.chip.ko { background: #b91c1c; } .chip.ok { background: #15803d; }
+.pousse { flex: 1 1 auto; }
+.ongs { display: flex; gap: 3px; }
+.ongs button { border: none; background: rgba(255,255,255,.14); color: #dbeafe; font-family: inherit;
+  font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 5px; cursor: pointer; }
+.ongs button.on { background: var(--fond); color: var(--bleu); }
+.err { background: var(--alerte-fond); color: var(--alerte); padding: 6px 12px; font-size: 12px;
+       border-bottom: 1px solid var(--alerte); display: none; }
+
+.corps { flex: 1 1 auto; display: flex; min-height: 0; }
+
+/* ---------- arbre cycles > évaluations ---------- */
+.gauche { flex: 0 0 258px; background: var(--surface); border-right: 1px solid var(--bord);
+          overflow-y: auto; padding: 8px 9px 14px; }
+h4 { margin: 11px 0 5px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+     color: var(--texte-doux); font-weight: 600; }
+h4:first-child { margin-top: 0; }
+.aide { font-size: 10.5px; color: var(--texte-doux); line-height: 1.45; margin: 0 0 7px; }
+.cyc { margin-bottom: 9px; }
+.cyc > .t { display: flex; align-items: baseline; gap: 6px; font-size: 11px; font-weight: 700;
+            color: var(--texte); padding: 2px 3px 4px; border-bottom: 1px solid var(--surface-2); }
+.cyc > .t small { font-weight: 400; color: var(--texte-doux); font-size: 10px; }
+.miss { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; border: 1px solid transparent;
+        background: none; font-family: inherit; color: var(--texte); border-radius: 6px; padding: 5px 6px;
+        cursor: pointer; margin-top: 3px; }
+.miss:hover { background: var(--surface-2); }
+.miss.on { background: var(--surface-2); border-color: var(--bleu-clair); }
+.pt { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 3px; }
+.miss .q { flex: 1 1 auto; min-width: 0; line-height: 1.2; }
+.miss .q b { display: block; font-size: 12.5px; font-weight: 600; overflow: hidden;
+             text-overflow: ellipsis; white-space: nowrap; }
+.miss .q small { font-size: 10px; color: var(--texte-doux); }
+.miss .n { flex: 0 0 auto; font-size: 10.5px; text-align: right; white-space: nowrap; color: var(--texte-doux); }
+.miss .n.ko { color: var(--alerte); font-weight: 700; } .miss .n.ok { color: var(--ok); font-weight: 700; }
+
+/* ---------- compteurs ---------- */
+.conv { border: 1px solid var(--bord); border-radius: 8px; padding: 8px 9px; }
+.lgn { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 3px 0; }
+.lgn .l { flex: 0 0 74px; color: var(--texte-doux); }
+.lgn .t { flex: 1 1 auto; min-width: 0; height: 9px; background: var(--surface-2); border-radius: 4px; overflow: hidden; display: flex; }
+.lgn .t i { display: block; height: 100%; }
+.lgn .v { flex: 0 0 48px; text-align: right; font-weight: 600; }
+.verdict { margin-top: 7px; font-size: 11.5px; font-weight: 600; padding: 5px 7px; border-radius: 6px; line-height: 1.4; }
+.verdict.ok { background: var(--ok-fond); color: var(--ok); }
+.verdict.ko { background: var(--alerte-fond); color: var(--alerte); }
+
+/* ---------- grille planning ---------- */
+.droite { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.outils { flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--bord); padding: 6px 10px;
+          display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 11.5px; color: var(--texte-doux); }
+.outils label { display: inline-flex; align-items: center; gap: 4px; }
+.gridwrap { flex: 1 1 auto; overflow: auto; position: relative; background: var(--fond); }
+
+table.grid { border-collapse: separate; border-spacing: 0; }
+.grid th, .grid td { border-right: 1px solid var(--bord); border-bottom: 1px solid var(--bord); padding: 0; height: 24px; }
+.grid thead th { position: sticky; top: 0; z-index: 3; background: var(--bleu); color: #fff; font-weight: 600;
+  min-width: 96px; max-width: 96px; padding: 4px 3px; text-align: center; vertical-align: bottom; height: auto; font-size: 11px; }
+.grid thead th .tg { font-size: 12.5px; display: block; }
+.grid thead th .nm { font-weight: 400; opacity: .85; white-space: nowrap; overflow: hidden;
+                     text-overflow: ellipsis; display: block; font-size: 10px; }
+.grid thead th .em { font-weight: 400; opacity: .7; font-size: 9.5px; display: block; }
+.grid .c0, .grid .c1 { position: sticky; z-index: 2; background: var(--surface); text-align: left;
+                       padding: 0 5px; white-space: nowrap; color: var(--texte-doux); font-size: 11px; }
+.grid .c0 { left: 0; min-width: 40px; max-width: 40px; }
+.grid .c1 { left: 40px; min-width: 66px; max-width: 66px; border-right: 2px solid var(--bord2); }
+.grid thead .c0, .grid thead .c1 { z-index: 4; background: var(--bleu); color: #fff; }
+.grid tr.mois td { background: var(--surface-2); color: var(--texte); font-weight: 700; padding: 2px 7px;
+                   position: sticky; left: 0; font-size: 11px; }
+.grid tr.lundi td { border-top: 2px solid var(--bord2); }
+.grid tr.we td.cel, .grid tr.we .c0, .grid tr.we .c1 { background: var(--we); }
+.grid tr.ferie td.cel, .grid tr.ferie .c0, .grid tr.ferie .c1 { background: var(--ferie); }
+.grid tr.auj .c0, .grid tr.auj .c1 { background: var(--auj); color: var(--texte); font-weight: 700; }
+.grid td.cel { min-width: 96px; max-width: 96px; position: relative; cursor: cell;
+               background: var(--surface); vertical-align: top; }
+.grid td.cel.trop { background: var(--alerte-fond); }
+.grid tfoot td { position: sticky; bottom: 0; background: var(--surface-2); font-weight: 600; text-align: center;
+                 z-index: 2; font-size: 11px; }
+.grid tfoot .c0, .grid tfoot .c1 { z-index: 3; background: var(--surface-2); }
+
+.bq { display: block; margin: 1px 2px; padding: 0 4px; border-radius: 3px; color: #fff; font-size: 10.5px;
+      line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: var(--ombre); }
+.bq.demi { width: 46%; }
+.bq.libre { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.3) 0 4px, transparent 4px 8px); }
+.bq.autre { opacity: .5; }
+.bq small { opacity: .9; }
+
+/* ---------- fiche mission ---------- */
+.fiche { flex: 1 1 auto; overflow: auto; padding: 10px; }
+.cartes { display: grid; gap: 9px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+.carte { background: var(--surface); border-radius: 8px; box-shadow: var(--ombre); padding: 9px 10px; }
+.carte .ent { display: flex; align-items: center; gap: 7px; }
+.tri { flex: 0 0 auto; width: 30px; height: 22px; border-radius: 4px; background: var(--bleu-clair); color: #fff;
+       font-size: 10.5px; font-weight: 700; display: grid; place-items: center; }
+.ext .tri { background: var(--texte-pale); }
+.carte .ent .q { flex: 1 1 auto; min-width: 0; }
+.carte .ent .q b { display: block; font-size: 12.5px; line-height: 1.2; }
+.carte .ent .q small { font-size: 10px; color: var(--texte-doux); }
+.carte .ent .j { font-size: 11px; color: var(--texte-doux); white-space: nowrap; }
+.roles { display: flex; gap: 3px; margin-top: 7px; }
+.roles button { flex: 1 1 auto; border: 1px solid var(--bord); background: var(--surface); color: var(--texte-doux);
+                font-family: inherit; font-size: 10.5px; font-weight: 600; border-radius: 5px; padding: 3px; cursor: pointer; }
+.roles button.on { background: var(--bleu); border-color: var(--bleu); color: #fff; }
+.jours { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.jr { border: 1px solid var(--bord); border-radius: 5px; padding: 2px 6px; font-size: 10.5px; cursor: pointer;
+      background: var(--surface); color: var(--texte); font-family: inherit; line-height: 1.35; text-align: left; }
+.jr small { display: block; font-size: 9px; opacity: .8; }
+.jr.libre { border-style: dashed; color: var(--alerte); border-color: var(--alerte); }
+.jr.pose { color: #fff; border-color: transparent; }
+.vide-l { padding: 24px 10px; color: var(--texte-doux); font-size: 12px; line-height: 1.6; }
+
+.jalb { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: 1px solid var(--bord);
+        background: var(--surface); color: var(--texte); font-family: inherit; border-radius: 6px;
+        padding: 5px 6px; margin-bottom: 4px; }
+.jalb.on { border-color: var(--bleu); box-shadow: inset 3px 0 0 var(--bleu); background: var(--surface-2); }
+.jalb .pt { width: 11px; height: 11px; border-radius: 3px; }
+.jalb .q { flex: 1 1 auto; min-width: 0; }
+.jalb .q b { display: block; font-size: 12px; font-weight: 600; line-height: 1.2; }
+.jalb .q small { font-size: 10px; color: var(--texte-doux); }
+.affpop { margin-top: 8px; padding: 7px 8px; border: 1px dashed var(--bord2); border-radius: 6px; background: var(--surface-2); }
+.jalrow { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; align-items: center; }
+.jalitem { display: inline-flex; align-items: center; gap: 3px; }
+.jalchip { --c: var(--bord2); border: 1px solid var(--c); background: var(--surface); color: var(--texte);
+           font-family: inherit; font-size: 11px; font-weight: 600; border-radius: 12px; padding: 4px 10px; cursor: pointer; }
+.jalchip.on { background: var(--c); border-color: var(--c); color: #fff; }
+.jalchip.clr { --c: var(--bord2); color: var(--texte-doux); font-weight: 400; border-style: dashed; }
+.jr.editing { outline: 2px solid var(--bleu-clair); outline-offset: 1px; }
+.cmp { border: 1px solid var(--bord); background: var(--surface); color: var(--texte-doux); font-family: inherit;
+       font-size: 9px; font-weight: 700; border-radius: 9px; padding: 1px 5px; cursor: pointer; white-space: nowrap; }
+.cmp.on { background: var(--bleu); border-color: var(--bleu); color: #fff; }
+.diviser { margin: 5px 0 0; }
+.diviser button { font-size: 10.5px; }
+.diviser small { color: var(--texte-doux); margin-left: 5px; }
+
+.fichecli { flex-shrink: 0; background: var(--ferie); color: var(--texte); padding: 6px 10px; font-size: 11.5px;
+            display: flex; align-items: center; flex-wrap: wrap; gap: 0; }
+.fichecli b { font-weight: 700; }
+.fichecli .sep { opacity: .5; margin: 0 6px; }
+.genplan { border: none; background: rgba(0,0,0,.12); color: var(--texte); font-family: inherit; font-size: 10.5px;
+           font-weight: 600; border-radius: 11px; padding: 3px 10px; cursor: pointer; }
+.genplan:hover { background: rgba(0,0,0,.2); }
+.plantab { border-collapse: collapse; width: 100%; font-size: 12px; color: var(--texte); margin-bottom: 4px; }
+.plantab td { padding: 3px 10px 3px 0; border-bottom: 1px solid var(--surface-2); vertical-align: top; }
+.plantab td.lib { color: var(--texte-doux); width: 46%; white-space: pre-wrap; }
+.plantab td.val { white-space: pre-wrap; font-weight: 500; }
+.plansec { padding: 10px; }
+.plansec + .plansec { border-top: 1px solid var(--bord); }
+.plansec h5 { margin: 0 0 6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+              color: var(--texte-doux); font-weight: 700; }
+
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--bleu-clair); outline-offset: 1px; }
+kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; background: var(--surface-2);
+      border: 1px solid var(--bord); border-bottom-width: 2px; border-radius: 3px; padding: 0 3px; }
+#toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff;
+         padding: 7px 14px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity .2s;
+         pointer-events: none; z-index: 40; max-width: 90vw; }
+#toast.on { opacity: 1; }
+
+@media (max-width: 860px) {
+  .corps { flex-direction: column; overflow-y: auto; }
+  .gauche { flex: 0 0 auto; border-right: none; border-bottom: 1px solid var(--bord); }
+  .droite { min-height: 400px; }
+}
+</style>
+</head>
+<body>
+
+<div class="bandeau">
+  <b>🗓 Planification des missions</b>
+  <span class="ongs" id="ongs"></span>
+  <span class="pousse"></span>
+  <span class="chip" id="cEtat"></span>
+  <span class="chip ko" id="cConflits" hidden></span>
+</div>
+<div class="err" id="erreur"></div>
+
+<div class="corps">
+  <aside class="gauche" id="gauche">Chargement…</aside>
+  <div class="droite" id="droite"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* Écrit dans Blocages_planning (Evaluation, Evaluateur, Date, Part_jour, Jalon, Fonction) ;
+   lecture seule de Evaluations, Entreprises, Programmes, Evaluateurs, Sites, Contacts,
+   Documents_Referentiel. fetchTable sur des tables autres que la table liée impose 'full'. */
+const TABLES = ['Evaluations', 'Entreprises', 'Programmes', 'Evaluateurs', 'Sites', 'Contacts',
+                'Documents_Referentiel', 'Blocages_planning'];
+
+const ROLES = ['RE', 'ETA', 'ETM', 'OBS'];
+
+/* Les jalons d'une évaluation. compte = le jalon pèse sur les jours vendus (réglage de session,
+   pas encore persisté dans Grist) ; lancement et clôture se planifient mais restent hors forfait
+   par défaut. Les libellés sont exactement les choix de Blocages_planning.Jalon. */
+const JALONS = [
+  { id: 'Réunion de lancement', court: 'Lancement', compte: false, c: '#94a3b8' },
+  { id: 'Évaluation documentaire', court: 'Documentaire', compte: true, c: '#2563eb' },
+  { id: 'Évaluation sur site (siège)', court: 'Sur site', compte: true, c: '#0891b2' },
+  { id: 'Prestation témoin', court: 'Témoin', compte: true, c: '#7c3aed' },
+  { id: 'Rédaction du rapport', court: 'Rapport', compte: true, c: '#b45309' },
+  { id: 'Réunion de clôture', court: 'Clôture', compte: false, c: '#64748b' },
+];
+const PALETTE = ['#2563eb', '#60a5fa', '#7c3aed', '#c2410c', '#0891b2', '#b45309', '#15803d', '#be185d'];
+
+/* Mêmes regroupements et libellés que le widget « plan-evaluation »
+   (src/plan-evaluation/index.html, const DOCS.plan.blocs) — relecture, pas resaisie. */
+const SECTIONS_PLAN = [
+  { titre: 'Société', champs: [
+      ['SOC_NOM', 'Nom de la société'], ['SOC_SIREN', 'SIREN'],
+      ['SITE_ADRESSE', 'Site(s) actif(s)'],
+      ['CONTACT_NOM', 'Nom du contact'], ['CONTACT_EMAIL', 'Email du contact'], ['CONTACT_TEL', 'Téléphone du contact'] ] },
+  { titre: 'Information sur l’évaluation', champs: [
+      ['CRIT_REFERENTIEL', 'Référentiel d’exigences'], ['CRIT_TRAME', 'Trame d’évaluation'],
+      ['EVAL_TYPE', 'Type d’évaluation'] ] },
+  { titre: 'Jalons', champs: [
+      ['DATE_LANCEMENT', 'Journée de lancement'],
+      ['DATE_DOC_DEBUT', 'Évaluation documentaire – début'], ['DATE_DOC_FIN', 'Évaluation documentaire – fin'],
+      ['DATE_SIEGE_DEBUT', 'Évaluation siège – début'], ['DATE_SIEGE_FIN', 'Évaluation siège – fin'],
+      ['DATE_TEMOIN', 'Prestation(s) témoin'], ['DATE_CLOTURE', 'Réunion de clôture'],
+      ['DATE_REMISE_RAPPORT', 'Remise du rapport (échéance)'] ] },
+  { titre: 'Charge en jours-homme', champs: [
+      ['CHARGE_DOC', 'Évaluation documentaire'], ['CHARGE_SIEGE', 'Évaluation siège (sur site)'],
+      ['CHARGE_TEMOIN', 'Évaluation prestation témoin'], ['CHARGE_TOTAL', 'Total bloqué / vendu'] ] },
+];
+/* Champs non modélisés ici (pas de source directe dans les tables lues) : s'ils ont été saisis
+   à la main dans le widget plan-evaluation, on les relit depuis Evaluations.Plan_evaluation.champs. */
+
+let EVALUATEURS = [], CYCLES = [], EVS = {};
+const S = { D: null, onglet: 'planning', ev: null, jal: 'Évaluation documentaire', editAff: null,
+            blocs: [], compte: Object.fromEntries(JALONS.map(j => [j.id, j.compte])), autres: true };
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const nb = v => (typeof v === 'number' ? v : 0);
+const nbj = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
+const JOURL = ['dim','lun','mar','mer','jeu','ven','sam'];
+const MOIS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+const dec = (ds, n) => { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+                         return d.toISOString().slice(0, 10); };
+const jsem = ds => new Date(ds + 'T00:00:00Z').getUTCDay();
+const we = ds => [0, 6].includes(jsem(ds));
+const frl = d => d ? d.slice(8,10) + '/' + d.slice(5,7) + '/' + d.slice(0,4) : null;
+const frc = d => JOURL[jsem(d)] + ' ' + d.slice(8,10) + '/' + d.slice(5,7);
+function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600); }
+function erreur(m) { const e = $('erreur'); e.textContent = m || ''; e.style.display = m ? '' : 'none'; }
+
+const rows = t => (t && t.id ? t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]]))) : []);
+const ref1 = v => (typeof v === 'number' ? v : (v && (v.rowId || v.id)) || 0);
+const refs = v => (Array.isArray(v) && v[0] === 'L') ? v.slice(1).filter(x => x) : [];
+const dsDe = sec => (typeof sec === 'number' && sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null;
+const secDeIso = iso => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 1000;
+
+/* Jours fériés français (algorithme de Meeus/Jones/Butcher pour Pâques) — repris de Planning consultants. */
+function feries(annee) {
+  const a = annee % 19, b = Math.floor(annee / 100), c = annee % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mois = Math.floor((h + l - 7 * m + 114) / 31), jour = ((h + l - 7 * m + 114) % 31) + 1;
+  const paques = dec(`${annee}-01-01`, Math.round((Date.UTC(annee, mois - 1, jour) - Date.UTC(annee, 0, 1)) / 86400000));
+  const y = String(annee);
+  return new Map([
+    [`${y}-01-01`, 'Jour de l’an'], [dec(paques, 1), 'Lundi de Pâques'], [`${y}-05-01`, 'Fête du travail'],
+    [`${y}-05-08`, 'Victoire 1945'], [dec(paques, 39), 'Ascension'], [dec(paques, 50), 'Lundi de Pentecôte'],
+    [`${y}-07-14`, 'Fête nationale'], [`${y}-08-15`, 'Assomption'], [`${y}-11-01`, 'Toussaint'],
+    [`${y}-11-11`, 'Armistice'], [`${y}-12-25`, 'Noël'],
+  ]);
+}
+const cacheFeries = new Map();
+function ferie(iso) {
+  const y = +iso.slice(0, 4);
+  if (!cacheFeries.has(y)) cacheFeries.set(y, feries(y));
+  return cacheFeries.get(y).get(iso) || null;
+}
+const ouvre = d => !we(d) && !ferie(d);
+function semaineISO(ds) {
+  const d = new Date(ds + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const a = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - a) / 86400000 + 1) / 7);
+}
+const aujourdhui = () => { const d = new Date(); return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  .toISOString().slice(0, 10); };
+const AUJ = aujourdhui();
+const DEBUT = dec(AUJ, -14);
+const FIN = dec(AUJ, 200);
+const TOUS_JOURS = (() => { const o = []; let d = DEBUT;
+  while (d <= FIN && o.length < 230) { o.push(d); d = dec(d, 1); } return o; })();
+
+const jal = id => JALONS.find(j => j.id === id) || null;
+const blocsDe = e => S.blocs.filter(b => b.ev === e);
+const bloques = e => blocsDe(e).reduce((s, b) => s + b.p, 0);
+const affectes = e => blocsDe(e).filter(b => b.jal).reduce((s, b) => s + b.p, 0);
+const comptes = e => blocsDe(e).filter(b => b.jal && S.compte[b.jal]).reduce((s, b) => s + b.p, 0);
+const horsForfait = e => blocsDe(e).filter(b => b.jal && !S.compte[b.jal]).reduce((s, b) => s + b.p, 0);
+const libres = e => bloques(e) - affectes(e);
+const charge = (tri, d) => S.blocs.filter(b => b.tri === tri && b.d === d).reduce((s, b) => s + b.p, 0);
+const personnesDe = e => [...new Set(blocsDe(e).map(b => b.tri))]
+  .map(t => EVALUATEURS.find(x => x.tri === t)).filter(Boolean)
+  .sort((a, b) => (b.ct - a.ct) || a.tri.localeCompare(b.tri, 'fr'));
+function conflits() {
+  const o = [];
+  for (const e of EVALUATEURS) for (const d of TOUS_JOURS) if (charge(e.tri, d) > 1) o.push(e.tri + '|' + d);
+  return o;
+}
+
+/* ═════════ Grist : lecture et écriture ═════════ */
+grist.ready({ requiredAccess: 'full' });
+
+async function chargerTables() {
+  const res = await Promise.all(TABLES.map(n => grist.docApi.fetchTable(n).then(rows).catch(() => [])));
+  const D = {}; TABLES.forEach((n, i) => { D[n] = res[i]; });
+  S.D = D;
+}
+
+async function app(actions) {
+  try { await grist.docApi.applyUserActions(actions); erreur(''); }
+  catch (e) { console.error(e); toast('Erreur d’écriture : ' + (e.message || e)); throw e; }
+}
+
+async function recharger() {
+  try {
+    await chargerTables();
+    construire();
+    erreur('');
+  } catch (e) {
+    console.error(e);
+    erreur('Erreur de chargement : ' + (e.message || e));
+  }
+  rendre();
+}
+
+function construire() {
+  const D = S.D;
+  const estCT = e => /certi.?trust/i.test(e.Employeur || '');
+  const libGen = e => (e.Evaluateur_Trigramme || '').trim()
+    || `${e.Evaluateur_Prenom || ''}${e.Evaluateur_Nom || ''}`.trim().slice(0, 3).toUpperCase() || ('#' + e.id);
+  const bruts = D.Evaluateurs.filter(e => e.Evaluateur_Nom || e.Evaluateur_Prenom || e.Evaluateur_Trigramme)
+    .map(e => ({ id: e.id, tri: libGen(e), nom: `${e.Evaluateur_Prenom || ''} ${e.Evaluateur_Nom || ''}`.trim() || libGen(e),
+                 emp: e.Employeur || '', ct: estCT(e) }));
+  const parTri = (a, b) => a.tri.localeCompare(b.tri, 'fr');
+  EVALUATEURS = [...bruts.filter(g => g.ct).sort(parTri), ...bruts.filter(g => !g.ct).sort(parTri)];
+  const triDe = evr => (EVALUATEURS.find(e => e.id === evr) || {}).tri || '?';
+
+  /* Un cycle = une (entreprise, programme) : regroupe les évaluations en cours de vie,
+     comme un programme contient plusieurs projets. */
+  const evals = D.Evaluations.filter(e => ['à planifier', 'En cours'].includes(e.Statut));
+  const cyMap = new Map();
+  let colIdx = 0;
+  for (const e of evals) {
+    const entId = ref1(e.Entreprise), progId = ref1(e.Programme);
+    const key = entId + '|' + progId;
+    if (!cyMap.has(key)) {
+      const ent = D.Entreprises.find(x => x.id === entId) || {};
+      const prog = D.Programmes.find(x => x.id === progId) || {};
+      cyMap.set(key, { id: key, entId, progId, nom: ent.Denomination || ('Entreprise #' + entId),
+                       prog: prog.Nom_du_programme || '', evals: [] });
+    }
+    cyMap.get(key).evals.push({ id: e.id, nom: e.Libelle || ('Évaluation #' + e.id), statut: e.Statut,
+                                vendus: nb(e.JH_vendus), c: PALETTE[colIdx++ % PALETTE.length] });
+  }
+  CYCLES = [...cyMap.values()].sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  EVS = {};
+  for (const c of CYCLES) for (const e of c.evals) EVS[e.id] = { ...e, cycle: c };
+
+  S.blocs = D.Blocages_planning.filter(r => EVS[ref1(r.Evaluation)]).map(r => {
+    const evr = ref1(r.Evaluateur);
+    return { id: r.id, ev: ref1(r.Evaluation), evr, tri: triDe(evr), d: dsDe(r.Date) || AUJ,
+             p: nb(r.Part_jour) || 1, jal: r.Jalon || null, fonction: r.Fonction || null };
+  });
+
+  if (!EVS[S.ev]) S.ev = CYCLES[0]?.evals[0]?.id ?? null;
+}
+
+/* ------------------------------------------------------------------ gauche */
+function barreConv(e) {
+  const E = EVS[e], v = E.vendus, bq = bloques(e), af = affectes(e), hf = horsForfait(e), cp = comptes(e);
+  const max = Math.max(v, bq, 1);
+  const pct = x => Math.round(x / max * 100) + '%';
+  const ecart = cp + libres(e) - v;    // ce qui est bloqué et imputable, face au vendu
+  return `<div class="conv">
+    <div class="lgn"><span class="l">Vendus</span>
+      <span class="t"><i style="width:${pct(v)};background:var(--bord2)"></i></span>
+      <span class="v">${nbj(v)} j</span></div>
+    <div class="lgn"><span class="l">Bloqués</span>
+      <span class="t"><i style="width:${pct(af)};background:${E.c}"></i><i style="width:${pct(libres(e))};background:var(--attente)"></i></span>
+      <span class="v">${nbj(bq)} j</span></div>
+    <div class="lgn"><span class="l">Affectés</span>
+      <span class="t"><i style="width:${pct(cp)};background:var(--ok)"></i><i style="width:${pct(hf)};background:var(--texte-pale)"></i></span>
+      <span class="v">${nbj(af)} j</span></div>
+    <div class="verdict ${ecart === 0 ? 'ok' : 'ko'}">
+      ${ecart === 0 ? '✓ le blocage couvre exactement les jours vendus'
+        : ecart < 0 ? `il manque ${nbj(-ecart)} j à bloquer`
+                    : `${nbj(ecart)} j bloqués en trop`}
+      ${libres(e) ? `<br>${nbj(libres(e))} j bloqués sans jalon` : ''}
+      ${hf ? `<br>${nbj(hf)} j hors forfait (lancement, clôture)` : ''}</div>
+  </div>`;
+}
+
+/* Planning : seulement ce qui reste à bloquer (Statut « à planifier »).
+   Fiche mission / Plan d'évaluation : seulement ce qui est déjà en cours. */
+const statutsOnglet = o => o === 'planning' ? ['à planifier'] : ['En cours'];
+function cyclesEligibles() {
+  const statuts = statutsOnglet(S.onglet);
+  return CYCLES.map(c => ({ ...c, evals: c.evals.filter(e => statuts.includes(e.statut)) }))
+               .filter(c => c.evals.length);
+}
+
+function rendreGauche() {
+  const cycles = cyclesEligibles();
+  const idsOk = new Set(cycles.flatMap(c => c.evals.map(e => e.id)));
+  if (!idsOk.has(S.ev)) S.ev = cycles[0]?.evals[0]?.id ?? null;
+  const E = EVS[S.ev];
+
+  let h = `<h4>${S.onglet === 'planning' ? 'À planifier' : 'En cours de planification'}</h4>` +
+    (cycles.length ? cycles.map(c => `<div class="cyc">
+      <div class="t">${esc(c.nom)} <small>${esc(c.prog)}</small></div>
+      ${c.evals.map(e => {
+        const bq = bloques(e.id), ok = bq === e.vendus;
+        return `<button class="miss ${S.ev === e.id ? 'on' : ''}" data-ev="${e.id}" aria-pressed="${S.ev === e.id}">
+          <span class="pt" style="background:${e.c}"></span>
+          <span class="q"><b>${esc(e.nom)}</b><small>${esc(e.statut)}</small></span>
+          <span class="n ${ok ? 'ok' : bq > e.vendus ? 'ko' : ''}">${nbj(bq)}/${nbj(e.vendus)} j</span></button>`;
+      }).join('')}</div>`).join('')
+      : `<p class="aide">${S.onglet === 'planning' ? 'Rien à bloquer : aucune évaluation « à planifier ».'
+          : 'Rien à qualifier : aucune évaluation « En cours » n’a encore de jour bloqué.'}</p>`);
+
+  if (E) {
+    h += `<h4>${esc(E.cycle.nom)} — ${esc(E.nom)}</h4>${barreConv(S.ev)}`;
+
+    if (S.onglet === 'fiche') {
+      h += `<h4>Jalons</h4>
+        <p class="aide">Clique un jour bloqué à droite pour lui donner directement son jalon.
+        Cette liste n’est qu’un récapitulatif.</p>` +
+        JALONS.map(j => {
+          const n = blocsDe(S.ev).filter(b => b.jal === j.id).reduce((s, b) => s + b.p, 0);
+          return `<div class="jalb ${S.jal === j.id ? 'on' : ''}" data-jal="${esc(j.id)}">
+            <span class="pt" style="background:${j.c}"></span>
+            <span class="q"><b>${esc(j.id)}</b><small>${n ? nbj(n) + ' j affectés' : 'aucun jour'}</small></span>
+          </div>`;
+        }).join('');
+    } else if (S.onglet === 'planning') {
+      h += `<h4>Comment bloquer</h4>
+        <p class="aide">Clique une case : <kbd>vide → ½ j → 1 j → vide</kbd>.<br>
+        Le blocage ne dit pas <i>ce qu’on y fera</i> : ça se décide dans la fiche mission.</p>`;
+    }
+  }
+  $('gauche').innerHTML = h;
+
+  for (const x of $('gauche').querySelectorAll('[data-ev]'))
+    x.onclick = () => { S.ev = +x.dataset.ev; S.editAff = null; rendre(); };
+  for (const x of $('gauche').querySelectorAll('[data-jal]'))
+    x.onclick = () => { S.jal = x.dataset.jal; rendre(); };
+}
+
+/* ------------------------------------------------- onglet 1 : le planning */
+function vuePlanning() {
+  const E = EVS[S.ev];
+  const cols = EVALUATEURS;
+  const totaux = cols.map(c => S.blocs.filter(b => b.tri === c.tri).reduce((s, b) => s + b.p, 0));
+
+  let h = '<table class="grid"><thead><tr><th class="c0">Sem.</th><th class="c1">Jour</th>' +
+    cols.map(c => `<th title="${esc(c.nom + ' — ' + c.emp)}"><span class="tg">${esc(c.tri)}</span>
+      <span class="nm">${esc(c.nom)}</span><span class="em">${esc(c.ct ? 'Certi-Trust' : 'externe')}</span></th>`).join('') +
+    '</tr></thead><tbody>';
+
+  let moisCourant = '';
+  TOUS_JOURS.forEach((d, r) => {
+    const m = d.slice(0, 7);
+    if (m !== moisCourant) { moisCourant = m;
+      h += `<tr class="mois"><td colspan="${cols.length + 2}">${MOIS[+d.slice(5,7) - 1]} ${d.slice(0,4)}</td></tr>`; }
+    const dow = jsem(d), f = ferie(d);
+    const cls = [we(d) ? 'we' : '', f ? 'ferie' : '', d === AUJ ? 'auj' : '', dow === 1 ? 'lundi' : ''].join(' ');
+    h += `<tr class="${cls}"${f ? ` title="${esc(f)}"` : ''}>
+      <td class="c0">${dow === 1 || r === 0 ? 'S' + semaineISO(d) : ''}</td>
+      <td class="c1">${JOURL[dow]} ${d.slice(8,10)}</td>`;
+    for (const c of cols) {
+      const ici = S.blocs.filter(b => b.tri === c.tri && b.d === d && (S.autres || b.ev === S.ev));
+      h += `<td class="cel ${charge(c.tri, d) > 1 ? 'trop' : ''}" data-tri="${esc(c.tri)}" data-d="${d}">` +
+        ici.map(b => { const Eb = EVS[b.ev], J = jal(b.jal);
+          return `<span class="bq ${b.p < 1 ? 'demi' : ''} ${b.jal ? '' : 'libre'} ${b.ev === S.ev ? '' : 'autre'}"
+            style="background:${Eb.c}"
+            title="${esc(Eb.cycle.nom + ' — ' + Eb.nom + ' — ' + (J ? J.id : 'jalon non défini') + ' — ' + nbj(b.p) + ' j')}">
+            ${esc(Eb.cycle.nom)}${b.p < 1 ? ' <small>½</small>' : ''}</span>`;
+        }).join('') + '</td>';
+    }
+    h += '</tr>';
+  });
+  h += '</tbody><tfoot><tr><td class="c0"></td><td class="c1">Jours</td>' +
+    totaux.map(t => `<td>${t ? nbj(t) : ''}</td>`).join('') + '</tr></tfoot></table>';
+
+  $('droite').innerHTML = `<div class="outils">
+      <b style="color:var(--texte)">Bloquer des jours — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
+      <label><input type="checkbox" id="oAutres" ${S.autres ? 'checked' : ''}> voir les autres missions</label>
+      <span class="pousse"></span>
+      <span>hachuré = bloqué sans jalon</span>
+    </div><div class="gridwrap" id="gridwrap">${h}</div>`;
+
+  $('oAutres').onchange = e => { S.autres = e.target.checked; rendre(); };
+  for (const c of $('gridwrap').querySelectorAll('td.cel'))
+    c.onclick = () => cycler(c.dataset.tri, c.dataset.d);
+  const l = $('gridwrap').querySelector('tr.auj');
+  if (l) $('gridwrap').scrollTop = Math.max(0, l.offsetTop - 90);
+}
+
+/* vide → ½ j → 1 j → vide, pour l'évaluation en cours. */
+async function cycler(tri, d) {
+  if (!ouvre(d)) { toast('jour non travaillé'); return; }
+  const evr = (EVALUATEURS.find(x => x.tri === tri) || {}).id; if (!evr) return;
+  const b = S.blocs.find(x => x.ev === S.ev && x.tri === tri && x.d === d);
+  if (!b) await app([['AddRecord', 'Blocages_planning', null,
+    { Evaluation: S.ev, Evaluateur: evr, Date: secDeIso(d), Part_jour: 0.5, Jalon: null, Fonction: null }]]);
+  else if (b.p === 0.5) await app([['UpdateRecord', 'Blocages_planning', b.id, { Part_jour: 1 }]]);
+  else await app([['RemoveRecord', 'Blocages_planning', b.id]]);
+  await recharger();
+}
+
+/* --------------------------------------------- onglet 2 : la fiche mission */
+function vueFiche() {
+  const E = EVS[S.ev], gens = personnesDe(S.ev);
+  const cartes = gens.map(g => {
+    const mes = blocsDe(S.ev).filter(b => b.tri === g.tri).sort((a, b) => a.d.localeCompare(b.d));
+    const total = mes.reduce((s, b) => s + b.p, 0);
+    const role = (mes.find(b => b.fonction) || {}).fonction || '';
+    const eb = mes.find(b => b.id === S.editAff);
+    return `<div class="carte ${g.ct ? '' : 'ext'}">
+      <div class="ent"><span class="tri">${esc(g.tri)}</span>
+        <span class="q"><b>${esc(g.nom)}</b><small>${esc(g.ct ? 'Certi-Trust' : g.emp)}</small></span>
+        <span class="j">${nbj(total)} j bloqués</span></div>
+      <div class="roles">${ROLES.map(r =>
+        `<button class="${role === r ? 'on' : ''}" data-role="${esc(g.tri)}|${r}">${r}</button>`).join('')}</div>
+      <div class="jours">${mes.map(b => { const bj = jal(b.jal);
+        return `<button class="jr ${bj ? 'pose' : 'libre'} ${b.id === S.editAff ? 'editing' : ''}" data-aff="${b.id}"
+          style="${bj ? 'background:' + bj.c : ''}" title="${bj ? esc(bj.id) : 'aucun jalon'}">
+          ${frc(b.d)}${b.p < 1 ? ' ½' : ''}<small>${bj ? esc(bj.court) : 'à définir'}</small></button>`;
+      }).join('') || '<span class="aide">Aucun jour bloqué pour cette personne.</span>'}</div>
+      ${eb ? `<div class="affpop">
+        <span class="aide">Jalon pour ${frc(eb.d)}${eb.p < 1 ? ' ½' : ''} :</span>
+        ${(() => {
+          const soeur = mes.find(z => z.id !== eb.id && z.d === eb.d);
+          if (eb.p === 1 && !soeur) return `<p class="aide diviser">
+            <button class="jalchip" data-diviser="${eb.id}">partager la journée en 2 × ½ j</button>
+            <small>utile si lancement ou clôture tombe le même jour qu’un autre jalon</small></p>`;
+          if (soeur) return `<p class="aide diviser">
+            <button class="jalchip" data-fusionner="${eb.id}">fusionner les deux ½ journées en 1 jour</button></p>`;
+          return '';
+        })()}
+        <div class="jalrow">${JALONS.map(j => `<span class="jalitem">
+            <button class="jalchip ${eb.jal === j.id ? 'on' : ''}"
+              style="--c:${j.c}" data-setjal="${eb.id}|${esc(j.id)}">${esc(j.court)}</button>
+            <span class="cmp ${S.compte[j.id] ? 'on' : ''}" data-cmp="${esc(j.id)}" role="button" tabindex="0"
+              title="${S.compte[j.id] ? 'Compte dans les jours vendus' : 'Hors forfait'}">${S.compte[j.id] ? 'compte' : 'hors'}</span>
+          </span>`).join('')}
+          <button class="jalchip clr" data-setjal="${eb.id}|">aucun</button></div>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+
+  const p = planDe(S.ev);
+  $('droite').innerHTML = `<div class="outils">
+      <b style="color:var(--texte)">Fiche mission — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
+      <span class="pousse"></span>
+      <span>clique un jour pour lui choisir son jalon</span>
+    </div>
+    <div class="fichecli"><b>${esc(p.SOC_NOM || '—')}</b><span class="sep">·</span>${esc(p.EVAL_TYPE || '—')}
+      <span class="sep">·</span>${esc(p.CRIT_REFERENTIEL || '—')}
+      <span class="sep">·</span>contact ${esc(p.CONTACT_NOM || '—')}
+      <button class="genplan" data-o="plan" style="margin:0 0 0 8px">voir le plan d’évaluation complet → onglet 3</button></div>
+    <div class="fiche">${gens.length ? `<div class="cartes">${cartes}</div>`
+      : `<div class="vide-l">Aucun jour n’est encore bloqué pour cette évaluation.<br>
+         Passe à l’onglet « Planning » pour réserver des dates, puis reviens ici les qualifier.</div>`}
+      <p class="aide" style="margin-top:10px">Chaque bouton est un jour bloqué dans le planning.
+        Un clic l’ouvre et affiche juste en dessous les jalons possibles ; un clic sur un jalon l’affecte,
+        la fenêtre reste ouverte pour continuer sur un autre jour. Un jour entier peut se partager en deux
+        demi-journées pour loger deux jalons (ex. lancement le matin, documentaire l’après-midi).
+        La fonction choisie en haut de chaque carte vaut pour toute la mission.</p></div>`;
+
+  for (const x of $('droite').querySelectorAll('[data-o]'))
+    x.onclick = () => { S.onglet = x.dataset.o; S.editAff = null; rendre(); };
+  for (const x of $('droite').querySelectorAll('[data-role]')) x.onclick = async () => {
+    const [tri, r] = x.dataset.role.split('|');
+    const roleActuel = (S.blocs.find(b => b.ev === S.ev && b.tri === tri && b.fonction) || {}).fonction || '';
+    const nouveau = roleActuel === r ? null : r;
+    const ids = S.blocs.filter(b => b.ev === S.ev && b.tri === tri).map(b => b.id);
+    await app(ids.map(id => ['UpdateRecord', 'Blocages_planning', id, { Fonction: nouveau }]));
+    await recharger();
+  };
+  for (const x of $('droite').querySelectorAll('[data-aff]')) x.onclick = () => {
+    const id = +x.dataset.aff;
+    S.editAff = S.editAff === id ? null : id;
+    rendre();
+  };
+  for (const x of $('droite').querySelectorAll('[data-setjal]')) x.onclick = async () => {
+    const i = x.dataset.setjal.indexOf('|');
+    const id = x.dataset.setjal.slice(0, i), jid = x.dataset.setjal.slice(i + 1);
+    const b = S.blocs.find(z => z.id === +id); if (!b) return;
+    await app([['UpdateRecord', 'Blocages_planning', b.id, { Jalon: jid || null }]]);
+    toast(jid ? `${frc(b.d)} → ${jal(jid).court}` : `${frc(b.d)} libéré`);
+    await recharger();
+  };
+  for (const x of $('droite').querySelectorAll('[data-diviser]')) x.onclick = async () => {
+    const b = S.blocs.find(z => z.id === +x.dataset.diviser); if (!b || b.p !== 1) return;
+    await app([
+      ['UpdateRecord', 'Blocages_planning', b.id, { Part_jour: 0.5 }],
+      ['AddRecord', 'Blocages_planning', null,
+        { Evaluation: b.ev, Evaluateur: b.evr, Date: secDeIso(b.d), Part_jour: 0.5, Jalon: null, Fonction: b.fonction || null }],
+    ]);
+    toast(`${frc(b.d)} partagé en 2 × ½ j`);
+    await recharger();
+  };
+  for (const x of $('droite').querySelectorAll('[data-fusionner]')) x.onclick = async () => {
+    const b = S.blocs.find(z => z.id === +x.dataset.fusionner); if (!b) return;
+    const soeur = S.blocs.find(z => z !== b && z.ev === b.ev && z.evr === b.evr && z.d === b.d);
+    if (!soeur) return;
+    if (b.jal && soeur.jal && b.jal !== soeur.jal) { toast('impossible : les deux moitiés ont des jalons différents'); return; }
+    await app([
+      ['UpdateRecord', 'Blocages_planning', b.id, { Part_jour: 1, Jalon: b.jal || soeur.jal }],
+      ['RemoveRecord', 'Blocages_planning', soeur.id],
+    ]);
+    toast(`${frc(b.d)} refusionné en 1 jour`);
+    await recharger();
+  };
+  for (const x of $('droite').querySelectorAll('[data-cmp]')) {
+    x.onclick = e => { e.stopPropagation(); S.compte[x.dataset.cmp] = !S.compte[x.dataset.cmp]; rendre(); };
+    x.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); x.onclick(e); } };
+  }
+}
+
+/* --------------------------------- onglet 3 : relecture du plan d'évaluation */
+function champsOverride(evId) {
+  const e = (S.D.Evaluations || []).find(x => x.id === evId); if (!e) return {};
+  try { return (JSON.parse(e.Plan_evaluation || '{}').champs) || {}; } catch (err) { return {}; }
+}
+function planDe(evId) {
+  const E = EVS[evId]; if (!E) return {};
+  const e = S.D.Evaluations.find(x => x.id === evId) || {};
+  const ent = S.D.Entreprises.find(x => x.id === E.cycle.entId) || {};
+  const prog = S.D.Programmes.find(x => x.id === E.cycle.progId) || {};
+  const sitesAct = S.D.Sites.filter(s => ref1(s.Entreprise) === E.cycle.entId && s.Actif);
+  const contacts = S.D.Contacts.filter(c => ref1(c.Entreprise) === E.cycle.entId);
+  const resp = contacts.find(c => c.Responsable_de_programme && refs(c.Programmes_Responsable).includes(E.cycle.progId))
+    || contacts.find(c => c.Responsable_de_programme) || contacts[0];
+  const docLib = id => { const d = S.D.Documents_Referentiel.find(x => x.id === id);
+    return d ? `${d.Document_Abr || d.Document_Name || ''} ${d.Version || ''}`.trim() : ''; };
+  const refsProg = refs(prog.Referentiel).map(docLib).filter(Boolean);
+  const sommeJal = j => { const n = blocsDe(evId).filter(b => b.jal === j).reduce((s, b) => s + b.p, 0); return n ? nbj(n) + ' j' : null; };
+  const datesJal = j => blocsDe(evId).filter(b => b.jal === j).map(b => b.d).sort();
+
+  const sourced = {
+    SOC_NOM: ent.Denomination || null, SOC_SIREN: ent.SIREN ? String(ent.SIREN) : null,
+    SITE_ADRESSE: sitesAct.map(s => [s.Nom_site, [s.Street, s.Zip, s.City].filter(Boolean).join(' ')]
+      .filter(Boolean).join(' — ')).join('\n') || null,
+    CONTACT_NOM: resp ? `${resp.Prenom || ''} ${resp.Nom || ''}`.trim() || null : null,
+    CONTACT_EMAIL: resp ? resp.Courriel || null : null, CONTACT_TEL: resp ? resp.telephone || null : null,
+    CRIT_REFERENTIEL: refsProg.join(', ') || (e.Referentiel ? docLib(ref1(e.Referentiel)) : null) || null,
+    CRIT_TRAME: docLib(ref1(prog.Trame)) || null,
+    EVAL_TYPE: refs(e.Type_d_evaluation).join(', ') || null,
+    DATE_LANCEMENT: frl(datesJal('Réunion de lancement')[0]),
+    DATE_DOC_DEBUT: frl(datesJal('Évaluation documentaire')[0]), DATE_DOC_FIN: frl(datesJal('Évaluation documentaire').slice(-1)[0]),
+    DATE_SIEGE_DEBUT: frl(datesJal('Évaluation sur site (siège)')[0]), DATE_SIEGE_FIN: frl(datesJal('Évaluation sur site (siège)').slice(-1)[0]),
+    DATE_TEMOIN: frl(datesJal('Prestation témoin')[0]), DATE_CLOTURE: frl(datesJal('Réunion de clôture')[0]),
+    DATE_REMISE_RAPPORT: frl(dsDe(e.Date_remise_rapport)),
+    CHARGE_DOC: sommeJal('Évaluation documentaire'), CHARGE_SIEGE: sommeJal('Évaluation sur site (siège)'),
+    CHARGE_TEMOIN: sommeJal('Prestation témoin'),
+    CHARGE_TOTAL: `${nbj(bloques(evId))} j bloqués / ${nbj(E.vendus)} j vendus`,
+  };
+  const over = champsOverride(evId);
+  const out = {};
+  for (const s of SECTIONS_PLAN) for (const [k] of s.champs) out[k] = over[k] ?? sourced[k] ?? null;
+  return out;
+}
+
+function vuePlan() {
+  const E = EVS[S.ev], p = planDe(S.ev);
+  $('droite').innerHTML = `<div class="outils">
+      <b style="color:var(--texte)">Plan d’évaluation — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
+      <span class="pousse"></span>
+      <span>relecture — mêmes champs que le widget « plan-evaluation »</span>
+    </div>
+    <div class="fiche" style="padding:0">
+      ${SECTIONS_PLAN.map(s => `<div class="plansec"><h5>${esc(s.titre)}</h5>
+        <table class="plantab">${s.champs.map(([k, lib]) => `<tr><td class="lib">${esc(lib)}</td>
+          <td class="val">${esc(p[k] ?? '—')}</td></tr>`).join('')}</table></div>`).join('')}
+      <p class="aide" style="padding:0 10px 10px">Les champs non calculés ici (effectifs, critères détaillés,
+        niveau de qualification…) sont relus depuis la saisie manuelle du widget « plan-evaluation »
+        (Evaluations.Plan_evaluation) quand elle existe, sinon affichés « — ».
+        <button class="genplan" id="bGenPlan">régénérer le plan d’évaluation avec les jalons et jours saisis →</button></p>
+    </div>`;
+
+  if ($('bGenPlan')) $('bGenPlan').onclick = () =>
+    toast('à faire : combiner ces champs avec les jalons/jours/fonctions saisis ici pour régénérer le document');
+}
+
+/* ------------------------------------------------------------------ rendu */
+function rendre() {
+  $('ongs').innerHTML = [['planning', '1 · Planning'], ['fiche', '2 · Fiche mission'], ['plan', '3 · Plan d’évaluation']]
+    .map(([k, l]) => `<button class="${S.onglet === k ? 'on' : ''}" data-o="${k}">${l}</button>`).join('');
+  for (const b of $('ongs').querySelectorAll('[data-o]'))
+    b.onclick = () => { S.onglet = b.dataset.o; S.editAff = null; rendre(); };
+
+  rendreGauche();
+  const E = EVS[S.ev];
+  if (!E) {
+    $('droite').innerHTML = `<div class="vide-l" style="padding:40px">Aucune évaluation disponible dans cet onglet.</div>`;
+  } else {
+    S.onglet === 'planning' ? vuePlanning() : S.onglet === 'fiche' ? vueFiche() : vuePlan();
+  }
+
+  if (E) {
+    const bq = bloques(S.ev), lb = libres(S.ev);
+    const ec = comptes(S.ev) + lb - E.vendus;
+    $('cEtat').className = 'chip ' + (ec === 0 && !lb ? 'ok' : ec !== 0 ? 'ko' : '');
+    $('cEtat').textContent = `${nbj(bq)} j bloqués / ${nbj(E.vendus)} vendus` + (lb ? ` · ${nbj(lb)} sans jalon` : '');
+  } else { $('cEtat').textContent = ''; $('cEtat').className = 'chip'; }
+  const cf = conflits();
+  $('cConflits').hidden = !cf.length;
+  $('cConflits').textContent = cf.length + ' surcharge' + (cf.length > 1 ? 's' : '');
+}
+
+recharger();
+</script>
+</body>
+</html>
