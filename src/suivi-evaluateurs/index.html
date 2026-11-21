@@ -181,7 +181,7 @@ td.n { text-align: right; white-space: nowrap; }
 /* Une seule écriture : le statut d'une évaluation, par glisser-déposer entre colonnes.
    Tout le reste est en lecture ; fetchTable sur des tables autres que la table liée impose 'full'. */
 const TABLES = ['Evaluations', 'Entreprises', 'Programmes', 'Evaluateurs', 'Unites_d_oeuvre',
-                '_grist_Tables', '_grist_Tables_column'];
+                'Examens_ecrits', 'Examens_oraux', '_grist_Tables', '_grist_Tables_column'];
 const ETAPES = ['à planifier', 'Planifiée', 'En cours', 'Rédaction', 'Facturation', 'Attente ANSSI', 'Terminé'];
 const FINES = ['Planifiée', 'Rédaction', 'Facturation', 'Attente ANSSI'];
 const SITE = ['Journée de lancement', 'évaluation siège', 'évaluation prestation témoin', 'Réunion de clôture'];
@@ -435,6 +435,26 @@ function vueJalons(ls) {
     « Réalisé » signifie que le dernier jour de l’unité d’œuvre est passé, pas qu’elle a été validée.</p>`;
 }
 
+/* Examens corrigés/évalués par l'évaluateur (Examinateur_1 ou _2), regroupés par mois réel
+   (date_heure passée), indépendamment des filtres de la vue (rôle, programme, horizon…). */
+function examensParMoisPour(evId) {
+  const auj = AUJ();
+  const map = new Map();
+  const add = (liste, cle) => {
+    for (const x of liste) {
+      if (x.Examinateur_1 !== evId && x.Examinateur_2 !== evId) continue;
+      const ds = dsDe(x.date_heure);
+      if (!ds || ds >= auj) continue;
+      const k = ds.slice(0, 7);
+      const o = map.get(k) || { ecrits: 0, oraux: 0 };
+      o[cle]++; map.set(k, o);
+    }
+  };
+  add(S.D.Examens_ecrits, 'ecrits');
+  add(S.D.Examens_oraux, 'oraux');
+  return map;
+}
+
 function vueCharge(ls) {
   const parMois = new Map();
   for (const l of ls) { if (!l.d) continue;
@@ -442,6 +462,9 @@ function vueCharge(ls) {
   const cles = [...parMois.keys()].sort();
   const max = Math.max(1, ...parMois.values());
   const g = S.gens.find(x => x.tri === S.tri) || { nom: S.tri };
+  const examMois = examensParMoisPour(g.id);
+  const clesExam = [...examMois.keys()].sort();
+  const maxExam = Math.max(1, ...clesExam.map(k => examMois.get(k).ecrits + examMois.get(k).oraux));
   const fait = ls.filter(l => l.fait).reduce((s, l) => s + l.j, 0);
   const reste = ls.filter(l => !l.fait).reduce((s, l) => s + l.j, 0);
   const rt = ls.filter(enRetard), tem = ls.filter(l => l.temoin);
@@ -456,6 +479,15 @@ function vueCharge(ls) {
           <span class="v">${nbj(v)} j</span></div>`;
       }).join('') : '<p class="note">Aucune date posée.</p>'}
       <p class="note">Barre ambrée au-delà de 12 j dans le mois.</p></div>
+    <div class="bloc"><h4>Examens réalisés par mois (en tant qu’examinateur)</h4>
+      ${clesExam.length ? clesExam.map(k => {
+        const o = examMois.get(k), total = o.ecrits + o.oraux;
+        return `<div class="mois"><span class="lib">${esc(moisDe(k + '-01'))}</span>
+          <span class="barre"><i style="width:${Math.round(total / maxExam * 100)}%"></i></span>
+          <span class="v">${total}</span></div>`;
+      }).join('') : '<p class="note">Aucun examen réalisé.</p>'}
+      <p class="note">${clesExam.reduce((s, k) => s + examMois.get(k).ecrits, 0)} écrit(s) corrigé(s),
+      ${clesExam.reduce((s, k) => s + examMois.get(k).oraux, 0)} oral(aux) évalué(s), toutes dates passées confondues.</p></div>
     <div class="bloc"><h4>Point avec ${esc(g.nom)}</h4>
       <div class="kv"><span>Missions</span><b>${missions(ls).length}</b></div>
       <div class="kv"><span>Jours réalisés</span><b>${nbj(fait)} j</b></div>
