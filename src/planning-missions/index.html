@@ -115,6 +115,12 @@ table.grid { border-collapse: separate; border-spacing: 0; }
 .bq.libre { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.3) 0 4px, transparent 4px 8px); }
 .bq.autre { opacity: .5; }
 .bq small { opacity: .9; }
+.bq.copiee { outline: 2px solid var(--bleu); outline-offset: 1px; }
+.copiebar { background: var(--auj); color: var(--texte); border-radius: 5px; padding: 2px 8px;
+            display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+.btn-annuler { border: none; background: rgba(0,0,0,.12); color: var(--texte); font-family: inherit;
+               font-size: 10.5px; font-weight: 700; border-radius: 10px; padding: 2px 8px; cursor: pointer; }
+.btn-annuler:hover { background: rgba(0,0,0,.22); }
 
 /* ---------- fiche mission ---------- */
 .fiche { flex: 1 1 auto; overflow: auto; padding: 10px; }
@@ -238,7 +244,8 @@ const PALETTE = ['#2563eb', '#60a5fa', '#7c3aed', '#c2410c', '#0891b2', '#b45309
 
 let EVALUATEURS = [], CYCLES = [], EVS = {};
 const S = { D: null, onglet: 'planning', ev: null, jal: 'Évaluation documentaire', editAff: null,
-            blocs: [], compte: Object.fromEntries(JALONS.map(j => [j.id, j.compte])), autres: true };
+            blocs: [], compte: Object.fromEntries(JALONS.map(j => [j.id, j.compte])), autres: true,
+            copie: null };
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -303,10 +310,10 @@ function semaineISO(ds) {
 const aujourdhui = () => { const d = new Date(); return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
   .toISOString().slice(0, 10); };
 const AUJ = aujourdhui();
-const DEBUT = dec(AUJ, -14);
+const DEBUT = dec(AUJ, -365);
 const FIN = dec(AUJ, 200);
 const TOUS_JOURS = (() => { const o = []; let d = DEBUT;
-  while (d <= FIN && o.length < 230) { o.push(d); d = dec(d, 1); } return o; })();
+  while (d <= FIN && o.length < 600) { o.push(d); d = dec(d, 1); } return o; })();
 
 const jal = id => JALONS.find(j => j.id === id) || null;
 const blocsDe = e => S.blocs.filter(b => b.ev === e);
@@ -515,9 +522,10 @@ function vuePlanning() {
       const ici = S.blocs.filter(b => b.tri === c.tri && b.d === d && (S.autres || b.ev === S.ev));
       h += `<td class="cel ${charge(c.tri, d) > 1 ? 'trop' : ''}" data-tri="${esc(c.tri)}" data-d="${d}">` +
         ici.map(b => { const Eb = EVS[b.ev], J = jal(b.jal);
-          return `<span class="bq ${b.p < 1 ? 'demi' : ''} ${b.jal ? '' : 'libre'} ${b.ev === S.ev ? '' : 'autre'}"
-            style="background:${Eb.c}"
-            title="${esc((b.verrouille ? '🔒 UO partagée — ' : '') + Eb.cycle.nom + ' — ' + Eb.nom + ' — ' + (J ? J.id : 'jalon non défini') + ' — ' + nbj(b.p) + ' j')}">
+          const copiee = S.copie && S.copie.srcId === b.id && S.copie.tri === b.tri;
+          return `<span class="bq ${b.p < 1 ? 'demi' : ''} ${b.jal ? '' : 'libre'} ${b.ev === S.ev ? '' : 'autre'} ${copiee ? 'copiee' : ''}"
+            style="background:${Eb.c}" data-copier="${b.id}|${esc(b.tri)}"
+            title="${esc((b.verrouille ? '🔒 UO partagée — ' : '') + Eb.cycle.nom + ' — ' + Eb.nom + ' — ' + (J ? J.id : 'jalon non défini') + ' — ' + nbj(b.p) + ' j') + ' — clique pour copier cette affectation'}">
             ${b.verrouille ? '🔒 ' : ''}${esc(Eb.cycle.nom)}${b.p < 1 ? ' <small>½</small>' : ''}</span>`;
         }).join('') + '</td>';
     }
@@ -530,12 +538,21 @@ function vuePlanning() {
       <b style="color:var(--texte)">Bloquer des jours — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
       <label><input type="checkbox" id="oAutres" ${S.autres ? 'checked' : ''}> voir les autres missions</label>
       <span class="pousse"></span>
-      <span>hachuré = bloqué sans jalon</span>
+      ${S.copie ? `<span class="copiebar">📋 copie active — ${esc(S.copie.tri)} ${frc(S.copie.d)}${S.copie.jal ? ' · ' + esc(jal(S.copie.jal).court) : ''}
+          : clique une case cible pour coller <button class="btn-annuler" id="btnAnnulerCopie">annuler</button></span>`
+        : '<span>hachuré = bloqué sans jalon · clique un bloc pour le copier</span>'}
     </div><div class="gridwrap" id="gridwrap">${h}</div>`;
 
   $('oAutres').onchange = e => { S.autres = e.target.checked; rendre(); };
+  const btnAnnuler = $('btnAnnulerCopie');
+  if (btnAnnuler) btnAnnuler.onclick = () => { S.copie = null; rendre(); };
+  for (const x of $('gridwrap').querySelectorAll('[data-copier]')) x.onclick = e => {
+    e.stopPropagation();
+    const [id, tri] = x.dataset.copier.split('|');
+    copier(+id, tri);
+  };
   for (const c of $('gridwrap').querySelectorAll('td.cel'))
-    c.onclick = () => cycler(c.dataset.tri, c.dataset.d);
+    c.onclick = () => S.copie ? coller(c.dataset.tri, c.dataset.d) : cycler(c.dataset.tri, c.dataset.d);
   const l = $('gridwrap').querySelector('tr.auj');
   if (l) $('gridwrap').scrollTop = Math.max(0, l.offsetTop - 90);
 }
@@ -562,6 +579,35 @@ async function cycler(tri, d) {
   else await app([['RemoveRecord', T_UO, b.id]]);
   await recharger();
   if (await ajusterStatut(ev)) await recharger();
+}
+
+/* Copier une affectation déjà faite (bloc existant, quelle que soit sa mission ou son
+   ancienneté) vers un autre jour et/ou un autre consultant, sans toucher à l'original ni à
+   son éventuel verrouillage. Le mode copie reste actif après un collage pour en faire
+   plusieurs d'affilée (plusieurs jours, plusieurs consultants) ; « annuler la copie » ou
+   le choix d'un nouveau bloc source le remplace. */
+function copier(blocId, tri) {
+  const src = S.blocs.find(x => x.id === blocId && x.tri === tri);
+  if (!src) return;
+  S.copie = (S.copie && S.copie.srcId === blocId && S.copie.tri === tri) ? null
+    : { srcId: blocId, ev: src.ev, jal: src.jal, fonction: src.fonction, p: src.p, d: src.d, tri: src.tri };
+  rendre();
+}
+
+async function coller(tri, d) {
+  const c = S.copie; if (!c) return;
+  if (!ouvre(d)) { toast('jour non travaillé'); return; }
+  const evr = (EVALUATEURS.find(x => x.tri === tri) || {}).id; if (!evr) return;
+  if (tri === c.tri && d === c.d) return;
+  if (S.blocs.find(x => x.ev === c.ev && x.tri === tri && x.d === d)) {
+    toast('cette mission a déjà un jour bloqué ce jour-là pour ce consultant'); return;
+  }
+  await app([['AddRecord', T_UO, null,
+    { Evaluation: c.ev, date_debut_incluse: secDeIso(d), Jours: c.p, Unite_d_oeuvre: c.jal,
+      ...champsRole(c.fonction, evr) }]]);
+  await recharger();
+  if (await ajusterStatut(c.ev)) await recharger();
+  toast(`copié sur ${frc(d)} — ${tri}`);
 }
 
 /* La présence d'au moins un jour bloqué fait basculer Evaluations.Statut vers « En cours »,

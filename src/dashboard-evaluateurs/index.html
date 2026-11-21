@@ -212,29 +212,6 @@ function render(db) {
   else html += `<div class="empty">Sélectionnez un évaluateur pour afficher sa fiche détaillée.</div>`;
 
   html += `<div class="sep">Vue d’ensemble</div>`;
-
-  // Examens réalisés (date_heure passée), tous évaluateurs confondus, groupés par mois.
-  const examensParMois = new Map();
-  const compteExamen = (x, cle) => {
-    if (!x.date_heure || x.date_heure >= now) return;
-    const k = monthKey(x.date_heure);
-    if (!k) return;
-    const o = examensParMois.get(k) || { ecrits: 0, oraux: 0 };
-    o[cle]++;
-    examensParMois.set(k, o);
-  };
-  R('Examens_ecrits').forEach(x => compteExamen(x, 'ecrits'));
-  R('Examens_oraux').forEach(x => compteExamen(x, 'oraux'));
-  const moisTries = [...examensParMois.keys()].sort().reverse();
-  const totalExamensRealises = moisTries.reduce((s, k) => s + examensParMois.get(k).ecrits + examensParMois.get(k).oraux, 0);
-  html += section('Examens réalisés par mois', totalExamensRealises, moisTries.length ? table(
-    ['Mois', 'Écrits', 'Oraux', 'Total'],
-    moisTries.map(k => {
-      const o = examensParMois.get(k);
-      return [monthLabel(k), num(o.ecrits), num(o.oraux), num(o.ecrits + o.oraux)];
-    })
-  ) : none('Aucun examen réalisé.'), false);
-
   html += section('Compétences par programme', evaluateurs.length, table(
     ['Évaluateur', 'Employeur', ...progsAll, 'Examinateur', 'Jours à venir', 'Évals en cours'],
     evaluateurs.map(e => {
@@ -412,15 +389,6 @@ function fmtMoney(v) { return Number(v || 0).toLocaleString('fr-FR', { style: 'c
 function fmtDate(ts) {
   if (!ts || typeof ts !== 'number') return '';
   return new Date(ts * 1000).toLocaleDateString('fr-FR', { timeZone: 'UTC' });
-}
-function monthKey(ts) {
-  if (!ts || typeof ts !== 'number') return null;
-  const d = new Date(ts * 1000);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-function monthLabel(key) {
-  const [y, m] = key.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 function fmtDateTime(ts) {
   if (!ts || typeof ts !== 'number') return '';
