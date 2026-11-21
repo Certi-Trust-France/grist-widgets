@@ -312,8 +312,10 @@ const jal = id => JALONS.find(j => j.id === id) || null;
 const blocsDe = e => S.blocs.filter(b => b.ev === e);
 const bloques = e => blocsDe(e).reduce((s, b) => s + b.p, 0);
 const affectes = e => blocsDe(e).filter(b => b.jal).reduce((s, b) => s + b.p, 0);
-const comptes = e => blocsDe(e).filter(b => b.jal && S.compte[b.jal]).reduce((s, b) => s + b.p, 0);
-const horsForfait = e => blocsDe(e).filter(b => b.jal && !S.compte[b.jal]).reduce((s, b) => s + b.p, 0);
+/* Un jour tenu par un observateur (OBS) ne compte jamais dans les jours à produire,
+   même sur un jalon qui compte d'habitude (doc, site, témoin, rapport). */
+const comptes = e => blocsDe(e).filter(b => b.jal && S.compte[b.jal] && b.fonction !== 'OBS').reduce((s, b) => s + b.p, 0);
+const horsForfait = e => blocsDe(e).filter(b => b.jal && (!S.compte[b.jal] || b.fonction === 'OBS')).reduce((s, b) => s + b.p, 0);
 const libres = e => bloques(e) - affectes(e);
 const charge = (tri, d) => S.blocs.filter(b => b.tri === tri && b.d === d).reduce((s, b) => s + b.p, 0);
 const personnesDe = e => [...new Set(blocsDe(e).map(b => b.tri))]
@@ -428,7 +430,7 @@ function barreConv(e) {
         : ecart < 0 ? `il manque ${nbj(-ecart)} j à bloquer`
                     : `${nbj(ecart)} j bloqués en trop`}
       ${libres(e) ? `<br>${nbj(libres(e))} j bloqués sans jalon` : ''}
-      ${hf ? `<br>${nbj(hf)} j hors forfait (lancement, clôture)` : ''}</div>
+      ${hf ? `<br>${nbj(hf)} j hors forfait (lancement, clôture, observateur)` : ''}</div>
   </div>`;
 }
 
