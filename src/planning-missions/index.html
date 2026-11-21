@@ -6,7 +6,8 @@
 <title>Planification des missions</title>
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <style>
-/* Deux temps, trois onglets, une seule donnée (table Blocages_planning) :
+/* Deux temps, trois onglets, une seule donnée (table Unites_d_oeuvre — la même que lit
+   le widget « planning » de la page Evaluations/p/63) :
    1) Planning : on bloque des jours pour un évaluateur sur une évaluation, sans dire ce qu'il y fera.
    2) Fiche mission : on donne à chaque jour bloqué son jalon, et à chaque évaluateur sa fonction.
    3) Plan d'évaluation : relecture des mêmes champs que le widget « plan-evaluation ».
@@ -211,22 +212,32 @@ kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10
 <div id="toast"></div>
 
 <script>
-/* Écrit dans Blocages_planning (Evaluation, Evaluateur, Date, Part_jour, Jalon, Fonction) ;
-   lecture seule de Evaluations, Entreprises, Programmes, Evaluateurs, Sites, Contacts,
+/* Écrit directement dans Unites_d_oeuvre — la même table que lit le widget « planning »
+   (page Evaluations/p/63) — pour que bloquer puis qualifier ici alimente ce planning-là.
+   Une UO qui porte déjà plusieurs évaluateurs (RE+ETA, etc.) est affichée mais verrouillée :
+   on ne modifie jamais une ligne partagée créée par un autre outil, seulement les lignes à
+   une seule personne que ce widget a lui-même créées. evaluateurs est une formule : jamais écrite.
+   Lecture seule de Evaluations, Entreprises, Programmes, Evaluateurs, Sites, Contacts,
    Documents_Referentiel. fetchTable sur des tables autres que la table liée impose 'full'. */
 const TABLES = ['Evaluations', 'Entreprises', 'Programmes', 'Evaluateurs', 'Sites', 'Contacts',
-                'Documents_Referentiel', 'Blocages_planning'];
+                'Documents_Referentiel', 'Unites_d_oeuvre'];
+const T_UO = 'Unites_d_oeuvre';
 
 const ROLES = ['RE', 'ETA', 'ETM', 'OBS'];
+const EXCLUSIVE = ['RE', 'ETA', 'ETM'];
+const ROLE_DEFAUT = 'ETA';
 
 /* Les jalons d'une évaluation. compte = le jalon pèse sur les jours vendus (réglage de session,
    pas encore persisté dans Grist) ; lancement et clôture se planifient mais restent hors forfait
-   par défaut. Les libellés sont exactement les choix de Blocages_planning.Jalon. */
+   par défaut. Les libellés sont exactement les choix de Unites_d_oeuvre.Unite_d_oeuvre — ne pas
+   les changer, Cycles_services.date_debut_cycle s'appuie sur « Journée de lancement » et
+   « Rédaction du rapport ». Seuls les 6 jalons de terrain sont proposés ici ; « Plan d'évaluation »,
+   « Planification » et « Soutenance... » restent gérés par plan-evaluation / planification-uo. */
 const JALONS = [
-  { id: 'Réunion de lancement', court: 'Lancement', compte: false, c: '#94a3b8' },
-  { id: 'Évaluation documentaire', court: 'Documentaire', compte: true, c: '#2563eb' },
-  { id: 'Évaluation sur site (siège)', court: 'Sur site', compte: true, c: '#0891b2' },
-  { id: 'Prestation témoin', court: 'Témoin', compte: true, c: '#7c3aed' },
+  { id: 'Journée de lancement', court: 'Lancement', compte: false, c: '#94a3b8' },
+  { id: 'Revue documentaire', court: 'Documentaire', compte: true, c: '#2563eb' },
+  { id: 'évaluation siège', court: 'Sur site', compte: true, c: '#0891b2' },
+  { id: 'évaluation prestation témoin', court: 'Témoin', compte: true, c: '#7c3aed' },
   { id: 'Rédaction du rapport', court: 'Rapport', compte: true, c: '#b45309' },
   { id: 'Réunion de clôture', court: 'Clôture', compte: false, c: '#64748b' },
 ];
@@ -393,11 +404,25 @@ function construire() {
   EVS = {};
   for (const c of CYCLES) for (const e of c.evals) EVS[e.id] = { ...e, cycle: c };
 
-  S.blocs = D.Blocages_planning.filter(r => EVS[ref1(r.Evaluation)]).map(r => {
-    const evr = ref1(r.Evaluateur);
-    return { id: r.id, ev: ref1(r.Evaluation), evr, tri: triDe(evr), d: dsDe(r.Date) || AUJ,
-             p: nb(r.Part_jour) || 1, jal: r.Jalon || null, fonction: r.Fonction || null };
-  });
+  /* Une ligne Unites_d_oeuvre = un bloc de travail, potentiellement partagé entre plusieurs
+     évaluateurs (RE unique + ETA/ETM/OBS en listes). On éclate chaque ligne en un bloc par
+     personne pour le calendrier ; une ligne à une seule personne est modifiable par ce widget
+     (verrouille=false), une ligne à plusieurs personnes ou à zéro personne reste en lecture seule. */
+  S.blocs = [];
+  for (const r of D.Unites_d_oeuvre) {
+    const evId = ref1(r.Evaluation);
+    if (!EVS[evId]) continue;
+    const personnes = [];
+    const re = ref1(r.RE); if (re) personnes.push([re, 'RE']);
+    for (const id of refs(r.ETA)) personnes.push([id, 'ETA']);
+    for (const id of refs(r.ETM)) personnes.push([id, 'ETM']);
+    for (const id of refs(r.OBS)) personnes.push([id, 'OBS']);
+    const verrouille = personnes.length !== 1;
+    for (const [evr, role] of personnes) {
+      S.blocs.push({ id: r.id, ev: evId, evr, tri: triDe(evr), d: dsDe(r.date_debut_incluse) || AUJ,
+                     p: nb(r.Jours) || 1, jal: r.Unite_d_oeuvre || null, fonction: role, verrouille });
+    }
+  }
 
   if (!EVS[S.ev]) S.ev = CYCLES[0]?.evals[0]?.id ?? null;
 }
@@ -510,8 +535,8 @@ function vuePlanning() {
         ici.map(b => { const Eb = EVS[b.ev], J = jal(b.jal);
           return `<span class="bq ${b.p < 1 ? 'demi' : ''} ${b.jal ? '' : 'libre'} ${b.ev === S.ev ? '' : 'autre'}"
             style="background:${Eb.c}"
-            title="${esc(Eb.cycle.nom + ' — ' + Eb.nom + ' — ' + (J ? J.id : 'jalon non défini') + ' — ' + nbj(b.p) + ' j')}">
-            ${esc(Eb.cycle.nom)}${b.p < 1 ? ' <small>½</small>' : ''}</span>`;
+            title="${esc((b.verrouille ? '🔒 UO partagée — ' : '') + Eb.cycle.nom + ' — ' + Eb.nom + ' — ' + (J ? J.id : 'jalon non défini') + ' — ' + nbj(b.p) + ' j')}">
+            ${b.verrouille ? '🔒 ' : ''}${esc(Eb.cycle.nom)}${b.p < 1 ? ' <small>½</small>' : ''}</span>`;
         }).join('') + '</td>';
     }
     h += '</tr>';
@@ -533,15 +558,25 @@ function vuePlanning() {
   if (l) $('gridwrap').scrollTop = Math.max(0, l.offsetTop - 90);
 }
 
-/* vide → ½ j → 1 j → vide, pour l'évaluation en cours. */
+/* RE est une référence unique, ETA/ETM/OBS des listes : on écrit toujours les 4 champs pour
+   garantir qu'une seule case porte la personne (même format que src/planification-uo). */
+function champsRole(role, evr) {
+  return { RE: role === 'RE' ? evr : null, ETA: role === 'ETA' ? ['L', evr] : ['L'],
+           ETM: role === 'ETM' ? ['L', evr] : ['L'], OBS: role === 'OBS' ? ['L', evr] : ['L'] };
+}
+
+/* vide → ½ j → 1 j → vide, pour l'évaluation en cours. Ne touche jamais une UO verrouillée
+   (déjà partagée par plusieurs personnes) : on en crée une neuve à soi, avec un rôle provisoire
+   (ETA) à corriger dans la fiche mission. */
 async function cycler(tri, d) {
   if (!ouvre(d)) { toast('jour non travaillé'); return; }
   const evr = (EVALUATEURS.find(x => x.tri === tri) || {}).id; if (!evr) return;
   const b = S.blocs.find(x => x.ev === S.ev && x.tri === tri && x.d === d);
-  if (!b) await app([['AddRecord', 'Blocages_planning', null,
-    { Evaluation: S.ev, Evaluateur: evr, Date: secDeIso(d), Part_jour: 0.5, Jalon: null, Fonction: null }]]);
-  else if (b.p === 0.5) await app([['UpdateRecord', 'Blocages_planning', b.id, { Part_jour: 1 }]]);
-  else await app([['RemoveRecord', 'Blocages_planning', b.id]]);
+  if (b && b.verrouille) { toast('ce jour est déjà planifié dans une UO partagée — à modifier depuis le planning existant'); return; }
+  if (!b) await app([['AddRecord', T_UO, null,
+    { Evaluation: S.ev, date_debut_incluse: secDeIso(d), Jours: 0.5, Unite_d_oeuvre: null, ...champsRole(ROLE_DEFAUT, evr) }]]);
+  else if (b.p === 0.5) await app([['UpdateRecord', T_UO, b.id, { Jours: 1 }]]);
+  else await app([['RemoveRecord', T_UO, b.id]]);
   await recharger();
 }
 
@@ -560,9 +595,11 @@ function vueFiche() {
       <div class="roles">${ROLES.map(r =>
         `<button class="${role === r ? 'on' : ''}" data-role="${esc(g.tri)}|${r}">${r}</button>`).join('')}</div>
       <div class="jours">${mes.map(b => { const bj = jal(b.jal);
-        return `<button class="jr ${bj ? 'pose' : 'libre'} ${b.id === S.editAff ? 'editing' : ''}" data-aff="${b.id}"
-          style="${bj ? 'background:' + bj.c : ''}" title="${bj ? esc(bj.id) : 'aucun jalon'}">
-          ${frc(b.d)}${b.p < 1 ? ' ½' : ''}<small>${bj ? esc(bj.court) : 'à définir'}</small></button>`;
+        return `<button class="jr ${bj ? 'pose' : 'libre'} ${b.id === S.editAff ? 'editing' : ''}"
+          data-aff="${b.verrouille ? '' : b.id}" ${b.verrouille ? 'disabled' : ''}
+          style="${bj ? 'background:' + bj.c : ''}"
+          title="${b.verrouille ? 'UO partagée avec d’autres personnes — à modifier depuis le planning existant' : (bj ? esc(bj.id) : 'aucun jalon')}">
+          ${b.verrouille ? '🔒 ' : ''}${frc(b.d)}${b.p < 1 ? ' ½' : ''}<small>${bj ? esc(bj.court) : 'à définir'}</small></button>`;
       }).join('') || '<span class="aide">Aucun jour bloqué pour cette personne.</span>'}</div>
       ${eb ? `<div class="affpop">
         <span class="aide">Jalon pour ${frc(eb.d)}${eb.p < 1 ? ' ½' : ''} :</span>
@@ -610,12 +647,15 @@ function vueFiche() {
   for (const x of $('droite').querySelectorAll('[data-role]')) x.onclick = async () => {
     const [tri, r] = x.dataset.role.split('|');
     const roleActuel = (S.blocs.find(b => b.ev === S.ev && b.tri === tri && b.fonction) || {}).fonction || '';
-    const nouveau = roleActuel === r ? null : r;
-    const ids = S.blocs.filter(b => b.ev === S.ev && b.tri === tri).map(b => b.id);
-    await app(ids.map(id => ['UpdateRecord', 'Blocages_planning', id, { Fonction: nouveau }]));
+    const nouveau = roleActuel === r ? ROLE_DEFAUT : r;
+    const ids = S.blocs.filter(b => b.ev === S.ev && b.tri === tri && !b.verrouille).map(b => b.id);
+    if (!ids.length) return;
+    const evr = (EVALUATEURS.find(e => e.tri === tri) || {}).id;
+    await app(ids.map(id => ['UpdateRecord', T_UO, id, champsRole(nouveau, evr)]));
     await recharger();
   };
   for (const x of $('droite').querySelectorAll('[data-aff]')) x.onclick = () => {
+    if (!x.dataset.aff) return;
     const id = +x.dataset.aff;
     S.editAff = S.editAff === id ? null : id;
     rendre();
@@ -623,29 +663,29 @@ function vueFiche() {
   for (const x of $('droite').querySelectorAll('[data-setjal]')) x.onclick = async () => {
     const i = x.dataset.setjal.indexOf('|');
     const id = x.dataset.setjal.slice(0, i), jid = x.dataset.setjal.slice(i + 1);
-    const b = S.blocs.find(z => z.id === +id); if (!b) return;
-    await app([['UpdateRecord', 'Blocages_planning', b.id, { Jalon: jid || null }]]);
+    const b = S.blocs.find(z => z.id === +id); if (!b || b.verrouille) return;
+    await app([['UpdateRecord', T_UO, b.id, { Unite_d_oeuvre: jid || null }]]);
     toast(jid ? `${frc(b.d)} → ${jal(jid).court}` : `${frc(b.d)} libéré`);
     await recharger();
   };
   for (const x of $('droite').querySelectorAll('[data-diviser]')) x.onclick = async () => {
-    const b = S.blocs.find(z => z.id === +x.dataset.diviser); if (!b || b.p !== 1) return;
+    const b = S.blocs.find(z => z.id === +x.dataset.diviser); if (!b || b.p !== 1 || b.verrouille) return;
     await app([
-      ['UpdateRecord', 'Blocages_planning', b.id, { Part_jour: 0.5 }],
-      ['AddRecord', 'Blocages_planning', null,
-        { Evaluation: b.ev, Evaluateur: b.evr, Date: secDeIso(b.d), Part_jour: 0.5, Jalon: null, Fonction: b.fonction || null }],
+      ['UpdateRecord', T_UO, b.id, { Jours: 0.5 }],
+      ['AddRecord', T_UO, null,
+        { Evaluation: b.ev, date_debut_incluse: secDeIso(b.d), Jours: 0.5, Unite_d_oeuvre: null, ...champsRole(b.fonction, b.evr) }],
     ]);
     toast(`${frc(b.d)} partagé en 2 × ½ j`);
     await recharger();
   };
   for (const x of $('droite').querySelectorAll('[data-fusionner]')) x.onclick = async () => {
-    const b = S.blocs.find(z => z.id === +x.dataset.fusionner); if (!b) return;
-    const soeur = S.blocs.find(z => z !== b && z.ev === b.ev && z.evr === b.evr && z.d === b.d);
+    const b = S.blocs.find(z => z.id === +x.dataset.fusionner); if (!b || b.verrouille) return;
+    const soeur = S.blocs.find(z => z !== b && z.ev === b.ev && z.evr === b.evr && z.d === b.d && !z.verrouille);
     if (!soeur) return;
     if (b.jal && soeur.jal && b.jal !== soeur.jal) { toast('impossible : les deux moitiés ont des jalons différents'); return; }
     await app([
-      ['UpdateRecord', 'Blocages_planning', b.id, { Part_jour: 1, Jalon: b.jal || soeur.jal }],
-      ['RemoveRecord', 'Blocages_planning', soeur.id],
+      ['UpdateRecord', T_UO, b.id, { Jours: 1, Unite_d_oeuvre: b.jal || soeur.jal }],
+      ['RemoveRecord', T_UO, soeur.id],
     ]);
     toast(`${frc(b.d)} refusionné en 1 jour`);
     await recharger();
@@ -685,13 +725,13 @@ function planDe(evId) {
     CRIT_REFERENTIEL: refsProg.join(', ') || (e.Referentiel ? docLib(ref1(e.Referentiel)) : null) || null,
     CRIT_TRAME: docLib(ref1(prog.Trame)) || null,
     EVAL_TYPE: refs(e.Type_d_evaluation).join(', ') || null,
-    DATE_LANCEMENT: frl(datesJal('Réunion de lancement')[0]),
-    DATE_DOC_DEBUT: frl(datesJal('Évaluation documentaire')[0]), DATE_DOC_FIN: frl(datesJal('Évaluation documentaire').slice(-1)[0]),
-    DATE_SIEGE_DEBUT: frl(datesJal('Évaluation sur site (siège)')[0]), DATE_SIEGE_FIN: frl(datesJal('Évaluation sur site (siège)').slice(-1)[0]),
-    DATE_TEMOIN: frl(datesJal('Prestation témoin')[0]), DATE_CLOTURE: frl(datesJal('Réunion de clôture')[0]),
+    DATE_LANCEMENT: frl(datesJal('Journée de lancement')[0]),
+    DATE_DOC_DEBUT: frl(datesJal('Revue documentaire')[0]), DATE_DOC_FIN: frl(datesJal('Revue documentaire').slice(-1)[0]),
+    DATE_SIEGE_DEBUT: frl(datesJal('évaluation siège')[0]), DATE_SIEGE_FIN: frl(datesJal('évaluation siège').slice(-1)[0]),
+    DATE_TEMOIN: frl(datesJal('évaluation prestation témoin')[0]), DATE_CLOTURE: frl(datesJal('Réunion de clôture')[0]),
     DATE_REMISE_RAPPORT: frl(dsDe(e.Date_remise_rapport)),
-    CHARGE_DOC: sommeJal('Évaluation documentaire'), CHARGE_SIEGE: sommeJal('Évaluation sur site (siège)'),
-    CHARGE_TEMOIN: sommeJal('Prestation témoin'),
+    CHARGE_DOC: sommeJal('Revue documentaire'), CHARGE_SIEGE: sommeJal('évaluation siège'),
+    CHARGE_TEMOIN: sommeJal('évaluation prestation témoin'),
     CHARGE_TOTAL: `${nbj(bloques(evId))} j bloqués / ${nbj(E.vendus)} j vendus`,
   };
   const over = champsOverride(evId);
