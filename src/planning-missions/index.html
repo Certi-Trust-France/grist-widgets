@@ -400,7 +400,8 @@ function construire() {
       cyMap.set(key, { id: key, entId, progId, nom: ent.Denomination || ('Entreprise #' + entId),
                        prog: prog.Nom_du_programme || '', evals: [] });
     }
-    cyMap.get(key).evals.push({ id: e.id, nom: e.Libelle || ('Évaluation #' + e.id), statut: e.Statut,
+    cyMap.get(key).evals.push({ id: e.id, nom: e.Libelle || ('Évaluation #' + e.id),
+                                type: refs(e.Type_d_evaluation).join(', ') || null, statut: e.Statut,
                                 vendus: nb(e.JH_vendus), c: PALETTE[colIdx++ % PALETTE.length] });
   }
   CYCLES = [...cyMap.values()].sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
@@ -475,9 +476,10 @@ function rendreGauche() {
       <div class="t">${esc(c.nom)} <small>${esc(c.prog)}</small></div>
       ${c.evals.map(e => {
         const bq = bloques(e.id), ok = bq === e.vendus;
-        return `<button class="miss ${S.ev === e.id ? 'on' : ''}" data-ev="${e.id}" aria-pressed="${S.ev === e.id}">
+        return `<button class="miss ${S.ev === e.id ? 'on' : ''}" data-ev="${e.id}" aria-pressed="${S.ev === e.id}"
+            title="${esc(e.nom)}">
           <span class="pt" style="background:${e.c}"></span>
-          <span class="q"><b>${esc(e.nom)}</b><small>${esc(e.statut)}</small></span>
+          <span class="q"><b>${esc(c.nom)}</b><small>${esc(e.type || e.nom)} · ${esc(e.statut)}</small></span>
           <span class="n ${ok ? 'ok' : bq > e.vendus ? 'ko' : ''}">${nbj(bq)}/${nbj(e.vendus)} j</span></button>`;
       }).join('')}</div>`).join('')
       : `<p class="aide">${S.onglet === 'planning' ? 'Rien à bloquer : aucune évaluation « à planifier ».'
@@ -549,7 +551,8 @@ function vuePlanning() {
     totaux.map(t => `<td>${t ? nbj(t) : ''}</td>`).join('') + '</tr></tfoot></table>';
 
   $('droite').innerHTML = `<div class="outils">
-      <b style="color:var(--texte)">Bloquer des jours — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
+      <b style="color:var(--texte)">${esc(E.cycle.nom)}</b>
+      <span style="opacity:.6" title="${esc(E.nom)}">— bloquer des jours · ${esc(E.type || E.nom)}</span>
       <label><input type="checkbox" id="oAutres" ${S.autres ? 'checked' : ''}> voir les autres missions</label>
       <span class="pousse"></span>
       ${S.copie ? `<span class="copiebar">📋 copie active — ${esc(S.copie.tri)} ${frc(S.copie.d)}${S.copie.jal ? ' · ' + esc(jal(S.copie.jal).court) : ''}
@@ -763,7 +766,8 @@ function vueFiche() {
 
   const p = planDe(S.ev);
   $('droite').innerHTML = `<div class="outils">
-      <b style="color:var(--texte)">Fiche mission — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
+      <b style="color:var(--texte)">${esc(E.cycle.nom)}</b>
+      <span style="opacity:.6" title="${esc(E.nom)}">— fiche mission · ${esc(E.type || E.nom)}</span>
       <span class="pousse"></span>
       <span>clique un jour pour lui choisir son jalon</span>
     </div>
@@ -888,7 +892,8 @@ function planDe(evId) {
 function vuePlan() {
   const E = EVS[S.ev];
   $('droite').innerHTML = `<div class="outils">
-      <b style="color:var(--texte)">Plan d’évaluation — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
+      <b style="color:var(--texte)">${esc(E.cycle.nom)}</b>
+      <span style="opacity:.6" title="${esc(E.nom)}">— plan d’évaluation · ${esc(E.type || E.nom)}</span>
       <span class="pousse"></span>
       <span>c'est le vrai widget « plan-evaluation », pas une copie</span>
     </div>
