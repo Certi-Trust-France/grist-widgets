@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Suivi par évaluateur</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+:root {
+  --bleu: #1e3a8a; --bleu-clair: #2563eb; --cyan: #0891b2;
+  --fond: #eef2f7; --surface: #fff; --surface-2: #e2e8f0; --bord: #cbd5e1;
+  --texte: #1e293b; --texte-doux: #64748b; --texte-pale: #94a3b8;
+  --alerte: #b91c1c; --alerte-fond: #fef2f2; --ok: #15803d; --attente: #b45309;
+  --ombre: 0 1px 2px rgba(15,23,42,.10); --ombre-2: 0 2px 8px rgba(15,23,42,.16);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+       font-size: 13px; color: var(--texte); background: var(--fond);
+       display: flex; flex-direction: column; overflow: hidden; font-variant-numeric: tabular-nums; }
+
+.bandeau { flex-shrink: 0; background: var(--bleu); color: #fff; padding: 7px 12px;
+           display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.bandeau b { font-size: 13.5px; }
+.chip { background: rgba(255,255,255,.16); border-radius: 10px; padding: 1px 9px; font-size: 11px; white-space: nowrap; }
+.chip.ko { background: #b91c1c; }
+.pousse { flex: 1 1 auto; }
+.err { background: var(--alerte-fond); color: #991b1b; padding: 6px 12px; font-size: 12px;
+       border-bottom: 1px solid #fecaca; }
+
+.filtres { flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--bord);
+           padding: 7px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.filtres label { color: var(--texte-doux); font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+.filtres select, .filtres input[type=search] { font-family: inherit; font-size: 12px;
+  border: 1px solid var(--bord); border-radius: 4px; padding: 3px 6px; background: var(--surface); color: var(--texte); }
+.filtres input[type=search] { width: 170px; max-width: 100%; }
+
+.corps { flex: 1 1 auto; display: flex; min-height: 0; }
+.gens { flex: 0 0 200px; background: var(--surface); border-right: 1px solid var(--bord);
+        overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 3px; }
+.gens h4 { margin: 4px 4px 3px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+           color: var(--texte-doux); font-weight: 600; }
+.gens h4:first-child { margin-top: 2px; }
+.gen { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; border: none;
+       background: none; font-family: inherit; font-size: 12px; color: var(--texte);
+       border-radius: 6px; padding: 5px 6px; cursor: pointer; }
+.gen:hover { background: var(--surface-2); }
+.gen.on { background: var(--bleu); color: #fff; }
+.gen:focus-visible { outline: 2px solid var(--bleu-clair); outline-offset: 1px; }
+.tri { flex: 0 0 auto; width: 30px; height: 22px; border-radius: 4px; background: var(--bleu-clair);
+       color: #fff; font-size: 10.5px; font-weight: 700; display: grid; place-items: center; }
+.gen.ext .tri { background: var(--texte-pale); }
+.gen.on .tri { background: rgba(255,255,255,.25); }
+.gen .nom { flex: 1 1 auto; min-width: 0; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
+.gen .nom small { display: block; font-size: 10px; color: var(--texte-doux); white-space: nowrap;
+                  overflow: hidden; text-overflow: ellipsis; }
+.gen.on .nom small { color: #c7d2fe; }
+.gen .cnt { flex: 0 0 auto; font-size: 10px; color: var(--texte-doux); text-align: right; line-height: 1.25; }
+.gen.on .cnt { color: #dbeafe; }
+.gen .cnt b { display: block; font-size: 12px; color: var(--texte); }
+.gen.on .cnt b { color: #fff; }
+.gen .cnt .r { color: var(--alerte); font-weight: 700; }
+.gen.on .cnt .r { color: #fecaca; }
+
+.vue { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.onglets { flex-shrink: 0; display: flex; gap: 2px; padding: 6px 10px 0; background: var(--surface-2);
+           border-bottom: 1px solid var(--bord); overflow-x: auto; }
+.onglets button { border: none; background: transparent; color: var(--texte-doux); font-family: inherit;
+  font-size: 12px; font-weight: 600; padding: 6px 13px; border-radius: 5px 5px 0 0; cursor: pointer; white-space: nowrap; }
+.onglets button.on { background: var(--fond); color: var(--bleu-clair); box-shadow: var(--ombre); }
+.zone { flex: 1 1 auto; overflow: auto; padding: 10px; }
+
+.board { display: flex; gap: 9px; align-items: flex-start; min-height: 100%; }
+.col { flex: 0 0 218px; background: var(--surface-2); border-radius: 7px; padding: 6px; }
+.col h3 { margin: 0 0 6px; padding: 0 2px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+          color: var(--texte-doux); display: flex; align-items: center; gap: 6px; }
+.col h3 .n { background: var(--bord); color: var(--texte); border-radius: 9px; padding: 0 6px; font-size: 10px; }
+.carte { background: var(--surface); border-radius: 6px; padding: 7px 8px; margin-bottom: 6px;
+         box-shadow: var(--ombre); border-left: 3px solid var(--texte-pale); cursor: pointer; }
+.carte:hover { box-shadow: var(--ombre-2); }
+.carte .cli { font-weight: 600; font-size: 12.5px; line-height: 1.25; }
+.carte .meta { font-size: 10.5px; color: var(--texte-doux); margin-top: 1px; }
+.carte .bas { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 10.5px;
+              color: var(--texte-doux); flex-wrap: wrap; }
+.carte .detail { margin-top: 6px; border-top: 1px solid var(--surface-2); padding-top: 5px; }
+.carte .detail div { display: flex; gap: 6px; font-size: 10.5px; padding: 1px 0; }
+.carte .detail .u { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role { border-radius: 9px; padding: 0 6px; font-size: 10px; font-weight: 700; color: #fff; }
+.role.RE { background: var(--bleu); } .role.ETA { background: var(--bleu-clair); }
+.role.ETM { background: var(--cyan); } .role.OBS { background: var(--texte-pale); }
+.temoin { background: var(--attente); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 10px; font-weight: 600; }
+.jrs { color: var(--texte); font-weight: 600; }
+.retard { color: var(--alerte); font-weight: 600; }
+.PACS { border-left-color: #2563eb; } .PASSI { border-left-color: #0891b2; }
+.PASSI_2\.0 { border-left-color: #0891b2; } .PAMS { border-left-color: #7c3aed; }
+.PDIS { border-left-color: #c2410c; } .PRIS { border-left-color: #15803d; }
+.SecNumCloud { border-left-color: #a16207; }
+
+.jalons { background: var(--surface); border-radius: 7px; box-shadow: var(--ombre); overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 560px; }
+th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--texte-doux);
+     font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--bord); position: sticky; top: 0; background: var(--surface); }
+td { padding: 5px 8px; border-bottom: 1px solid var(--surface-2); vertical-align: middle; }
+tr.sep td { background: var(--surface-2); font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+            color: var(--texte-doux); font-weight: 600; padding: 3px 8px; }
+td.d { white-space: nowrap; color: var(--texte-doux); } td.d b { color: var(--texte); }
+td.n { text-align: right; white-space: nowrap; }
+.pt { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--bleu-clair);
+      margin-right: 5px; vertical-align: 1px; }
+.pt.fait { background: var(--ok); } .pt.ko { background: var(--alerte); }
+.ligne-ko td { background: var(--alerte-fond); }
+
+.charge { display: grid; gap: 9px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.bloc { background: var(--surface); border-radius: 7px; box-shadow: var(--ombre); padding: 10px 12px; }
+.bloc h4 { margin: 0 0 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+           color: var(--texte-doux); font-weight: 600; }
+.mois { display: flex; align-items: center; gap: 8px; font-size: 11.5px; padding: 3px 0; }
+.mois .lib { flex: 0 0 76px; color: var(--texte-doux); }
+.mois .barre { flex: 1 1 auto; min-width: 0; height: 12px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.mois .barre i { display: block; height: 100%; background: var(--bleu-clair); }
+.mois .barre i.plein { background: var(--attente); }
+.mois .v { flex: 0 0 42px; text-align: right; font-weight: 600; }
+.kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0;
+      border-bottom: 1px solid var(--surface-2); font-size: 12px; }
+.kv:last-child { border-bottom: none; }
+.kv b { font-weight: 600; }
+.vide { padding: 34px 14px; text-align: center; color: var(--texte-doux); line-height: 1.6; }
+.note { margin-top: 10px; font-size: 11px; color: var(--texte-doux); line-height: 1.5; }
+
+@media (max-width: 620px) {
+  .corps { flex-direction: column; }
+  .gens { flex: 0 0 auto; flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--bord); }
+  .gens h4 { display: none; }
+  .gen { width: auto; flex: 0 0 auto; }
+  .gen .cnt { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="bandeau">
+  <b>👤 Suivi par évaluateur</b>
+  <span class="pousse"></span>
+  <span class="chip" id="cMissions"></span>
+  <span class="chip" id="cJours"></span>
+  <span class="chip ko" id="cRetard" style="display:none"></span>
+</div>
+<div id="erreur" class="err" style="display:none"></div>
+<div class="filtres">
+  <label>Rôle <select id="fRole">
+    <option value="">tous</option><option>RE</option><option>ETA</option><option>ETM</option><option>OBS</option>
+  </select></label>
+  <label>Programme <select id="fProg"><option value="">tous</option></select></label>
+  <label>Horizon <select id="fHorizon">
+    <option value="30">30 jours</option><option value="60">60 jours</option>
+    <option value="90" selected>90 jours</option><option value="9999">tout</option>
+  </select></label>
+  <label><input type="checkbox" id="fTemoin"> prestations témoins</label>
+  <input type="search" id="fQ" placeholder="chercher un client…">
+  <span class="pousse"></span>
+  <label><input type="checkbox" id="fFini"> missions terminées</label>
+</div>
+<div class="corps">
+  <nav class="gens" id="gens" aria-label="Évaluateurs"></nav>
+  <section class="vue">
+    <div class="onglets" id="onglets" role="tablist"></div>
+    <div class="zone" id="zone"><div class="vide">Chargement…</div></div>
+  </section>
+</div>
+
+<script>
+/* Lecture seule. fetchTable sur des tables autres que la table liée impose 'full' :
+   le widget n'écrit jamais, les corrections se font dans les vues Grist natives. */
+const TABLES = ['Evaluations', 'Entreprises', 'Programmes', 'Evaluateurs', 'Unites_d_oeuvre'];
+const ETAPES = ['à planifier', 'Planifiée', 'En cours', 'Rédaction', 'Facturation', 'Attente ANSSI', 'Terminé'];
+const FINES = ['Planifiée', 'Rédaction', 'Facturation', 'Attente ANSSI'];
+const SITE = ['Journée de lancement', 'évaluation siège', 'évaluation prestation témoin', 'Réunion de clôture'];
+const TEMOIN = /prestation\s*t[ée]moin/i;
+
+const S = { D: null, gens: [], lignesTous: [], tri: '', onglet: 'missions',
+            role: '', prog: '', horizon: 90, temoin: false, q: '', fini: false, ouvert: null };
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const nb = v => (typeof v === 'number' ? v : 0);
+const nbj = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
+const dsDe = sec => (typeof sec === 'number' && sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null;
+const fr = d => d ? d.slice(8,10) + '/' + d.slice(5,7) + '/' + d.slice(2,4) : '—';
+const AUJ = () => new Date().toISOString().slice(0, 10);
+const plus1 = ds => { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1);
+                      return d.toISOString().slice(0, 10); };
+const ecart = d => Math.round((Date.parse(d + 'T00:00:00Z') - Date.parse(AUJ() + 'T00:00:00Z')) / 86400000);
+const MOIS = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+const moisDe = d => MOIS[+d.slice(5,7) - 1] + ' ' + d.slice(0,4);
+const lignesDe = t => (t && t.id ? t.id : []).map((id, i) => {
+  const r = { id }; for (const k of Object.keys(t)) r[k] = t[k][i]; return r; });
+const refs = v => (Array.isArray(v) && v[0] === 'L') ? v.slice(1).filter(x => x) : [];
+const ref1 = v => (typeof v === 'number' ? v : (v && (v.rowId || v.id)) || 0);
+function erreur(m) { const e = $('erreur'); e.textContent = m || ''; e.style.display = m ? '' : 'none'; }
+
+grist.ready({ requiredAccess: 'full', allowSelectBy: true });
+/* Si le widget est posé à côté de la table Evaluateurs, la ligne sélectionnée pilote la vue. */
+let tableLiee = '';
+grist.selectedTable.getTableId().then(t => { tableLiee = t || ''; }).catch(() => {});
+grist.onRecord(rec => {
+  if (tableLiee !== 'Evaluateurs' || !rec || !rec.id || !S.D) return;
+  const g = S.gens.find(x => x.id === rec.id);
+  if (g && g.tri !== S.tri) { S.tri = g.tri; S.ouvert = null; rendre(); }
+});
+
+/* Les jours d'une UO, week-ends sautés — même règle que le planning et le widget Suivi. */
+function joursUO(u) {
+  const out = []; let ds = dsDe(u.date_debut_incluse);
+  let reste = Math.max(1, Math.ceil(nb(u.Jours) || 1)), garde = 0;
+  while (ds && reste > 0 && garde++ < 60) {
+    if (![0, 6].includes(new Date(ds + 'T00:00:00Z').getUTCDay())) { out.push(ds); reste--; }
+    ds = plus1(ds);
+  }
+  return out;
+}
+
+/* L'étape fine : le statut s'il est déjà fin, sinon déduite des jalons du planning.
+   Reprise à l'identique du widget Suivi pour que les deux vues racontent la même chose. */
+function etapeDe(st, x) {
+  if (FINES.includes(st)) return st;
+  if (st === 'En attente devis') return 'à planifier';
+  if (st === 'à planifier') return x.dates.length ? 'Planifiée' : 'à planifier';
+  if (st === 'Terminé') return 'Terminé';
+  if (!x.dates.length) return 'à planifier';
+  if (x.lanc.length && x.lanc[0] > x.auj) return 'Planifiée';
+  if (x.rap.length && x.rap[x.rap.length - 1] < x.auj) return 'Attente ANSSI';
+  if (x.site.length && x.site[x.site.length - 1] < x.auj) return 'Rédaction';
+  return 'En cours';
+}
+
+async function charger() {
+  try {
+    const res = await Promise.all(TABLES.map(n => grist.docApi.fetchTable(n).catch(() => null)));
+    const D = {}; TABLES.forEach((n, i) => { D[n] = lignesDe(res[i]); });
+    for (const n of TABLES) if (!D[n]) throw new Error('table « ' + n + ' » inaccessible');
+    S.D = D;
+    construire();
+    erreur('');
+    rendre();
+  } catch (e) {
+    console.error(e);
+    erreur('Erreur de chargement : ' + (e.message || e));
+    $('zone').innerHTML = '<div class="vide">Données indisponibles.</div>';
+  }
+}
+
+const parId = (t, id) => S.D[t].find(r => r.id === id) || null;
+
+function construire() {
+  const auj = AUJ();
+
+  /* Salariés Certi-Trust d'abord, externes ensuite, chaque groupe trié par trigramme.
+     Même test d'employeur que le widget Planning. */
+  const estCT = e => /certi.?trust/i.test(e.Employeur || '');
+  const libGen = e => (e.Evaluateur_Trigramme || '').trim()
+    || `${e.Evaluateur_Prenom || ''} ${e.Evaluateur_Nom || ''}`.trim().slice(0, 3).toUpperCase()
+    || ('#' + e.id);
+  const bruts = S.D.Evaluateurs.filter(e => e.Evaluateur_Nom || e.Evaluateur_Prenom || e.Evaluateur_Trigramme)
+    .map(e => ({ id: e.id, tri: libGen(e),
+                 nom: `${e.Evaluateur_Prenom || ''} ${e.Evaluateur_Nom || ''}`.trim() || libGen(e),
+                 employeur: e.Employeur || '', ct: estCT(e) }));
+  const parTri = (a, b) => a.tri.localeCompare(b.tri, 'fr');
+  S.gens = [...bruts.filter(g => g.ct).sort(parTri), ...bruts.filter(g => !g.ct).sort(parTri)];
+  const triParId = new Map(S.gens.map(g => [g.id, g.tri]));
+
+  /* Une ligne par unité d'œuvre affectée : c'est la maille du point individuel. */
+  S.lignesTous = [];
+  for (const e of S.D.Evaluations) {
+    if (e.Statut === 'Annulé') continue;
+    const uos = S.D.Unites_d_oeuvre.filter(u => ref1(u.Evaluation) === e.id)
+      .map(u => ({ u, js: joursUO(u) }));
+    const dates = uos.flatMap(x => x.js).sort();
+    const jrs = t => uos.filter(x => t.includes(x.u.Unite_d_oeuvre)).flatMap(x => x.js).sort();
+    const mission = {
+      id: e.id,
+      client: (parId('Entreprises', ref1(e.Entreprise)) || {}).Denomination || e.Libelle || ('#' + e.id),
+      prog: (parId('Programmes', ref1(e.Programme)) || {}).Nom_du_programme || '',
+      type: (refs(e.Type_d_evaluation)[0] || '').toLowerCase(),
+      pilote: triParId.get(ref1(e.RE)) || '',
+      etape: etapeDe(e.Statut || '', { dates, lanc: jrs(['Journée de lancement']), site: jrs(SITE),
+                                       rap: jrs(['Rédaction du rapport']), auj }),
+    };
+    for (const { u, js } of uos) {
+      const d = js[0] || null, fin = js[js.length - 1] || null;
+      const roles = [['RE', ref1(u.RE) ? [ref1(u.RE)] : []], ['ETA', refs(u.ETA)],
+                     ['ETM', refs(u.ETM)], ['OBS', refs(u.OBS)]];
+      for (const [role, ids] of roles) for (const id of ids) {
+        const tri = triParId.get(id);
+        if (!tri) continue;
+        S.lignesTous.push({ tri, role, mission, uo: u.Unite_d_oeuvre || '—', d,
+                            j: nb(u.Jours), fait: !!(fin && fin < auj),
+                            temoin: TEMOIN.test(u.Unite_d_oeuvre || '') });
+      }
+    }
+  }
+  S.lignesTous.sort((a, b) => (a.d || '9999').localeCompare(b.d || '9999'));
+
+  if (!S.tri || !S.gens.some(g => g.tri === S.tri)) S.tri = (S.gens[0] || {}).tri || '';
+  const progs = [...new Set(S.lignesTous.map(l => l.mission.prog).filter(Boolean))].sort();
+  $('fProg').innerHTML = '<option value="">tous</option>' +
+    progs.map(p => `<option ${S.prog === p ? 'selected' : ''}>${esc(p)}</option>`).join('');
+}
+
+function lignes(tri) {
+  return S.lignesTous.filter(l =>
+    l.tri === tri &&
+    (S.fini || l.mission.etape !== 'Terminé') &&
+    (!S.role || l.role === S.role) &&
+    (!S.prog || l.mission.prog === S.prog) &&
+    (!S.temoin || l.temoin) &&
+    (!S.q || l.mission.client.toLowerCase().includes(S.q.toLowerCase())));
+}
+const dansHorizon = l => !l.d || ecart(l.d) <= S.horizon;
+const aVenir = l => !l.fait && (!l.d || ecart(l.d) >= 0);
+const enRetard = l => !l.fait && l.d && ecart(l.d) < 0;
+
+function missions(ls) {
+  const map = new Map();
+  for (const l of ls) {
+    if (!map.has(l.mission.id)) map.set(l.mission.id, { m: l.mission, js: [] });
+    map.get(l.mission.id).js.push(l);
+  }
+  return [...map.values()];
+}
+
+function rendreGens() {
+  let h = '', groupe = null;
+  for (const g of S.gens) {
+    if (g.ct !== groupe) { groupe = g.ct;
+      h += `<h4>${g.ct ? 'Salariés Certi-Trust' : 'Évaluateurs externes'}</h4>`; }
+    const ls = lignes(g.tri), rt = ls.filter(enRetard).length;
+    const j = ls.filter(aVenir).reduce((s, l) => s + l.j, 0);
+    h += `<button class="gen ${g.ct ? '' : 'ext'} ${S.tri === g.tri ? 'on' : ''}" data-tri="${esc(g.tri)}"
+       role="tab" aria-selected="${S.tri === g.tri}">
+      <span class="tri">${esc(g.tri)}</span>
+      <span class="nom">${esc(g.nom)}<small>${esc(g.ct ? 'Certi-Trust' : (g.employeur || 'externe'))}</small></span>
+      <span class="cnt"><b>${missions(ls).length}</b>${rt ? `<span class="r">${rt} en retard</span>` : nbj(j) + ' j'}</span>
+    </button>`;
+  }
+  $('gens').innerHTML = h || '<div class="vide">Aucun évaluateur.</div>';
+  for (const b of $('gens').querySelectorAll('.gen'))
+    b.onclick = () => { S.tri = b.dataset.tri; S.ouvert = null; rendre(); };
+}
+
+function rendreOnglets() {
+  const O = [['missions', 'Missions'], ['jalons', 'Jalons à réaliser'], ['charge', 'Charge & point']];
+  $('onglets').innerHTML = O.map(([k, lib]) =>
+    `<button class="${S.onglet === k ? 'on' : ''}" data-k="${k}" role="tab"
+       aria-selected="${S.onglet === k}">${lib}</button>`).join('');
+  for (const b of $('onglets').querySelectorAll('button'))
+    b.onclick = () => { S.onglet = b.dataset.k; rendre(); };
+}
+
+function vueMissions(ls) {
+  const ms = missions(ls);
+  if (!ms.length) return vide();
+  const cols = ETAPES.filter(e => S.fini || e !== 'Terminé');
+  return `<div class="board">${cols.map(et => {
+    const dedans = ms.filter(x => x.m.etape === et);
+    return `<div class="col"><h3>${esc(et)}<span class="n">${dedans.length}</span></h3>
+      ${dedans.map(({ m, js }) => {
+        const suiv = js.filter(aVenir)[0];
+        const rt = js.filter(enRetard);
+        const roles = [...new Set(js.map(j => j.role))];
+        const jours = js.reduce((s, j) => s + j.j, 0);
+        const ouvert = S.ouvert === m.id;
+        return `<div class="carte ${esc((m.prog || '').replace(/[^\w.]/g, ''))}" data-id="${m.id}">
+          <div class="cli">${esc(m.client)}</div>
+          <div class="meta">${esc(m.prog)}${m.type ? ' · ' + esc(m.type) : ''}${m.pilote === S.tri ? ' · pilote' : ''}</div>
+          <div class="bas">${roles.map(r => `<span class="role ${r}">${r}</span>`).join('')}
+            ${js.some(j => j.temoin) ? '<span class="temoin">témoin</span>' : ''}
+            <span class="pousse"></span><span class="jrs">${nbj(jours)} j</span></div>
+          <div class="bas">${suiv ? `📅 ${esc(suiv.uo)} — ${fr(suiv.d)}`
+            : '<span style="color:var(--texte-pale)">aucun jalon à venir</span>'}</div>
+          ${rt.length ? `<div class="bas"><span class="retard">⚠ ${rt.length} jalon${rt.length > 1 ? 's' : ''} dépassé${rt.length > 1 ? 's' : ''}</span></div>` : ''}
+          ${ouvert ? `<div class="detail">${js.map(j =>
+            `<div><span class="pt ${j.fait ? 'fait' : enRetard(j) ? 'ko' : ''}"></span>
+               <span class="u">${esc(j.uo)}</span>
+               <span style="color:var(--texte-doux)">${fr(j.d)}</span>
+               <span class="jrs">${nbj(j.j)} j</span></div>`).join('')}</div>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+  }).join('')}</div>`;
+}
+
+function vueJalons(ls) {
+  const dedans = ls.filter(dansHorizon);
+  if (!dedans.length) return vide();
+  let mois = '', h = '';
+  for (const l of dedans) {
+    const m = l.d ? moisDe(l.d) : 'Sans date';
+    if (m !== mois) { mois = m; h += `<tr class="sep"><td colspan="6">${esc(mois)}</td></tr>`; }
+    const etat = l.fait ? 'fait' : (enRetard(l) ? 'ko' : '');
+    const ec = l.d && !l.fait ? ecart(l.d) : null;
+    h += `<tr class="${etat === 'ko' ? 'ligne-ko' : ''}">
+      <td class="d"><span class="pt ${etat}"></span><b>${fr(l.d)}</b></td>
+      <td>${esc(l.mission.client)}<div style="font-size:10.5px;color:var(--texte-doux)">${esc(l.mission.prog)} · ${esc(l.mission.etape)}</div></td>
+      <td>${esc(l.uo)}${l.temoin ? ' <span class="temoin">témoin</span>' : ''}</td>
+      <td><span class="role ${l.role}">${l.role}</span></td>
+      <td class="n">${nbj(l.j)} j</td>
+      <td class="n">${l.fait ? '<span style="color:var(--ok)">réalisé</span>'
+        : ec === null ? '<span style="color:var(--attente)">à planifier</span>'
+        : ec < 0 ? `<span class="retard">J+${-ec}</span>` : `J−${ec}`}</td></tr>`;
+  }
+  return `<div class="jalons"><table>
+    <thead><tr><th>Date</th><th>Mission</th><th>Unité d’œuvre</th><th>Rôle</th><th>Jours</th><th>Échéance</th></tr></thead>
+    <tbody>${h}</tbody></table></div>
+    <p class="note">Une ligne par unité d’œuvre du planning où l’évaluateur est affecté (RE, ETA, ETM ou OBS).
+    « Réalisé » signifie que le dernier jour de l’unité d’œuvre est passé, pas qu’elle a été validée.</p>`;
+}
+
+function vueCharge(ls) {
+  const parMois = new Map();
+  for (const l of ls) { if (!l.d) continue;
+    const k = l.d.slice(0, 7); parMois.set(k, (parMois.get(k) || 0) + l.j); }
+  const cles = [...parMois.keys()].sort();
+  const max = Math.max(1, ...parMois.values());
+  const g = S.gens.find(x => x.tri === S.tri) || { nom: S.tri };
+  const fait = ls.filter(l => l.fait).reduce((s, l) => s + l.j, 0);
+  const reste = ls.filter(l => !l.fait).reduce((s, l) => s + l.j, 0);
+  const rt = ls.filter(enRetard), tem = ls.filter(l => l.temoin);
+  const c = {}; for (const l of ls) c[l.role] = (c[l.role] || 0) + 1;
+  const dom = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return `<div class="charge">
+    <div class="bloc"><h4>Charge par mois (jours-homme)</h4>
+      ${cles.length ? cles.map(k => {
+        const v = parMois.get(k);
+        return `<div class="mois"><span class="lib">${esc(moisDe(k + '-01'))}</span>
+          <span class="barre"><i class="${v >= 12 ? 'plein' : ''}" style="width:${Math.round(v / max * 100)}%"></i></span>
+          <span class="v">${nbj(v)} j</span></div>`;
+      }).join('') : '<p class="note">Aucune date posée.</p>'}
+      <p class="note">Barre ambrée au-delà de 12 j dans le mois.</p></div>
+    <div class="bloc"><h4>Point avec ${esc(g.nom)}</h4>
+      <div class="kv"><span>Missions</span><b>${missions(ls).length}</b></div>
+      <div class="kv"><span>Jours réalisés</span><b>${nbj(fait)} j</b></div>
+      <div class="kv"><span>Jours restants</span><b>${nbj(reste)} j</b></div>
+      <div class="kv"><span>Jalons dépassés</span><b class="${rt.length ? 'retard' : ''}">${rt.length}</b></div>
+      <div class="kv"><span>Prestations témoins</span><b>${tem.length}</b></div>
+      <div class="kv"><span>Rôle le plus fréquent</span><b>${dom ? dom[0] : '—'}</b></div></div>
+    <div class="bloc"><h4>Prestations témoins</h4>
+      ${tem.length ? tem.map(l => `<div class="kv"><span>${esc(l.mission.client)}</span>
+        <b>${fr(l.d)}${l.fait ? ' ✔' : ''}</b></div>`).join('')
+        : '<p class="note">Aucune prestation témoin affectée sur la période.</p>'}</div>
+  </div>`;
+}
+
+const vide = () => '<div class="vide">Aucune mission pour ce filtre.<br>Élargis l’horizon ou retire un filtre.</div>';
+
+function rendre() {
+  if (!S.D) return;
+  const ls = lignes(S.tri);
+  rendreGens();
+  rendreOnglets();
+  $('zone').innerHTML = S.onglet === 'missions' ? vueMissions(ls)
+    : S.onglet === 'jalons' ? vueJalons(ls) : vueCharge(ls);
+  if (S.onglet === 'missions')
+    for (const c of $('zone').querySelectorAll('.carte'))
+      c.onclick = () => { S.ouvert = S.ouvert === +c.dataset.id ? null : +c.dataset.id; rendre(); };
+
+  const rt = ls.filter(enRetard);
+  $('cMissions').textContent = missions(ls).length + ' mission' + (missions(ls).length > 1 ? 's' : '');
+  $('cJours').textContent = nbj(ls.filter(aVenir).reduce((s, l) => s + l.j, 0)) + ' j à venir';
+  $('cRetard').style.display = rt.length ? '' : 'none';
+  $('cRetard').textContent = rt.length + ' jalon' + (rt.length > 1 ? 's' : '') + ' dépassé' + (rt.length > 1 ? 's' : '');
+}
+
+$('fRole').onchange = e => { S.role = e.target.value; rendre(); };
+$('fProg').onchange = e => { S.prog = e.target.value; rendre(); };
+$('fHorizon').onchange = e => { S.horizon = +e.target.value; rendre(); };
+$('fTemoin').onchange = e => { S.temoin = e.target.checked; rendre(); };
+$('fFini').onchange = e => { S.fini = e.target.checked; rendre(); };
+$('fQ').oninput = e => { S.q = e.target.value; rendre(); };
+
+charger();
+grist.onRecords(() => {});   // force Grist à notifier le widget des changements de la table liée
+</script>
+</body>
+</html>

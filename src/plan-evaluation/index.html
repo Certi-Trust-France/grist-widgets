@@ -476,7 +476,7 @@ const DOCS = {
         F('DATE_REMISE_RAPPORT', 'Remise du rapport (échéance)', 'd'), F('STRAT_COMM_PRESTA', 'Stratégie : envoi prestataire', 'd'),
         F('STRAT_COMM_ANSSI', 'Stratégie : date d’envoi à l’ANSSI', 'd'), F('STRAT_VALIDATION', 'Stratégie : date de validation ANSSI', 'd')] },
       { t: 'champs', titre: 'Charge en jours-homme', charge: true, champs: [
-        F('CHARGE_PILOTAGE', 'Plan d’évaluation et pilotage', 'n'), F('CHARGE_LANCEMENT', 'Présentation de l’entreprise', 'n'),
+        F('CHARGE_PILOTAGE', 'Organisation et pilotage', 'n'),
         F('CHARGE_DOC', 'Évaluation documentaire', 'n'), F('CHARGE_SIEGE', 'Évaluation siège (sur site)', 'n'), F('CHARGE_SI', 'Évaluation SI', 'n'),
         F('CHARGE_TEMOIN', 'Évaluation prestation témoin', 'n'), F('CHARGE_LIVRABLES', 'Élaboration des livrables', 'n'),
         F('CHARGE_SOUTENANCE', 'Soutenance ANSSI et suivi', 'n'), F('CHARGE_TOTAL', 'Total', 'n')] },
@@ -635,8 +635,7 @@ function calculer(id) {
   else set('DATE_REMISE_RAPPORT', fr(ev.Date_fin_prevue), 'Evaluations.Date_fin_prevue');
   const affectee = u => liste(u.evaluateurs).length > 0;     // UO sans évaluateur = créneau non affecté, non compté
   const jours = (...t) => { const us = deType(...t).filter(affectee); return us.length ? nombre(us.reduce((a, u) => a + (u.Jours || 0), 0)) : ''; };
-  set('CHARGE_PILOTAGE', jours('Plan d\'évaluation', 'Planification'), uo('Plan d’évaluation') + ' + « Planification »');
-  set('CHARGE_LANCEMENT', jours('Journée de lancement'), uo('Journée de lancement'));
+  set('CHARGE_PILOTAGE', jours('Plan d\'évaluation', 'Planification', 'Journée de lancement'), uo('Plan d’évaluation') + ' + « Planification » + ' + uo('Journée de lancement'));
   set('CHARGE_DOC', jours('Revue documentaire'), uo('Revue documentaire'));
   set('CHARGE_SIEGE', jours('évaluation siège'), uo('évaluation siège'));
   set('CHARGE_TEMOIN', jours('évaluation prestation témoin'), uo('évaluation prestation témoin'));
