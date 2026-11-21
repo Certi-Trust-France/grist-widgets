@@ -170,14 +170,6 @@ table.grid { border-collapse: separate; border-spacing: 0; }
 .genplan { border: none; background: rgba(0,0,0,.12); color: var(--texte); font-family: inherit; font-size: 10.5px;
            font-weight: 600; border-radius: 11px; padding: 3px 10px; cursor: pointer; }
 .genplan:hover { background: rgba(0,0,0,.2); }
-.plantab { border-collapse: collapse; width: 100%; font-size: 12px; color: var(--texte); margin-bottom: 4px; }
-.plantab td { padding: 3px 10px 3px 0; border-bottom: 1px solid var(--surface-2); vertical-align: top; }
-.plantab td.lib { color: var(--texte-doux); width: 46%; white-space: pre-wrap; }
-.plantab td.val { white-space: pre-wrap; font-weight: 500; }
-.plansec { padding: 10px; }
-.plansec + .plansec { border-top: 1px solid var(--bord); }
-.plansec h5 { margin: 0 0 6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
-              color: var(--texte-doux); font-weight: 700; }
 
 button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--bleu-clair); outline-offset: 1px; }
 kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; background: var(--surface-2);
@@ -243,28 +235,6 @@ const JALONS = [
 ];
 const PALETTE = ['#2563eb', '#60a5fa', '#7c3aed', '#c2410c', '#0891b2', '#b45309', '#15803d', '#be185d'];
 
-/* Mêmes regroupements et libellés que le widget « plan-evaluation »
-   (src/plan-evaluation/index.html, const DOCS.plan.blocs) — relecture, pas resaisie. */
-const SECTIONS_PLAN = [
-  { titre: 'Société', champs: [
-      ['SOC_NOM', 'Nom de la société'], ['SOC_SIREN', 'SIREN'],
-      ['SITE_ADRESSE', 'Site(s) actif(s)'],
-      ['CONTACT_NOM', 'Nom du contact'], ['CONTACT_EMAIL', 'Email du contact'], ['CONTACT_TEL', 'Téléphone du contact'] ] },
-  { titre: 'Information sur l’évaluation', champs: [
-      ['CRIT_REFERENTIEL', 'Référentiel d’exigences'], ['CRIT_TRAME', 'Trame d’évaluation'],
-      ['EVAL_TYPE', 'Type d’évaluation'] ] },
-  { titre: 'Jalons', champs: [
-      ['DATE_LANCEMENT', 'Journée de lancement'],
-      ['DATE_DOC_DEBUT', 'Évaluation documentaire – début'], ['DATE_DOC_FIN', 'Évaluation documentaire – fin'],
-      ['DATE_SIEGE_DEBUT', 'Évaluation siège – début'], ['DATE_SIEGE_FIN', 'Évaluation siège – fin'],
-      ['DATE_TEMOIN', 'Prestation(s) témoin'], ['DATE_CLOTURE', 'Réunion de clôture'],
-      ['DATE_REMISE_RAPPORT', 'Remise du rapport (échéance)'] ] },
-  { titre: 'Charge en jours-homme', champs: [
-      ['CHARGE_DOC', 'Évaluation documentaire'], ['CHARGE_SIEGE', 'Évaluation siège (sur site)'],
-      ['CHARGE_TEMOIN', 'Évaluation prestation témoin'], ['CHARGE_TOTAL', 'Total bloqué / vendu'] ] },
-];
-/* Champs non modélisés ici (pas de source directe dans les tables lues) : s'ils ont été saisis
-   à la main dans le widget plan-evaluation, on les relit depuis Evaluations.Plan_evaluation.champs. */
 
 let EVALUATEURS = [], CYCLES = [], EVS = {};
 const S = { D: null, onglet: 'planning', ev: null, jal: 'Évaluation documentaire', editAff: null,
@@ -285,6 +255,16 @@ const frc = d => JOURL[jsem(d)] + ' ' + d.slice(8,10) + '/' + d.slice(5,7);
 function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on');
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600); }
 function erreur(m) { const e = $('erreur'); e.textContent = m || ''; e.style.display = m ? '' : 'none'; }
+
+/* Déplace le curseur de la table Evaluations (ce widget y est lié) : toute section posée sur la
+   même page et réglée en « Sélectionner par » ce widget — comme le vrai widget plan-evaluation
+   ajouté plus bas — affiche alors la même évaluation sans rien dupliquer ici. */
+let dernierCurseur = null;
+function curseur(id) {
+  if (!id || id === dernierCurseur) return;
+  dernierCurseur = id;
+  try { Promise.resolve(grist.setCursorPos({ rowId: id })).catch(() => {}); } catch (e) { /* ignoré */ }
+}
 
 const rows = t => (t && t.id ? t.id.map((id, i) => Object.fromEntries(Object.keys(t).map(k => [k, t[k][i]]))) : []);
 const ref1 = v => (typeof v === 'number' ? v : (v && (v.rowId || v.id)) || 0);
@@ -696,69 +676,47 @@ function vueFiche() {
   }
 }
 
-/* --------------------------------- onglet 3 : relecture du plan d'évaluation */
-function champsOverride(evId) {
-  const e = (S.D.Evaluations || []).find(x => x.id === evId); if (!e) return {};
-  try { return (JSON.parse(e.Plan_evaluation || '{}').champs) || {}; } catch (err) { return {}; }
-}
+/* Bandeau de rappel dans la fiche mission (4 champs seulement) : le détail complet vit dans le
+   vrai widget plan-evaluation lié plus bas sur la page, pas ici — voir vuePlan(). */
 function planDe(evId) {
   const E = EVS[evId]; if (!E) return {};
   const e = S.D.Evaluations.find(x => x.id === evId) || {};
   const ent = S.D.Entreprises.find(x => x.id === E.cycle.entId) || {};
   const prog = S.D.Programmes.find(x => x.id === E.cycle.progId) || {};
-  const sitesAct = S.D.Sites.filter(s => ref1(s.Entreprise) === E.cycle.entId && s.Actif);
   const contacts = S.D.Contacts.filter(c => ref1(c.Entreprise) === E.cycle.entId);
   const resp = contacts.find(c => c.Responsable_de_programme && refs(c.Programmes_Responsable).includes(E.cycle.progId))
     || contacts.find(c => c.Responsable_de_programme) || contacts[0];
   const docLib = id => { const d = S.D.Documents_Referentiel.find(x => x.id === id);
     return d ? `${d.Document_Abr || d.Document_Name || ''} ${d.Version || ''}`.trim() : ''; };
   const refsProg = refs(prog.Referentiel).map(docLib).filter(Boolean);
-  const sommeJal = j => { const n = blocsDe(evId).filter(b => b.jal === j).reduce((s, b) => s + b.p, 0); return n ? nbj(n) + ' j' : null; };
-  const datesJal = j => blocsDe(evId).filter(b => b.jal === j).map(b => b.d).sort();
-
-  const sourced = {
-    SOC_NOM: ent.Denomination || null, SOC_SIREN: ent.SIREN ? String(ent.SIREN) : null,
-    SITE_ADRESSE: sitesAct.map(s => [s.Nom_site, [s.Street, s.Zip, s.City].filter(Boolean).join(' ')]
-      .filter(Boolean).join(' — ')).join('\n') || null,
-    CONTACT_NOM: resp ? `${resp.Prenom || ''} ${resp.Nom || ''}`.trim() || null : null,
-    CONTACT_EMAIL: resp ? resp.Courriel || null : null, CONTACT_TEL: resp ? resp.telephone || null : null,
-    CRIT_REFERENTIEL: refsProg.join(', ') || (e.Referentiel ? docLib(ref1(e.Referentiel)) : null) || null,
-    CRIT_TRAME: docLib(ref1(prog.Trame)) || null,
-    EVAL_TYPE: refs(e.Type_d_evaluation).join(', ') || null,
-    DATE_LANCEMENT: frl(datesJal('Journée de lancement')[0]),
-    DATE_DOC_DEBUT: frl(datesJal('Revue documentaire')[0]), DATE_DOC_FIN: frl(datesJal('Revue documentaire').slice(-1)[0]),
-    DATE_SIEGE_DEBUT: frl(datesJal('évaluation siège')[0]), DATE_SIEGE_FIN: frl(datesJal('évaluation siège').slice(-1)[0]),
-    DATE_TEMOIN: frl(datesJal('évaluation prestation témoin')[0]), DATE_CLOTURE: frl(datesJal('Réunion de clôture')[0]),
-    DATE_REMISE_RAPPORT: frl(dsDe(e.Date_remise_rapport)),
-    CHARGE_DOC: sommeJal('Revue documentaire'), CHARGE_SIEGE: sommeJal('évaluation siège'),
-    CHARGE_TEMOIN: sommeJal('évaluation prestation témoin'),
-    CHARGE_TOTAL: `${nbj(bloques(evId))} j bloqués / ${nbj(E.vendus)} j vendus`,
+  let champs = {};
+  try { champs = JSON.parse(e.Plan_evaluation || '{}').champs || {}; } catch (err) { /* valeur absente */ }
+  return {
+    SOC_NOM: champs.SOC_NOM ?? ent.Denomination ?? null,
+    CONTACT_NOM: champs.CONTACT_NOM ?? (resp ? `${resp.Prenom || ''} ${resp.Nom || ''}`.trim() : null) ?? null,
+    CRIT_REFERENTIEL: champs.CRIT_REFERENTIEL ?? refsProg.join(', ') ?? null,
+    EVAL_TYPE: champs.EVAL_TYPE ?? refs(e.Type_d_evaluation).join(', ') ?? null,
   };
-  const over = champsOverride(evId);
-  const out = {};
-  for (const s of SECTIONS_PLAN) for (const [k] of s.champs) out[k] = over[k] ?? sourced[k] ?? null;
-  return out;
 }
 
+/* Ne reconstruit plus les champs soi-même : ce widget pousse juste le curseur sur l'évaluation
+   choisie (fonction curseur()) et renvoie vers le vrai widget plan-evaluation posé plus bas sur
+   cette même page Grist (lié en « Sélectionner par » ce widget) — données toujours à jour,
+   aucune divergence possible avec la page Evaluations/p/87. */
 function vuePlan() {
-  const E = EVS[S.ev], p = planDe(S.ev);
+  const E = EVS[S.ev];
   $('droite').innerHTML = `<div class="outils">
       <b style="color:var(--texte)">Plan d’évaluation — ${esc(E.cycle.nom)} · ${esc(E.nom)}</b>
       <span class="pousse"></span>
-      <span>relecture — mêmes champs que le widget « plan-evaluation »</span>
+      <span>c'est le vrai widget « plan-evaluation », pas une copie</span>
     </div>
-    <div class="fiche" style="padding:0">
-      ${SECTIONS_PLAN.map(s => `<div class="plansec"><h5>${esc(s.titre)}</h5>
-        <table class="plantab">${s.champs.map(([k, lib]) => `<tr><td class="lib">${esc(lib)}</td>
-          <td class="val">${esc(p[k] ?? '—')}</td></tr>`).join('')}</table></div>`).join('')}
-      <p class="aide" style="padding:0 10px 10px">Les champs non calculés ici (effectifs, critères détaillés,
-        niveau de qualification…) sont relus depuis la saisie manuelle du widget « plan-evaluation »
-        (Evaluations.Plan_evaluation) quand elle existe, sinon affichés « — ».
-        <button class="genplan" id="bGenPlan">régénérer le plan d’évaluation avec les jalons et jours saisis →</button></p>
+    <div class="vide-l" style="padding:28px 16px">
+      Le plan d’évaluation complet de cette mission s’affiche dans la section
+      « Plan d’évaluation (réel) » posée plus bas sur cette page — exactement la même
+      que sur la page dédiée (Evaluations/p/87), déjà positionnée sur <b>${esc(E.nom)}</b>.<br><br>
+      Si rien ne s’affiche en dessous : vérifie dans le panneau de droite de Grist que cette
+      section a bien « Sélectionner par » réglé sur <b>Planification des missions</b>.
     </div>`;
-
-  if ($('bGenPlan')) $('bGenPlan').onclick = () =>
-    toast('à faire : combiner ces champs avec les jalons/jours/fonctions saisis ici pour régénérer le document');
 }
 
 /* ------------------------------------------------------------------ rendu */
@@ -769,6 +727,7 @@ function rendre() {
     b.onclick = () => { S.onglet = b.dataset.o; S.editAff = null; rendre(); };
 
   rendreGauche();
+  curseur(S.ev);
   const E = EVS[S.ev];
   if (!E) {
     $('droite').innerHTML = `<div class="vide-l" style="padding:40px">Aucune évaluation disponible dans cet onglet.</div>`;
