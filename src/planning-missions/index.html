@@ -456,10 +456,10 @@ function barreConv(e) {
   </div>`;
 }
 
-/* Planning : ce qui reste à bloquer (Statut « à planifier ») + ce qui est en suspens (Annulé,
-   En attente devis), gardé visible tant que ce n'est pas Terminé.
+/* Planning : tout ce qui n'est pas encore terminé (à planifier + En cours), y compris ce qui
+   est en suspens (Annulé, En attente devis).
    Fiche mission / Plan d'évaluation : ce qui est déjà en cours + ce qui est en suspens. */
-const statutsOnglet = o => (o === 'planning' ? ['à planifier'] : ['En cours'])
+const statutsOnglet = o => (o === 'planning' ? ['à planifier', 'En cours'] : ['En cours'])
   .concat(['Annulé', 'En attente devis']);
 function cyclesEligibles() {
   const statuts = statutsOnglet(S.onglet);
