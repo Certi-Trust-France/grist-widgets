@@ -332,12 +332,16 @@ const TOUS_JOURS = (() => { const o = []; let d = DEBUT;
 const jal = id => JALONS.find(j => j.id === id) || null;
 const blocsDe = e => S.blocs.filter(b => b.ev === e);
 const bloques = e => blocsDe(e).reduce((s, b) => s + b.p, 0);
-const affectes = e => blocsDe(e).filter(b => b.jal).reduce((s, b) => s + b.p, 0);
 /* Un jour tenu par un observateur (OBS) ne compte jamais dans les jours à produire,
-   même sur un jalon qui compte d'habitude (doc, site, témoin, rapport). */
+   même sur un jalon qui compte d'habitude (doc, site, témoin, rapport) — et n'entre jamais
+   dans la charge de jours vendus (bloquesCharge/affectesCharge ci-dessous l'excluent entièrement,
+   il reste seulement visible, grisé, dans le planning). */
 const comptes = e => blocsDe(e).filter(b => b.jal && S.compte[b.jal] && b.fonction !== 'OBS').reduce((s, b) => s + b.p, 0);
-const horsForfait = e => blocsDe(e).filter(b => b.jal && (!S.compte[b.jal] || b.fonction === 'OBS')).reduce((s, b) => s + b.p, 0);
-const libres = e => bloques(e) - affectes(e);
+const horsForfait = e => blocsDe(e).filter(b => b.jal && b.fonction !== 'OBS' && !S.compte[b.jal]).reduce((s, b) => s + b.p, 0);
+const joursObs = e => blocsDe(e).filter(b => b.fonction === 'OBS').reduce((s, b) => s + b.p, 0);
+const bloquesCharge = e => blocsDe(e).filter(b => b.fonction !== 'OBS').reduce((s, b) => s + b.p, 0);
+const affectesCharge = e => blocsDe(e).filter(b => b.jal && b.fonction !== 'OBS').reduce((s, b) => s + b.p, 0);
+const libresCharge = e => bloquesCharge(e) - affectesCharge(e);
 const charge = (tri, d) => S.blocs.filter(b => b.tri === tri && b.d === d).reduce((s, b) => s + b.p, 0);
 const personnesDe = e => [...new Set(blocsDe(e).map(b => b.tri))]
   .map(t => EVALUATEURS.find(x => x.tri === t)).filter(Boolean)
@@ -433,16 +437,17 @@ function construire() {
 
 /* ------------------------------------------------------------------ gauche */
 function barreConv(e) {
-  const E = EVS[e], v = E.vendus, bq = bloques(e), af = affectes(e), hf = horsForfait(e), cp = comptes(e);
+  const E = EVS[e], v = E.vendus, bq = bloquesCharge(e), af = affectesCharge(e), hf = horsForfait(e), cp = comptes(e);
+  const lb = libresCharge(e), jObs = joursObs(e);
   const max = Math.max(v, bq, 1);
   const pct = x => Math.round(x / max * 100) + '%';
-  const ecart = cp + libres(e) - v;    // ce qui est bloqué et imputable, face au vendu
+  const ecart = cp + lb - v;    // ce qui est bloqué et imputable, face au vendu (hors jours observateur)
   return `<div class="conv">
     <div class="lgn"><span class="l">Vendus</span>
       <span class="t"><i style="width:${pct(v)};background:var(--bord2)"></i></span>
       <span class="v">${nbj(v)} j</span></div>
     <div class="lgn"><span class="l">Bloqués</span>
-      <span class="t"><i style="width:${pct(af)};background:${E.c}"></i><i style="width:${pct(libres(e))};background:var(--attente)"></i></span>
+      <span class="t"><i style="width:${pct(af)};background:${E.c}"></i><i style="width:${pct(lb)};background:var(--attente)"></i></span>
       <span class="v">${nbj(bq)} j</span></div>
     <div class="lgn"><span class="l">Affectés</span>
       <span class="t"><i style="width:${pct(cp)};background:var(--ok)"></i><i style="width:${pct(hf)};background:var(--texte-pale)"></i></span>
@@ -451,8 +456,9 @@ function barreConv(e) {
       ${ecart === 0 ? '✓ le blocage couvre exactement les jours vendus'
         : ecart < 0 ? `il manque ${nbj(-ecart)} j à bloquer`
                     : `${nbj(ecart)} j bloqués en trop`}
-      ${libres(e) ? `<br>${nbj(libres(e))} j bloqués sans jalon` : ''}
-      ${hf ? `<br>${nbj(hf)} j hors forfait (lancement, clôture, observateur)` : ''}</div>
+      ${lb ? `<br>${nbj(lb)} j bloqués sans jalon` : ''}
+      ${hf ? `<br>${nbj(hf)} j hors forfait (lancement, clôture)` : ''}
+      ${jObs ? `<br>${nbj(jObs)} j observateur (grisés, hors charge de jours vendus)` : ''}</div>
   </div>`;
 }
 
@@ -477,7 +483,7 @@ function rendreGauche() {
     (cycles.length ? cycles.map(c => `<div class="cyc">
       <div class="t">${esc(c.nom)} <small>${esc(c.prog)}</small></div>
       ${c.evals.map(e => {
-        const bq = bloques(e.id), ok = bq === e.vendus;
+        const bq = bloquesCharge(e.id), ok = bq === e.vendus;
         return `<button class="miss ${S.ev === e.id ? 'on' : ''}" data-ev="${e.id}" aria-pressed="${S.ev === e.id}"
             title="${esc(e.nom)}">
           <span class="pt" style="background:${e.c}"></span>
@@ -541,9 +547,9 @@ function vuePlanning() {
       h += `<td class="cel ${charge(c.tri, d) > 1 ? 'trop' : ''}" data-tri="${esc(c.tri)}" data-d="${d}">` +
         ici.map(b => { const Eb = EVS[b.ev], J = jal(b.jal);
           const copiee = S.copie && S.copie.srcId === b.id && S.copie.tri === b.tri;
-          return `<span class="bq ${b.p < 1 ? 'demi' : ''} ${b.jal ? '' : 'libre'} ${b.ev === S.ev ? '' : 'autre'} ${copiee ? 'copiee' : ''}"
-            style="background:${Eb.c}" data-bloc="${b.id}|${esc(b.tri)}"
-            title="${esc((b.verrouille ? '🔒 UO partagée — ' : '') + Eb.cycle.nom + ' — ' + Eb.nom + ' — ' + (J ? J.id : 'jalon non défini') + ' — ' + nbj(b.p) + ' j') + (b.verrouille ? '' : ' — clic pour supprimer/réduire, Ctrl-clic pour copier')}">
+          return `<span class="bq ${b.p < 1 ? 'demi' : ''} ${b.jal ? '' : 'libre'} ${b.ev === S.ev ? '' : 'autre'} ${copiee ? 'copiee' : ''} ${b.fonction === 'OBS' ? 'obs' : ''}"
+            style="background:${b.fonction === 'OBS' ? 'var(--texte-pale)' : Eb.c}" data-bloc="${b.id}|${esc(b.tri)}"
+            title="${esc((b.verrouille ? '🔒 UO partagée — ' : '') + Eb.cycle.nom + ' — ' + Eb.nom + ' — ' + (J ? J.id : 'jalon non défini') + ' — ' + nbj(b.p) + ' j' + (b.fonction === 'OBS' ? ' — observateur, hors charge de jours vendus' : '')) + (b.verrouille ? '' : ' — clic pour supprimer/réduire, Ctrl-clic pour copier')}">
             ${b.verrouille ? '🔒 ' : ''}${esc(Eb.cycle.nom)}${b.p < 1 ? ' <small>½</small>' : ''}</span>`;
         }).join('') + '</td>';
     }
@@ -925,7 +931,7 @@ function rendre() {
   }
 
   if (E) {
-    const bq = bloques(S.ev), lb = libres(S.ev);
+    const bq = bloquesCharge(S.ev), lb = libresCharge(S.ev);
     const ec = comptes(S.ev) + lb - E.vendus;
     $('cEtat').className = 'chip ' + (ec === 0 && !lb ? 'ok' : ec !== 0 ? 'ko' : '');
     $('cEtat').textContent = `${nbj(bq)} j bloqués / ${nbj(E.vendus)} vendus` + (lb ? ` · ${nbj(lb)} sans jalon` : '');
