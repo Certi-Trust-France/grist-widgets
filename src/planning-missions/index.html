@@ -388,7 +388,7 @@ function construire() {
 
   /* Un cycle = une (entreprise, programme) : regroupe les évaluations en cours de vie,
      comme un programme contient plusieurs projets. */
-  const evals = D.Evaluations.filter(e => ['à planifier', 'En cours'].includes(e.Statut));
+  const evals = D.Evaluations.filter(e => e.Statut !== 'Terminé');
   const cyMap = new Map();
   let colIdx = 0;
   for (const e of evals) {
@@ -456,9 +456,11 @@ function barreConv(e) {
   </div>`;
 }
 
-/* Planning : seulement ce qui reste à bloquer (Statut « à planifier »).
-   Fiche mission / Plan d'évaluation : seulement ce qui est déjà en cours. */
-const statutsOnglet = o => o === 'planning' ? ['à planifier'] : ['En cours'];
+/* Planning : ce qui reste à bloquer (Statut « à planifier ») + ce qui est en suspens (Annulé,
+   En attente devis), gardé visible tant que ce n'est pas Terminé.
+   Fiche mission / Plan d'évaluation : ce qui est déjà en cours + ce qui est en suspens. */
+const statutsOnglet = o => (o === 'planning' ? ['à planifier'] : ['En cours'])
+  .concat(['Annulé', 'En attente devis']);
 function cyclesEligibles() {
   const statuts = statutsOnglet(S.onglet);
   return CYCLES.map(c => ({ ...c, evals: c.evals.filter(e => statuts.includes(e.statut)) }))
