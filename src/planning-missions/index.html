@@ -522,8 +522,16 @@ function rendreGauche() {
 }
 
 /* ------------------------------------------------- onglet 1 : le planning */
+/* On ne revient sur « aujourd'hui » que lors d'un vrai changement de mission/onglet :
+   un re-rendu provoqué par un clic/collage sur la grille (même mission) garde le scroll
+   là où l'utilisateur se trouve, au lieu de le renvoyer sans cesse en haut. */
+let dernierAncrage = null;
 function vuePlanning() {
   const E = EVS[S.ev];
+  const ancienGridwrap = $('gridwrap');
+  const scrollAvant = ancienGridwrap ? ancienGridwrap.scrollTop : null;
+  const ancreSurAuj = dernierAncrage !== S.ev;
+  dernierAncrage = S.ev;
   const cols = EVALUATEURS;
   const totaux = cols.map(c => S.blocs.filter(b => b.tri === c.tri).reduce((s, b) => s + b.p, 0));
 
@@ -590,8 +598,12 @@ function vuePlanning() {
       }
       cycler(c.dataset.tri, c.dataset.d);
     };
-  const l = $('gridwrap').querySelector('tr.auj');
-  if (l) $('gridwrap').scrollTop = Math.max(0, l.offsetTop - 90);
+  if (ancreSurAuj) {
+    const l = $('gridwrap').querySelector('tr.auj');
+    if (l) $('gridwrap').scrollTop = Math.max(0, l.offsetTop - 90);
+  } else if (scrollAvant !== null) {
+    $('gridwrap').scrollTop = scrollAvant;
+  }
 }
 
 /* RE est une référence unique, ETA/ETM/OBS des listes : on écrit toujours les 4 champs pour
