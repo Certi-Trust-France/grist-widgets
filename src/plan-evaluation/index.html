@@ -273,7 +273,8 @@ const PlanCalcul = (() => {
     return out.join('\n') || 'N.A.';
   }
   function parametres(p, niveau) {
-    const d = { jours: null, poids_document: 0.4, presentation: true, cloture: true, durees: {}, retires: [], evaluateurs: {} };
+    const d = { jours: null, poids_document: 0.4, presentation: true, cloture: true, durees: {}, retires: [], evaluateurs: {},
+      surveillance: false, nc_nombre: 0, nc_minutes_unitaire: 10 };
     const r = Object.assign(d, p || {});
     if (!r.jours) r.jours = niveau === 'élevé' ? 2 : 1;
     return r;
@@ -297,12 +298,29 @@ const PlanCalcul = (() => {
     });
     return { themes: out, temoin, total: out.reduce((a, t) => a + t.nb, 0) + temoin };
   }
+  // Carve nc_min minutes for the NC review out of the start of the free blocks of J, en commençant par le premier
+  // (RE et ETA, même thème, sans décaler le reste de la journée ; déborde sur les blocs libres suivants si besoin).
+  function insererRevueNC(J, nc_min) {
+    const out = []; let reste = nc_min, premier = true;
+    for (const [a, b, t] of J) {
+      if (t !== null || reste <= 0) { out.push([a, b, t]); continue; }
+      const aMin = mn(a), bMin = mn(b), d = Math.min(reste, bMin - aMin);
+      if (d <= 0) { out.push([a, b, t]); continue; }
+      const milieu = hh(aMin + d);
+      out.push([a, milieu, 'Revue des non-conformités de l’évaluation précédente (RE et ETA)' + (premier ? '' : ' (suite)')]);
+      if (d < bMin - aMin) out.push([milieu, b, null]);
+      reste -= d; premier = false;
+    }
+    return out;
+  }
   function joursModele(C, p, ev) {
     const jours = [], n = Number(p.jours);
+    const ncMin = p.surveillance ? Math.ceil(Number(p.nc_nombre) * Number(p.nc_minutes_unitaire) / C.quantum) * C.quantum : 0;
     for (let j = 0; j < n; j++) {
       let J = C.journee.map(x => x.slice());
       if (j > 0) J[0] = ['09:00', '09:15', 'Point de reprise'];
       if (j === 0 && ev === 'RE' && p.presentation) J = [...C.presentation.map(x => x.slice()), ['10:30', '11:00', null], ...J.slice(2)];
+      if (j === 0 && ncMin > 0) J = insererRevueNC(J, ncMin);
       if (j === n - 1 && p.cloture) J = [...J.slice(0, -2), ['16:15', '17:00', null],
         ['17:00', '17:30', 'Point entre évaluateurs et préparation de la réunion de clôture'], ['17:30', '18:00', 'Réunion de clôture']];
       jours.push(J);
@@ -380,7 +398,8 @@ function entreesCalcul() {
   const niveau = nv === 'eleve' ? 'élevé' : 'substantiel';
   const codes = lignesDe(val('EVAL_PORTEES')).map(codeDe).filter(Boolean).map(c => X.alias_activites[c] || c);
   const activites = [...new Set(codes.filter(c => X.activites.includes(c)))];
-  return { prog, niveau, activites, X };
+  const surveillance = lignesDe(val('EVAL_TYPE')).map(norm).includes('surveillance');
+  return { prog, niveau, activites, X, surveillance };
 }
 function agendasCalcules(E, a) {
   const n = a.parametres.jours, cols = ['Créneau', 'Sujets', `Clauses ${E.prog}`, 'Évaluateur(s)'];
@@ -402,6 +421,7 @@ function panneauCalcul() {
   const E = entreesCalcul();
   let h = '<div class="gen"><div class="gen-t">Calcul des agendas du siège</div>';
   if (E.erreur) return h + `<div class="aide">${esc(E.erreur)}</div></div>`;
+  P.generation = Object.assign(P.generation || {}, { surveillance: E.surveillance });
   const a = PlanCalcul.agendas(CAT, E.prog, E.niveau, E.activites, P.generation), p = a.parametres, th = a.themes;
   const conf = confirmerCalcul > Date.now();
   h += `<div class="aide">${esc(E.prog)} · niveau ${esc(E.niveau)}${E.X.activites.length ? ' · activités : ' + esc(E.activites.join(', ') || 'toutes (aucune portée reconnue)') : ''}`
@@ -410,7 +430,9 @@ function panneauCalcul() {
   h += `<div class="gen-l">Jours au siège <select data-gen="jours">${[1, 2, 3].map(j => `<option ${j === p.jours ? 'selected' : ''}>${j}</option>`).join('')}</select>`
     + ` <label>Poids d’une vérification documentaire <input data-gen="poids_document" value="${nombre(p.poids_document)}" size="4"></label>`
     + ` <label><input type="checkbox" data-gen="presentation" ${p.presentation ? 'checked' : ''}> ouverture et présentation en début de jour 1 (RE)</label>`
-    + ` <label><input type="checkbox" data-gen="cloture" ${p.cloture ? 'checked' : ''}> réunion de clôture en fin de dernier jour</label></div>`;
+    + ` <label><input type="checkbox" data-gen="cloture" ${p.cloture ? 'checked' : ''}> réunion de clôture en fin de dernier jour</label>`
+    + (E.surveillance ? ` <label>Nombre de NC de l’évaluation précédente à revoir <input type="number" min="0" data-gen="nc_nombre" value="${p.nc_nombre || ''}" size="3"></label>`
+      + ` <span class="aide">(${nombre(p.nc_minutes_unitaire)} min/NC, arrondi au quart d’heure, en début de jour 1, RE et ETA)</span>` : '') + '</div>';
   h += '<div class="gen-l">' + ['RE', 'ETA'].map(ev => { const x = a.evaluateurs[ev];
     return `<span class="pastille ${x.depassement_min || x.densite > 5 ? 'p-manque' : 'p-grist'}" title="vérifications par quart d’heure disponible">${ev} : ${x.nb} vérif. · ${nombre(x.densite)} / quart d’heure${x.depassement_min ? ` · dépassement ${x.depassement_min} min` : ''}</span>`; }).join(' ')
     + ` <button data-act="gen-calculer" class="${conf ? 'gen-conf' : ''}">${conf ? 'Confirmer : remplacer les agendas actuels' : 'Calculer les agendas'}</button></div>`;
@@ -428,6 +450,7 @@ function majGeneration(el) {
   if (k === 'jours') p.jours = Number(el.value);
   else if (k === 'poids_document') { const x = num(el.value); if (x !== null && x >= 0 && x <= 1) p.poids_document = x; }
   else if (k === 'presentation' || k === 'cloture') p[k] = el.checked;
+  else if (k === 'nc_nombre') { const x = parseInt(el.value, 10); p.nc_nombre = x >= 0 ? x : 0; }
   else if (k === 'ev') { const def = (E.X.themes.find(t => t.id === id) || {}).evaluateur; if (el.value === def) delete p.evaluateurs[id]; else p.evaluateurs[id] = el.value; }
   else if (k === 'duree') { const x = parseInt(el.value, 10); if (x >= 15) p.durees[id] = x; else delete p.durees[id]; }
   else if (k === 'retire') p.retires = el.checked ? [...new Set([...p.retires, id])] : p.retires.filter(x => x !== id);
@@ -436,6 +459,7 @@ function majGeneration(el) {
 function calculerAgendas() {
   const E = entreesCalcul(); if (E.erreur) { toast(E.erreur, 4000); return; }
   P.generation = PlanCalcul.parametres(P.generation, E.niveau);
+  P.generation.surveillance = E.surveillance;
   P.agendas = agendasCalcules(E, PlanCalcul.agendas(CAT, E.prog, E.niveau, E.activites, P.generation));
 }
 

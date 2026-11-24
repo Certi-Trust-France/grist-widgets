@@ -179,6 +179,7 @@ table.grid { border-collapse: separate; border-spacing: 0; }
 .cmp { border: 1px solid var(--bord); background: var(--surface); color: var(--texte-doux); font-family: inherit;
        font-size: 9px; font-weight: 700; border-radius: 9px; padding: 1px 5px; cursor: pointer; white-space: nowrap; }
 .cmp.on { background: var(--bleu); border-color: var(--bleu); color: #fff; }
+.filtreStatut { display: flex; gap: 6px; padding: 0 10px 8px; }
 .diviser { margin: 5px 0 0; }
 .diviser button { font-size: 10.5px; }
 .diviser small { color: var(--texte-doux); margin-left: 5px; }
@@ -259,7 +260,7 @@ const PALETTE = ['#2563eb', '#60a5fa', '#7c3aed', '#c2410c', '#0891b2', '#b45309
 let EVALUATEURS = [], CYCLES = [], EVS = {};
 const S = { D: null, onglet: 'planning', ev: null, jal: 'Évaluation documentaire', editAff: null,
             blocs: [], compte: Object.fromEntries(JALONS.map(j => [j.id, j.compte])), autres: true,
-            copie: null };
+            copie: null, filtrePlanning: { aPlanifier: true, enCours: true } };
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -467,9 +468,19 @@ function barreConv(e) {
    Fiche mission / Plan d'évaluation : ce qui est déjà en cours + ce qui est en suspens. */
 const statutsOnglet = o => (o === 'planning' ? ['à planifier', 'En cours'] : ['En cours'])
   .concat(['Annulé', 'En attente devis']);
+/* Dans l'onglet Planning, en plus des statuts autorisés, on laisse filtrer l'affichage entre
+   « à planifier » et « En cours » pour y voir plus clair (Annulé / En attente devis restent
+   toujours visibles, non concernés par ce filtre). */
 function cyclesEligibles() {
   const statuts = statutsOnglet(S.onglet);
-  return CYCLES.map(c => ({ ...c, evals: c.evals.filter(e => statuts.includes(e.statut)) }))
+  const ok = e => {
+    if (!statuts.includes(e.statut)) return false;
+    if (S.onglet !== 'planning') return true;
+    if (e.statut === 'à planifier') return S.filtrePlanning.aPlanifier;
+    if (e.statut === 'En cours') return S.filtrePlanning.enCours;
+    return true;
+  };
+  return CYCLES.map(c => ({ ...c, evals: c.evals.filter(ok) }))
                .filter(c => c.evals.length);
 }
 
@@ -479,7 +490,11 @@ function rendreGauche() {
   if (!idsOk.has(S.ev)) S.ev = cycles[0]?.evals[0]?.id ?? null;
   const E = EVS[S.ev];
 
-  let h = `<h4>${S.onglet === 'planning' ? 'À planifier' : 'En cours de planification'}</h4>` +
+  let h = `<h4>${S.onglet === 'planning' ? 'Planning' : 'En cours de planification'}</h4>` +
+    (S.onglet === 'planning' ? `<div class="filtreStatut">
+        <span class="cmp ${S.filtrePlanning.aPlanifier ? 'on' : ''}" data-filtrestatut="aPlanifier" role="button" tabindex="0">à planifier</span>
+        <span class="cmp ${S.filtrePlanning.enCours ? 'on' : ''}" data-filtrestatut="enCours" role="button" tabindex="0">En cours</span>
+      </div>` : '') +
     (cycles.length ? cycles.map(c => `<div class="cyc">
       <div class="t">${esc(c.nom)} <small>${esc(c.prog)}</small></div>
       ${c.evals.map(e => {
@@ -490,7 +505,9 @@ function rendreGauche() {
           <span class="q"><b>${esc(c.nom)}</b><small>${esc(e.type || e.nom)} · ${esc(e.statut)}</small></span>
           <span class="n ${ok ? 'ok' : bq > e.vendus ? 'ko' : ''}">${nbj(bq)}/${nbj(e.vendus)} j</span></button>`;
       }).join('')}</div>`).join('')
-      : `<p class="aide">${S.onglet === 'planning' ? 'Rien à bloquer : aucune évaluation « à planifier ».'
+      : `<p class="aide">${S.onglet === 'planning'
+          ? (S.filtrePlanning.aPlanifier || S.filtrePlanning.enCours
+              ? 'Rien à afficher avec ce filtre.' : 'Aucun filtre actif : réactive « à planifier » ou « En cours » ci-dessus.')
           : 'Rien à qualifier : aucune évaluation « En cours » n’a encore de jour bloqué.'}</p>`);
 
   if (E) {
@@ -519,6 +536,8 @@ function rendreGauche() {
     x.onclick = () => { S.ev = +x.dataset.ev; S.editAff = null; rendre(); };
   for (const x of $('gauche').querySelectorAll('[data-jal]'))
     x.onclick = () => { S.jal = x.dataset.jal; rendre(); };
+  for (const x of $('gauche').querySelectorAll('[data-filtrestatut]'))
+    x.onclick = () => { const k = x.dataset.filtrestatut; S.filtrePlanning[k] = !S.filtrePlanning[k]; rendre(); };
 }
 
 /* ------------------------------------------------- onglet 1 : le planning */
