@@ -1241,7 +1241,8 @@ const COL_MAIL = 'visualisation_mail';
 const MAIL_OPTS = [
   { id: 'entete', lib: 'En-tête (client, TEM-404, statut)', def: true },
   { id: 'montants', lib: 'Montants (TJM, brut, remise, net)', def: true },
-  { id: 'lots', lib: 'Détail par lot', def: true },
+  { id: 'lotsPL', lib: 'Lots de la proposition (facturation)', def: true },
+  { id: 'lots', lib: 'Détail par lot de chaque prestation', def: true },
   { id: 'uos', lib: "Unités d'œuvre", def: false },
   { id: 'roles', lib: 'Répartition par rôle', def: false },
   { id: 'justif', lib: 'Justification', def: true },
@@ -1255,6 +1256,9 @@ function lireMailOpts() {
 const statutMail = () => etat.source ? (etat.source.statut || BROUILLON) : 'non enregistrée';
 const rolesUo = u => ROLES.filter(r => u.ja[r.id] > 0).map(r => `${r.lib} ${JH.format(u.ja[r.id])}`).join(', ');
 const lignesMail = (l, o) => o.uos ? uosFacturees(l) : [];
+// Lots de la proposition commerciale : le n-ième lot regroupe les n-ièmes lots des prestations (comme le Json_client).
+const lotsMail = () => lotsRegroupes().filter(g => g.JH > 0);
+const jhLot = g => `${JH.format(g.JH)}${g.JH_offerts ? ` (dont ${JH.format(g.JH_offerts)} offerts)` : ''}`;
 
 function mailHtml(o) {
   const res = resultat, lib = libelles(res), ent = data.entreprises.get(etat.entrepriseId);
@@ -1286,6 +1290,17 @@ function mailHtml(o) {
   h += `<tr style="background:#1e3a8a;color:#ffffff;font-weight:bold;"><td style="${td}border-color:#1e3a8a;">Total</td><td style="${num}border-color:#1e3a8a;">${JH.format(res.tot.jh)}</td>`
     + (o.montants ? `<td style="${num}border-color:#1e3a8a;">${EUR2.format(res.tot.htBrut)}</td><td style="${num}border-color:#1e3a8a;">${res.tot.remise ? EUR2.format(res.tot.remise) : '—'}</td><td style="${num}border-color:#1e3a8a;">${EUR2.format(res.tot.ht)}</td>` : '') + '</tr>';
   h += '</table>';
+  if (o.lotsPL) {
+    h += '<p style="font-weight:bold;color:#1e3a8a;margin:12px 0 4px;">Lots de la proposition commerciale</p>';
+    h += '<table style="border-collapse:collapse;font-size:13px;margin:0 0 10px;">';
+    h += `<tr><th style="${th}">Lot</th><th style="${th}text-align:right;">J.h</th>`
+      + (o.montants ? `<th style="${th}text-align:right;">Brut HT</th><th style="${th}text-align:right;">Remise</th><th style="${th}text-align:right;">Net HT</th>` : '') + '</tr>';
+    for (const g of lotsMail()) {
+      h += `<tr><td style="${td}">${esc(g.lot.lib)}</td><td style="${num}">${jhLot(g)}</td>`
+        + (o.montants ? `<td style="${num}">${EUR2.format(g.HT_brut)}</td><td style="${num}">${g.remise ? EUR2.format(g.remise) : '—'}</td><td style="${num}"><b>${EUR2.format(g.HT)}</b></td>` : '') + '</tr>';
+    }
+    h += '</table>';
+  }
   if (o.montants) h += `<p style="margin:0 0 10px;color:#475569;">TJM appliqué : ${EUR.format(res.tjm)} HT</p>`;
   if (o.justif && (etat.justification || '').trim()) {
     // La justification générée commence déjà par « Justification : » : son titre n'est pas répété.
@@ -1314,6 +1329,11 @@ function mailMarkdown(o) {
         L.push(`${o.lots ? '        ' : '    '}- ${u.lib} : ${JH.format(u.jh)} j.h${det ? ` (${det})` : ''}`);
       }
     }
+  }
+  if (o.lotsPL) {
+    L.push('', '**Lots de la proposition commerciale**', '');
+    for (const g of lotsMail()) L.push(`- ${g.lot.lib} : ${JH.format(g.JH)} j.h${g.JH_offerts ? ` (dont ${JH.format(g.JH_offerts)} offerts)` : ''}`
+      + (o.montants ? ` — net ${EUR2.format(g.HT)} HT (brut ${EUR2.format(g.HT_brut)}${g.remise ? `, remise ${EUR2.format(g.remise)}` : ''})` : ''));
   }
   L.push('', `**Total : ${JH.format(res.tot.jh)} j.h**` + (o.montants ? ` — brut ${EUR2.format(res.tot.htBrut)} HT${res.tot.remise ? ` — remise ${EUR2.format(res.tot.remise)}` : ''} — **net ${EUR2.format(res.tot.ht)} HT**` : ''));
   if (o.montants) L.push('', `TJM appliqué : ${EUR.format(res.tjm)} HT`);
