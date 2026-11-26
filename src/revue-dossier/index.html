@@ -214,6 +214,7 @@ const fmChampsRole = (role, evr) => ({ RE: role === 'RE' ? evr : null, ETA: role
   ETM: role === 'ETM' ? ['L', evr] : ['L'], OBS: role === 'OBS' ? ['L', evr] : ['L'] });
 const fmCompte = Object.fromEntries(FM_JALONS.map(j => [j.id, j.compte]));  // bascule compte/hors forfait, par session
 const fmEditAff = new Map();  // evalId -> blocId de la popup jalon actuellement ouverte
+const fmOuvert = new Set();   // evalId -> la fiche mission reste dépliée après un re-rendu
 
 const JALONS = [
   { id: 'Recevabilité',            court: 'Recevabilité' },
@@ -525,7 +526,7 @@ function ligneBlocage(e) {
   const noms = b && b.evaluateurs.size ? [...b.evaluateurs].map(D.nomEvr).sort().join(', ') : 'aucun évaluateur bloqué';
   const etat = !vendus ? 'avenir' : jours >= vendus ? 'fait' : jours > 0 ? 'encours' : 'arret';
   return `<div class="info">⏱ <span class="pastille ${etat}">${j1(jours)} / ${vendus ? j1(vendus) : '?'} j vendu(s)</span> · ${esc(noms)}</div>
-    <details class="ficheMission"><summary>▸ Voir / vérifier les affectations (fiche mission)</summary>${ficheMission(e.id)}</details>`;
+    <details class="ficheMission" data-ev="${e.id}"${fmOuvert.has(e.id) ? ' open' : ''}><summary>▸ Voir / vérifier les affectations (fiche mission)</summary>${ficheMission(e.id)}</details>`;
 }
 
 // Fiche mission (reprise de src/planning-missions, onglet « 2 · Fiche mission ») pour UNE évaluation :
@@ -1167,8 +1168,9 @@ const main = document.getElementById('main');
 
 main.addEventListener('toggle', ev => {
   const d = ev.target.closest?.('details.sec');
-  if (!d || !ouverts) return;
-  if (d.open) ouverts.add(d.dataset.j); else ouverts.delete(d.dataset.j);
+  if (d && ouverts) { if (d.open) ouverts.add(d.dataset.j); else ouverts.delete(d.dataset.j); return; }
+  const fm = ev.target.closest?.('details.ficheMission');
+  if (fm) { const id = Number(fm.dataset.ev); if (fm.open) fmOuvert.add(id); else fmOuvert.delete(id); }
 }, true);
 
 main.addEventListener('click', async ev => {
