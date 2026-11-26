@@ -460,6 +460,10 @@ function render() {
   document.getElementById('empty').style.display = 'none';
   const main = document.getElementById('main');
   main.style.display = 'block';
+  // main.innerHTML remplace tout le contenu : sans ça la page scroll en haut à chaque clic
+  // (rôle, jalon, ajout de jour…), ce qui donne l'impression que tout « se referme ».
+  const sc = document.scrollingElement || document.documentElement;
+  const scrollY = sc.scrollTop;
   const etats = etatJalons();
   if (!ouverts) {
     const courant = JALONS.find(j => etats[j.id].etat === 'encours') ?? JALONS.find(j => etats[j.id].etat === 'avenir') ?? JALONS[0];
@@ -491,6 +495,7 @@ function render() {
       <div class="corps">${panneau(j.id)}${tablePoints(j.id)}</div></details>`;
   });
   main.innerHTML = h;
+  sc.scrollTop = scrollY;
 }
 
 function tablePoints(j) {
