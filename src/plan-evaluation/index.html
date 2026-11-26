@@ -97,6 +97,8 @@
   <span class="bascule" role="group" aria-label="Document affiché"><button id="doc-plan" title="Afficher le plan d’évaluation">Plan</button><button id="doc-strategie" title="Afficher la stratégie d’évaluation (plan sans l’agenda)">Stratégie</button></span>
   <button id="btn-pdf-plan" class="prim" data-doc="plan">PDF plan</button>
   <button id="btn-pdf-strategie" class="prim" data-doc="strategie">PDF stratégie</button>
+  <button id="btn-word-plan" data-doc="plan">Word plan</button>
+  <button id="btn-word-strategie" data-doc="strategie">Word stratégie</button>
 </div>
 <div id="alerte"></div>
 <main id="doc"><div id="msg">Sélectionnez une évaluation dans la liste.</div></main>
@@ -1243,6 +1245,173 @@ for (const cle of Object.keys(DOCS)) {
   $('doc-' + cle).onclick = () => { if (MODE !== cle) { choisirDoc(cle); rendre(); } };
 }
 choisirDoc(MODE);
+
+/* ═════════ Export Word (docx.js), même contenu que l'export PDF ═════════ */
+let D = null;                       // bibliothèque docx (window.docx), chargée à la demande
+const hex = c => c.replace('#', '');
+const BORDURE_FIL = { style: 'single', size: 4, color: hex(BORD) };
+const BORDURES = { top: BORDURE_FIL, bottom: BORDURE_FIL, left: BORDURE_FIL, right: BORDURE_FIL };
+const MARGES_CELL = { top: 60, bottom: 60, left: 100, right: 100 };
+const pctLargeur = w => { const m = String(w || '').match(/(\d+)%/); return m ? { size: +m[1], type: 'pct' } : undefined; };
+let wordPret = null;
+async function preparerWord() {
+  if (wordPret) return wordPret;
+  wordPret = (async () => {
+    if (!window.docx) await script('https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js');
+    let logo = null;
+    try {
+      const r = await fetch('logo.png');
+      if (r.ok) {
+        const buf = await r.arrayBuffer();
+        const dims = await new Promise(res => {
+          const img = new Image();
+          img.onload = () => res({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+          img.onerror = () => res({ w: 1, h: 1 });
+          img.src = 'data:image/png;base64,' + base64(buf);
+        });
+        logo = { data: new Uint8Array(buf), w: dims.w, h: dims.h };
+      }
+    } catch { /* sans logo */ }
+    return { logo };
+  })();
+  try { return await wordPret; } catch (e) { wordPret = null; throw e; }
+}
+const texteRuns = (t, opts = {}) => [new D.TextRun(Object.assign({ text: t }, opts))];
+const paraTexte = (t, opts = {}) => new D.Paragraph({ children: texteRuns(t, opts) });
+const paraPuce = (t, opts = {}) => new D.Paragraph({ children: texteRuns(t, opts), bullet: { level: 0 } });
+function wordRiche(v, opts = {}) {
+  const out = [];
+  for (const l of String(v).split('\n')) {
+    const t = l.trim(); if (!t) continue;
+    out.push(/^[-•]\s+/.test(t) ? paraPuce(t.replace(/^[-•]\s+/, ''), opts) : paraTexte(t, opts));
+  }
+  return out.length ? out : [paraTexte('', opts)];
+}
+function wordValeur(f, opts = {}) {
+  if (f.type === 'c') {
+    const c = coches(f.k);
+    const l = [...c.opts.filter(o => c.sel.has(o)), ...c.hors];
+    if (!l.length) return [paraTexte(c.na ? 'N/A' : '', opts)];
+    return l.length === 1 ? [paraTexte(l[0], opts)] : l.map(x => paraPuce(x, opts));
+  }
+  const v = val(f.k);
+  if (vide(v)) return [paraTexte(f.opt ? 'N/A' : '', opts)];
+  if (f.type === 'l') return lignesDe(v).map(x => paraPuce(x, opts));
+  if (f.type === 'n') return [paraTexte(jours(v), opts)];
+  if (f.type === 'x') return wordRiche(v, opts);
+  return [paraTexte(String(v), opts)];
+}
+function celluleTexte(children, opts = {}) {
+  return new D.TableCell(Object.assign({ children: Array.isArray(children) ? children : [children], margins: MARGES_CELL, verticalAlign: 'top', borders: BORDURES }, opts));
+}
+const celluleBarre = (texte, colSpan) => celluleTexte([paraTexte(texte, { bold: true, color: 'FFFFFF' })], { shading: { fill: hex(MARINE), type: 'clear', color: 'auto' }, columnSpan: colSpan });
+const celluleSous = (texte, opts = {}) => celluleTexte([paraTexte(texte, { bold: true })], Object.assign({ shading: { fill: hex(PALE), type: 'clear', color: 'auto' } }, opts));
+const celluleEnTete = texte => celluleTexte([paraTexte(texte, { bold: true, color: 'FFFFFF' })], { shading: { fill: hex(MARINE), type: 'clear', color: 'auto' } });
+const titreSectionWord = t => new D.Paragraph({ spacing: { before: 160, after: 160 }, children: texteRuns(t, { bold: true, color: hex(MARINE), size: 26 }) });
+function wordTableChamps(titre, champs, total) {
+  const lignes = [new D.TableRow({ tableHeader: true, children: [celluleBarre(titre, 2)] })];
+  for (const f of champs) {
+    const gras = total && f.k === 'CHARGE_TOTAL';
+    lignes.push(new D.TableRow({ children: [
+      celluleTexte([paraTexte(f.lib, { bold: gras })], { width: { size: 38, type: 'pct' } }),
+      celluleTexte(wordValeur(f, gras ? { bold: true } : {})) ] }));
+  }
+  return new D.Table({ width: { size: 100, type: 'pct' }, rows: lignes });
+}
+const WORD = {
+  champs: b => [wordTableChamps(b.titre, b.champs, b.charge)],
+  roles: () => [wordTableChamps('Rôles', roles())],
+  textes: b => {
+    const out = [];
+    if (b.titre) out.push(titreSectionWord(b.titre));
+    for (const [k, t] of b.liste) { out.push(paraTexte(t, { bold: true, color: hex(MARINE), size: 21 })); out.push(...wordRiche(val(k))); }
+    return out;
+  },
+  matrice: b => {
+    const n = b.cols.length;
+    const entete = new D.TableRow({ tableHeader: true, children: [celluleBarre(b.titre, n + 1)] });
+    const sous = new D.TableRow({ tableHeader: true, children: [celluleSous(''), ...b.cols.map(c => celluleSous(c))] });
+    const lignes = b.lignes.map(([lib, ...ks]) => new D.TableRow({ children: [
+      celluleTexte([paraTexte(lib, { bold: true })], { width: { size: 30, type: 'pct' } }),
+      ...ks.map(k => celluleTexte(wordValeur(F(k, lib, 'd')))) ] }));
+    return [new D.Table({ width: { size: 100, type: 'pct' }, rows: [entete, sous, ...lignes] })];
+  },
+  tableau: b => {
+    const l = tableau(b), n = b.cols.length;
+    const entete = new D.TableRow({ tableHeader: true, children: [celluleBarre(b.titre, n)] });
+    const sous = new D.TableRow({ tableHeader: true, children: b.cols.map(([, lib, w]) => celluleSous(lib, { width: pctLargeur(w) })) });
+    const lignes = l.length
+      ? l.map(m => new D.TableRow({ children: b.cols.map(([f]) => celluleTexte(paraTexte(m[f] || ''))) }))
+      : [new D.TableRow({ children: [celluleTexte(paraTexte(''), { columnSpan: n })] })];
+    return [new D.Table({ width: { size: 100, type: 'pct' }, rows: [entete, sous, ...lignes] })];
+  },
+  agendas: () => agendas().flatMap(a => {
+    const out = [new D.Paragraph({ spacing: { before: 240, after: 80 },
+      border: { bottom: { style: 'single', size: 6, color: hex(MARINE), space: 4 } },
+      children: texteRuns(resoudre(a.titre), { bold: true, color: hex(MARINE), size: 23 }) })];
+    if (a.type === 'texte') return [...out, ...wordRiche(resoudre(a.texte))];
+    const n = a.cols.length;
+    const entete = new D.TableRow({ tableHeader: true, children: a.cols.map(celluleEnTete) });
+    const lignes = a.lignes.map(l => estPause(l)
+      ? new D.TableRow({ children: [celluleTexte(paraTexte(l[0] || ''), { shading: { fill: hex(PALE), type: 'clear', color: 'auto' } }),
+          celluleTexte(paraTexte(l[1] || '', { italics: true }), { shading: { fill: hex(PALE), type: 'clear', color: 'auto' }, columnSpan: n - 1 })] })
+      : new D.TableRow({ children: a.cols.map((_, j) => celluleTexte(paraTexte(l[j] || ''))) }));
+    return [...out, new D.Table({ width: { size: 100, type: 'pct' }, rows: [entete, ...lignes] })];
+  }),
+};
+function construireDocx(res) {
+  D = window.docx;
+  const titre = DOC.titre(), version = DOC.version(), date = DOC.date();
+  const children = [
+    new D.Paragraph({ alignment: 'center', spacing: { after: 40 }, children: texteRuns(titre, { bold: true, size: 36, color: hex(MARINE) }) }),
+    new D.Paragraph({ alignment: 'center', spacing: { after: 280 },
+      children: texteRuns([`Réf. ${val('DOC_REF')}`, version && `Version ${version}`, date].filter(Boolean).join('  ·  '), { size: 17, color: hex(GRIS) }) }),
+  ];
+  for (const b of DOC.blocs) children.push(...WORD[b.t](b));
+
+  const entete = res.logo
+    ? [new D.Paragraph({ children: [new D.ImageRun({ data: res.logo.data, transformation: { width: 130, height: Math.round(130 * res.logo.h / res.logo.w) } })] })]
+    : [paraTexte('Certi-Trust', { bold: true, color: hex(MARINE) })];
+  const pied = DOC.pied();
+  const pied_bas = new D.Paragraph({ tabStops: [{ type: 'center', position: 4535 }, { type: 'right', position: 9070 }],
+    children: [
+      new D.TextRun({ text: `${pied} — Version : ${version || '—'}`, size: 15, color: hex(GRIS) }), new D.TextRun({ text: '\t' }),
+      new D.TextRun({ children: [D.PageNumber.CURRENT], size: 15, color: hex(GRIS) }), new D.TextRun({ text: ' / ', size: 15, color: hex(GRIS) }),
+      new D.TextRun({ children: [D.PageNumber.TOTAL_PAGES], size: 15, color: hex(GRIS) }),
+      new D.TextRun({ text: '\tC1 – Diffusion limitée', size: 15, color: hex(GRIS) })] });
+
+  return new D.Document({
+    sections: [{
+      properties: { page: { margin: { top: 1840, bottom: 1240, left: 1140, right: 1140, header: 720, footer: 600 } } },
+      headers: { default: new D.Header({ children: entete }) },
+      footers: { default: new D.Footer({ children: [pied_bas] }) },
+      children,
+    }],
+    styles: { default: { document: { run: { font: 'Montserrat', size: 19, color: hex(TEXTE) } } } },
+  });
+}
+function nomFichierDocx() { return nomFichier().replace(/\.pdf$/, '.docx'); }
+async function exporterWord(cle, b) {
+  if (!ctx.ev) return;
+  b.disabled = true; const lib = b.textContent; b.textContent = 'Génération…';
+  const affiche = MODE;
+  try {
+    const res = await preparerWord();
+    let def, nom, manque;
+    choisirDoc(cle);
+    try {
+      manque = tousLesChamps().filter(c => etat(c.k, c.opt) === 'manque').length;
+      def = construireDocx(res); nom = nomFichierDocx();
+    } finally { choisirDoc(affiche); }
+    const blob = await D.Packer.toBlob(def);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast(`Word « ${DOCS[cle].nom} » généré${manque ? ` — ${manque} case(s) encore vide(s)` : ''}`, 3500);
+  } catch (e) { toast('Erreur Word : ' + (e.message || e), 6000); }
+  finally { b.disabled = false; b.textContent = lib; }
+}
+for (const cle of Object.keys(DOCS)) $('btn-word-' + cle).onclick = e => exporterWord(cle, e.currentTarget);
 
 /* ═════════ Grist ═════════ */
 function preparer() {
