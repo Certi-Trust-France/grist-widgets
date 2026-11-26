@@ -122,6 +122,7 @@ const T = {
   REV: 'Revues_de_dossier', REF: 'Referentiels_revue', PTS: 'Revues_points', TEM: 'TEM_404',
   PL: 'Propositions_commerciales', CH: 'Propositions_prestation', EV: 'Evaluations',
   ENT: 'Entreprises', PROG: 'Programmes', QL: 'Qualifications_List', LIS: 'LIS_12',
+  UO: 'Unites_d_oeuvre', EVR: 'Evaluateurs',
 };
 // Pages du document vers lesquelles la fiche renvoie
 const PAGES = { tem400: 81, plan: 87, odm: 89, lis: 72 };
@@ -252,7 +253,25 @@ function build(t) {
   const qlRows = t.QL ? rowsOf(t.QL) : [];
   const qualifs = new Map(qlRows.map(r => [r.id, String(r.Qualifications || '')]));
   const qlParCode = new Map(qlRows.filter(r => r.Qualification_code).map(r => [String(r.Qualification_code), r.id]));
-  return { rev, tem, ent, entId, cert, certs, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv };
+
+  // Jours bloqués et évaluateurs affectés par évaluation, à comparer aux jours vendus (JH_vendus) :
+  // une ligne Unites_d_oeuvre « observateur » (OBS seul) ne compte pas, comme dans le planning.
+  const evrRows = t.EVR ? rowsOf(t.EVR) : [];
+  const evrById = new Map(evrRows.map(r => [r.id, r]));
+  const nomEvr = id => { const e = evrById.get(id); return e ? (e.Evaluateur_Trigramme || [e.Evaluateur_Prenom, e.Evaluateur_Nom].filter(Boolean).join(' ')) : '?'; };
+  const fonctionUO = u => u.RE ? 'RE' : ids(u.ETA).length ? 'ETA' : ids(u.ETM).length ? 'ETM' : ids(u.OBS).length ? 'OBS' : null;
+  const blocageParEval = new Map();
+  for (const u of (t.UO ? rowsOf(t.UO) : [])) {
+    if (!u.Evaluation) continue;
+    const f = fonctionUO(u);
+    if (!f || f === 'OBS') continue;
+    const b = blocageParEval.get(u.Evaluation) || { jours: 0, evaluateurs: new Set() };
+    b.jours += Number(u.Jours) || 0;
+    (f === 'RE' ? [u.RE] : ids(u[f])).forEach(id => b.evaluateurs.add(id));
+    blocageParEval.set(u.Evaluation, b);
+  }
+
+  return { rev, tem, ent, entId, cert, certs, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv, nomEvr, blocageParEval };
 }
 
 const BLOC_ORDRE = ['General', 'Initiale', 'Surveillance', 'Renouvellement', 'Rapport'];
@@ -386,6 +405,15 @@ function tablePoints(j) {
   return `<table class="pts"><thead><tr><th>Point</th><th>Présent</th><th>Conforme</th><th>Vérifié le</th><th>Par</th><th>Commentaire</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+const j1 = x => (Math.round(x * 10) / 10).toString().replace('.', ',');
+// État rapide « jours bloqués / évaluateurs » pour une évaluation, à comparer aux jours vendus (JH_vendus).
+function ligneBlocage(e) {
+  const b = D.blocageParEval.get(e.id);
+  const jours = b ? b.jours : 0, vendus = Number(e.JH_vendus) || 0;
+  const noms = b && b.evaluateurs.size ? [...b.evaluateurs].map(D.nomEvr).sort().join(', ') : 'aucun évaluateur bloqué';
+  const etat = !vendus ? 'avenir' : jours >= vendus ? 'fait' : jours > 0 ? 'encours' : 'arret';
+  return `<div class="info">⏱ <span class="pastille ${etat}">${j1(jours)} / ${vendus ? j1(vendus) : '?'} j vendu(s)</span> · ${esc(noms)}</div>`;
+}
 function champDate(col, val, titre) {
   return `<label class="lbl">${esc(titre)}</label><input type="date" data-act="rev-date" data-col="${col}" value="${toDateInput(val)}">`;
 }
@@ -408,13 +436,15 @@ function panneau(j) {
   }
   if (j === 'Proposition commerciale') {
     const lien = D.tem ? pageLink(PAGES.tem400, `#a1.s${SECTION_TEM400}.r${D.tem.id}`) : '';
+    const retenu = D.pls.find(p => PL_VALIDEES.has(p.Statut));
     const pls = D.pls.length
-      ? `<table class="liste">${D.pls.map(p => `<tr><td><b>${esc(nomPL(p))}</b></td><td>${fmtE(p.Montant_HT)}${PL_VALIDEES.has(p.Statut) ? '' : ' <span class="info">(indicatif)</span>'}</td>
+      ? `<table class="liste">${D.pls.map(p => `<tr><td><b>${esc(nomPL(p))}</b>${p.id === retenu?.id ? ' <span class="badge-liv">✔ devis retenu</span>' : ''}</td><td>${fmtE(p.Montant_HT)}${PL_VALIDEES.has(p.Statut) ? '' : ' <span class="info">(indicatif)</span>'}</td>
           <td><span class="pastille ${p.Statut === 'Signée' ? 'fait' : p.Statut === 'Annulée' ? 'arret' : PL_VALIDEES.has(p.Statut) ? 'encours' : 'avenir'}">${esc(p.Statut || '?')}</span></td>
-          <td class="info">${p.Date_creation ? 'créée le ' + fmtD(p.Date_creation) : ''}</td></tr>`).join('')}</table>`
+          <td class="info">${p.Date_creation ? 'créée le ' + fmtD(p.Date_creation) : ''}</td>
+          <td>${p.Statut === 'Brouillon' ? `<button class="btn sec2" data-act="valider-devis" data-pl="${p.id}">Valider le devis</button>` : ''}</td></tr>`).join('')}</table>`
       : '<div class="info">Aucune proposition enregistrée par le TEM-400 pour cette demande.</div>';
     const etatPL = D.pls.some(p => p.Statut === 'Signée') ? '✔ Proposition signée.'
-      : D.pls.some(p => PL_VALIDEES.has(p.Statut)) ? '✔ Proposition validée dans le TEM-400 : en attente de signature.'
+      : retenu ? `✔ Devis validé : ${nomPL(retenu)} (${fmtE(retenu.Montant_HT)}) — en attente de signature.`
       : D.pls.length ? 'Brouillon en cours dans le TEM-400 : la proposition n’est pas encore validée.' : '';
     return `<div class="livrable"><h3>📄 Proposition commerciale (TEM-400)</h3>
       <div class="ligne"><label class="lbl">Décision d'offre</label>${tog('rev-choix', r.Decision_offre, ['OUI', 'NON'], 'data-col="Decision_offre" data-date="Offre_date"', true)}
@@ -432,12 +462,12 @@ function panneau(j) {
       const prog = D.prog.get(ch.Programme) || '?';
       const typ = ids(ch.Type_d_evaluation).join(', ');
       return `<tr><td><b>${esc(prog)}</b> ${esc(typ)}<div class="info">${esc(ch.Libelle_CH || ch.libelle || '')}</div></td>
-        <td>${evs.length ? evs.map(e => `${esc(e.Libelle || 'Évaluation ' + e.id)} <span class="pastille ${e.Statut === 'Terminé' ? 'fait' : 'encours'}">${esc(e.Statut || '')}</span>`).join('<br>')
+        <td>${evs.length ? evs.map(e => `${esc(e.Libelle || 'Évaluation ' + e.id)} <span class="pastille ${e.Statut === 'Terminé' ? 'fait' : 'encours'}">${esc(e.Statut || '')}</span>${ligneBlocage(e)}`).join('<br>')
           : `<button class="btn" data-act="creer-eval" data-ch="${ch.id}">Créer l'évaluation</button>
              <div class="info">Portées du TEM-404 : ${esc(porteesDemandees(ch.Programme).map(id => D.qualifs.get(id)).join(', ') || 'aucune cochée')}</div>`}</td></tr>`;
     }).join('');
     const sansCH = !D.chs.length && D.evalsLiees.length
-      ? `<table class="liste">${D.evalsLiees.map(e => `<tr><td>${esc(e.Libelle)}</td><td><span class="pastille encours">${esc(e.Statut || '')}</span></td></tr>`).join('')}</table>` : '';
+      ? `<table class="liste">${D.evalsLiees.map(e => `<tr><td>${esc(e.Libelle)}</td><td><span class="pastille encours">${esc(e.Statut || '')}</span>${ligneBlocage(e)}</td></tr>`).join('')}</table>` : '';
     const lp = pageLink(PAGES.plan), lo = pageLink(PAGES.odm);
     return `<div class="livrable"><h3>📄 Évaluation(s), plan d'évaluation, ordres de mission</h3>
       ${lignes ? `<table class="liste">${lignes}</table>` : sansCH || '<div class="info">Aucune prestation : la proposition commerciale doit d’abord être enregistrée dans le TEM-400.</div>'}
@@ -800,6 +830,11 @@ async function setRev(fields, msg = 'Fiche enregistrée') {
   if (await apply([['UpdateRecord', T.REV, revId, fields]], msg)) await reload();
 }
 
+// Passe le devis de Brouillon à En cours (premier statut « validé » du TEM-400, PL_VALIDEES).
+async function validerDevis(plId) {
+  if (await apply([['UpdateRecord', T.PL, plId, { Statut: 'En cours' }]], 'Devis validé — en attente d’envoi/signature')) await reload();
+}
+
 // Libellé EV repris de la CH (2026CH0006_PASIRENO_ADVENS → 2026EV0113_PASIRENO_ADVENS),
 // numéro = dernier numéro d'évaluation + 1
 function libelleEval(ch) {
@@ -884,6 +919,7 @@ main.addEventListener('click', async ev => {
     return setRev(f);
   }
   if (act === 'rapport-auj') return setRev({ Date_livraison_rapport: today() }, 'Rapport marqué livré');
+  if (act === 'valider-devis') return validerDevis(+b.dataset.pl);
   if (act === 'creer-eval') return creerEval(+b.dataset.ch);
   if (act === 'courrier') return ouvrirCourrier();
   if (act === 'cour-prog' || act === 'cour-civ') {
