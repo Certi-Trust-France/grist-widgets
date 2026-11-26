@@ -356,6 +356,14 @@ function conflits() {
 /* ═════════ Grist : lecture et écriture ═════════ */
 grist.ready({ requiredAccess: 'full' });
 
+// Suivi inverse : si CE widget est posé en section « suiveuse » (Sélectionner par une autre
+// section, ex. la revue de dossier), on s'aligne sur la mission qu'elle désigne. N'a aucun effet
+// tant que rien ne pilote sa sélection depuis l'extérieur (curseur() s'écho sans changer S.ev).
+grist.onRecord(rec => {
+  if (!rec?.id || !EVS[rec.id] || rec.id === S.ev) return;
+  S.ev = rec.id; S.editAff = null; rendre();
+});
+
 async function chargerTables() {
   const res = await Promise.all(TABLES.map(n => grist.docApi.fetchTable(n).then(rows).catch(() => [])));
   const D = {}; TABLES.forEach((n, i) => { D[n] = res[i]; });
