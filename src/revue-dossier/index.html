@@ -445,7 +445,8 @@ function panneau(j) {
       ? `<table class="liste">${D.pls.map(p => `<tr><td><b>${esc(nomPL(p))}</b>${p.id === retenu?.id ? ' <span class="badge-liv">✔ devis retenu</span>' : ''}</td><td>${fmtE(p.Montant_HT)}${PL_VALIDEES.has(p.Statut) ? '' : ' <span class="info">(indicatif)</span>'}</td>
           <td><span class="pastille ${p.Statut === 'Signée' ? 'fait' : p.Statut === 'Annulée' ? 'arret' : PL_VALIDEES.has(p.Statut) ? 'encours' : 'avenir'}">${esc(p.Statut || '?')}</span></td>
           <td class="info">${p.Date_creation ? 'créée le ' + fmtD(p.Date_creation) : ''}</td>
-          <td>${p.Statut === 'Brouillon' ? `<button class="btn sec2" data-act="valider-devis" data-pl="${p.id}">Valider le devis</button>` : ''}</td></tr>`).join('')}</table>`
+          <td>${p.Statut === 'Brouillon' ? `<button class="btn sec2" data-act="valider-devis" data-pl="${p.id}">Valider le devis</button>` : ''}
+            ${PL_VALIDEES.has(p.Statut) && p.Statut !== 'Signée' ? `<button class="btn sec2" data-act="signer-devis" data-pl="${p.id}">✔ Marquer signée</button>` : ''}</td></tr>`).join('')}</table>`
       : '<div class="info">Aucune proposition enregistrée par le TEM-400 pour cette demande.</div>';
     const etatPL = D.pls.some(p => p.Statut === 'Signée') ? '✔ Proposition signée.'
       : retenu ? `✔ Devis validé : ${nomPL(retenu)} (${fmtE(retenu.Montant_HT)}) — en attente de signature.`
@@ -846,6 +847,11 @@ async function validerDevis(plId) {
   if (await apply([['UpdateRecord', T.PL, plId, { Statut: 'En cours' }]], 'Devis validé — en attente d’envoi/signature')) await reload();
 }
 
+// Marque le devis Signée (seul statut qui fait passer le jalon « Proposition commerciale » au vert).
+async function signerDevis(plId) {
+  if (await apply([['UpdateRecord', T.PL, plId, { Statut: 'Signée' }]], 'Devis marqué signé')) await reload();
+}
+
 // Crée une ligne LIS-12 par programme de la revue à partir d'une décision favorable : reprend
 // entreprise/programme/niveau/portées connus ; n° d'attestation, référentiel et sécurité
 // nationale restent à compléter à la main dans le LIS-12 (pas de règle fiable pour les déduire).
@@ -958,6 +964,7 @@ main.addEventListener('click', async ev => {
   }
   if (act === 'rapport-auj') return setRev({ Date_livraison_rapport: today() }, 'Rapport marqué livré');
   if (act === 'valider-devis') return validerDevis(+b.dataset.pl);
+  if (act === 'signer-devis') return signerDevis(+b.dataset.pl);
   if (act === 'ajouter-lis12') return ajouterLis12();
   if (act === 'creer-eval') return creerEval(+b.dataset.ch);
   if (act === 'courrier') return ouvrirCourrier();
