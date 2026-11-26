@@ -96,6 +96,47 @@
   .statusbar.error { color: var(--ko); background: var(--ko-bg); }
   .config { display: none; background: #fff; border: 1px solid var(--bord); border-radius: 6px; padding: 10px; margin-bottom: 10px; }
   .config input { width: 100%; border: 1px solid var(--bord); border-radius: 4px; padding: 4px 6px; margin: 6px 0; }
+
+  /* Fiche mission (reprise de src/planning-missions, onglet « 2 · Fiche mission ») : vérifier/corriger
+     les affectations directement depuis l'étape Planification, sans changer de page. */
+  .ficheMission { margin-top: 6px; }
+  .ficheMission summary { cursor: pointer; font-size: 11.5px; color: var(--marine); font-weight: 600; }
+  .fm-cartes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .fm-carte { background: #fff; border: 1px solid var(--bord); border-radius: 8px; box-shadow: 0 1px 2px rgba(15,23,42,.10); padding: 8px 9px; width: 230px; }
+  .fm-carte.fm-ext .fm-tri { background: var(--gris); }
+  .fm-carte.fm-plus { border: 1px dashed var(--bord); box-shadow: none; }
+  .fm-ent { display: flex; align-items: center; gap: 7px; }
+  .fm-tri { flex: 0 0 auto; width: 28px; height: 20px; border-radius: 4px; background: var(--marine); color: #fff;
+    font-weight: 700; font-size: 10.5px; display: flex; align-items: center; justify-content: center; }
+  .fm-q { flex: 1 1 auto; min-width: 0; }
+  .fm-q b { display: block; font-size: 12px; line-height: 1.2; }
+  .fm-q small { font-size: 10px; color: var(--gris); }
+  .fm-j { font-size: 10.5px; color: var(--gris); white-space: nowrap; }
+  .fm-roles { display: flex; gap: 3px; margin-top: 6px; }
+  .fm-roles button { flex: 1 1 auto; border: 1px solid var(--bord); background: #fff; color: var(--gris);
+    border-radius: 4px; padding: 2px 0; font-size: 10.5px; font-weight: 600; }
+  .fm-roles button.on { background: var(--marine); border-color: var(--marine); color: #fff; }
+  .fm-jours { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+  .fm-jr { border: 1px solid var(--bord); border-radius: 5px; padding: 2px 6px; font-size: 10px; cursor: pointer; color: #fff; }
+  .fm-jr small { display: block; font-size: 9px; opacity: .85; }
+  .fm-jr.fm-libre { border-style: dashed; color: var(--ko); border-color: var(--ko); background: transparent !important; }
+  .fm-jr.fm-editing { outline: 2px solid var(--marine); outline-offset: 1px; }
+  .fm-jrplus { display: inline-flex; align-items: center; gap: 4px; border: 1px dashed var(--bord); border-radius: 5px;
+    padding: 2px 6px; color: var(--gris); font-size: 10px; }
+  .fm-jrplus span { font-weight: 700; font-size: 12px; line-height: 1; }
+  .fm-jrplus input[type=date] { border: none; background: transparent; font-family: inherit; font-size: 10px; width: 78px; }
+  .fm-ajoutEval { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+  .fm-ajoutEval select, .fm-ajoutEval input[type=date] { border: 1px solid var(--bord); border-radius: 5px; padding: 2px 4px; font-size: 10.5px; }
+  .fm-btn-ajouter { border: none; background: var(--marine); color: #fff; font-size: 10.5px; border-radius: 5px; padding: 2px 8px; cursor: pointer; }
+  .fm-affpop { margin-top: 7px; padding: 6px 7px; border: 1px dashed var(--bord); border-radius: 6px; background: var(--pale); }
+  .fm-jalrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; align-items: center; }
+  .fm-jalitem { display: inline-flex; align-items: center; gap: 3px; }
+  .fm-jalchip { --c: var(--bord); border: 1px solid var(--c); background: #fff; color: var(--txt); font-size: 10.5px;
+    border-radius: 9px; padding: 1px 7px; font-weight: 600; cursor: pointer; }
+  .fm-jalchip.on { background: var(--c); border-color: var(--c); color: #fff; }
+  .fm-jalchip.clr { --c: var(--bord); color: var(--gris); font-weight: 400; border-style: dashed; }
+  .fm-diviser { margin: 4px 0 0; font-size: 10.5px; }
+  .fm-diviser small { color: var(--gris); margin-left: 5px; }
 </style>
 </head>
 <body>
@@ -128,6 +169,51 @@ const T = {
 const PAGES = { tem400: 81, plan: 87, odm: 89, lis: 72 };
 const SECTION_LIS = 341;    // section LIS-12 de la page 72 (lien vers le certificat)
 const SECTION_TEM400 = 365; // section du widget TEM-400 sur la page 81 (pour ouvrir la bonne demande)
+
+// ── Fiche mission (reprise fidèle de src/planning-missions, onglet « 2 · Fiche mission ») ──
+// Même catalogue de jalons, mêmes règles d'écriture sur Unites_d_oeuvre : à garder synchronisé
+// si l'un des deux widgets change (labels = choix exacts de Unites_d_oeuvre.Unite_d_oeuvre).
+const FM_JALONS = [
+  { id: 'Journée de lancement', court: 'Lancement', compte: false, c: '#94a3b8' },
+  { id: 'Revue documentaire', court: 'Documentaire', compte: true, c: '#2563eb' },
+  { id: 'évaluation siège', court: 'Sur site', compte: true, c: '#0891b2' },
+  { id: 'évaluation prestation témoin', court: 'Témoin', compte: true, c: '#7c3aed' },
+  { id: 'Rédaction du rapport', court: 'Rapport', compte: true, c: '#b45309' },
+  { id: 'Réunion de clôture', court: 'Clôture', compte: false, c: '#64748b' },
+];
+const FM_ROLES = ['RE', 'ETA', 'ETM', 'OBS'];
+const FM_ROLE_DEFAUT = 'ETA';
+const fmJal = id => FM_JALONS.find(j => j.id === id) || null;
+const fmNb = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
+const FM_JOURL = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+const fmJsem = ds => new Date(ds + 'T00:00:00Z').getUTCDay();
+const fmFrc = ds => FM_JOURL[fmJsem(ds)] + ' ' + ds.slice(8, 10) + '/' + ds.slice(5, 7);
+const fmWe = ds => [0, 6].includes(fmJsem(ds));
+const fmDec = (ds, n) => { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+// Jours fériés français (Meeus/Jones/Butcher pour Pâques) — identique à planning-missions.
+function fmFeries(annee) {
+  const a = annee % 19, b = Math.floor(annee / 100), c = annee % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mois = Math.floor((h + l - 7 * m + 114) / 31), jour = ((h + l - 7 * m + 114) % 31) + 1;
+  const paques = fmDec(`${annee}-01-01`, Math.round((Date.UTC(annee, mois - 1, jour) - Date.UTC(annee, 0, 1)) / 86400000));
+  const y = String(annee);
+  return new Map([
+    [`${y}-01-01`, 1], [fmDec(paques, 1), 1], [`${y}-05-01`, 1], [`${y}-05-08`, 1], [fmDec(paques, 39), 1],
+    [fmDec(paques, 50), 1], [`${y}-07-14`, 1], [`${y}-08-15`, 1], [`${y}-11-01`, 1], [`${y}-11-11`, 1], [`${y}-12-25`, 1],
+  ]);
+}
+const fmCacheFeries = new Map();
+const fmFerie = iso => { const y = +iso.slice(0, 4); if (!fmCacheFeries.has(y)) fmCacheFeries.set(y, fmFeries(y)); return fmCacheFeries.get(y).has(iso); };
+const fmOuvre = ds => !fmWe(ds) && !fmFerie(ds);
+const fmSecDeIso = iso => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 1000;
+const fmDsDe = sec => (typeof sec === 'number' && sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null;
+// RE est une référence unique, ETA/ETM/OBS des listes : toujours écrire les 4 champs pour
+// garantir qu'une seule case porte la personne (même format que planning-missions).
+const fmChampsRole = (role, evr) => ({ RE: role === 'RE' ? evr : null, ETA: role === 'ETA' ? ['L', evr] : ['L'],
+  ETM: role === 'ETM' ? ['L', evr] : ['L'], OBS: role === 'OBS' ? ['L', evr] : ['L'] });
+const fmCompte = Object.fromEntries(FM_JALONS.map(j => [j.id, j.compte]));  // bascule compte/hors forfait, par session
+const fmEditAff = new Map();  // evalId -> blocId de la popup jalon actuellement ouverte
 
 const JALONS = [
   { id: 'Recevabilité',            court: 'Recevabilité' },
@@ -261,21 +347,43 @@ function build(t) {
   // Jours bloqués et évaluateurs affectés par évaluation, à comparer aux jours vendus (JH_vendus) :
   // une ligne Unites_d_oeuvre « observateur » (OBS seul) ne compte pas, comme dans le planning.
   const evrRows = t.EVR ? rowsOf(t.EVR) : [];
-  const evrById = new Map(evrRows.map(r => [r.id, r]));
-  const nomEvr = id => { const e = evrById.get(id); return e ? (e.Evaluateur_Trigramme || [e.Evaluateur_Prenom, e.Evaluateur_Nom].filter(Boolean).join(' ')) : '?'; };
+  const estCT = e => /certi.?trust/i.test(e.Employeur || '');
+  const libGen = e => (e.Evaluateur_Trigramme || '').trim()
+    || `${e.Evaluateur_Prenom || ''}${e.Evaluateur_Nom || ''}`.trim().slice(0, 3).toUpperCase() || ('#' + e.id);
+  const evaluateursTous = evrRows.filter(e => e.Evaluateur_Nom || e.Evaluateur_Prenom || e.Evaluateur_Trigramme)
+    .map(e => ({ id: e.id, tri: libGen(e), nom: `${e.Evaluateur_Prenom || ''} ${e.Evaluateur_Nom || ''}`.trim() || libGen(e),
+      emp: e.Employeur || '', ct: estCT(e) }))
+    .sort((a, b) => (b.ct - a.ct) || a.tri.localeCompare(b.tri, 'fr'));
+  const triDe = id => (evaluateursTous.find(e => e.id === id) || {}).tri || '?';
+  const nomEvr = triDe;
   const fonctionUO = u => u.RE ? 'RE' : ids(u.ETA).length ? 'ETA' : ids(u.ETM).length ? 'ETM' : ids(u.OBS).length ? 'OBS' : null;
   const blocageParEval = new Map();
+  // Même éclatement que planning-missions : une ligne Unites_d_oeuvre devient un bloc par personne,
+  // « verrouillée » (lecture seule du partage) si elle porte plus d'une personne.
+  const blocsParEval = new Map();
   for (const u of (t.UO ? rowsOf(t.UO) : [])) {
     if (!u.Evaluation) continue;
     const f = fonctionUO(u);
-    if (!f || f === 'OBS') continue;
-    const b = blocageParEval.get(u.Evaluation) || { jours: 0, evaluateurs: new Set() };
-    b.jours += Number(u.Jours) || 0;
-    (f === 'RE' ? [u.RE] : ids(u[f])).forEach(id => b.evaluateurs.add(id));
-    blocageParEval.set(u.Evaluation, b);
+    if (f && f !== 'OBS') {
+      const b = blocageParEval.get(u.Evaluation) || { jours: 0, evaluateurs: new Set() };
+      b.jours += Number(u.Jours) || 0;
+      (f === 'RE' ? [u.RE] : ids(u[f])).forEach(id => b.evaluateurs.add(id));
+      blocageParEval.set(u.Evaluation, b);
+    }
+    const d = fmDsDe(u.date_debut_incluse);
+    if (!d) continue;
+    const personnes = [];
+    if (u.RE) personnes.push([u.RE, 'RE']);
+    for (const id of ids(u.ETA)) personnes.push([id, 'ETA']);
+    for (const id of ids(u.ETM)) personnes.push([id, 'ETM']);
+    for (const id of ids(u.OBS)) personnes.push([id, 'OBS']);
+    const verrouille = personnes.length !== 1;
+    const l = blocsParEval.get(u.Evaluation) || [];
+    for (const [evr, role] of personnes) l.push({ id: u.id, evr, tri: triDe(evr), d, p: Number(u.Jours) || 1, jal: u.Unite_d_oeuvre || null, fonction: role, verrouille });
+    blocsParEval.set(u.Evaluation, l);
   }
 
-  return { rev, tem, ent, entId, cert, certs, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv, nomEvr, blocageParEval };
+  return { rev, tem, ent, entId, cert, certs, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv, nomEvr, blocageParEval, evaluateursTous, blocsParEval };
 }
 
 const BLOC_ORDRE = ['General', 'Initiale', 'Surveillance', 'Renouvellement', 'Rapport'];
@@ -416,8 +524,136 @@ function ligneBlocage(e) {
   const jours = b ? b.jours : 0, vendus = Number(e.JH_vendus) || 0;
   const noms = b && b.evaluateurs.size ? [...b.evaluateurs].map(D.nomEvr).sort().join(', ') : 'aucun évaluateur bloqué';
   const etat = !vendus ? 'avenir' : jours >= vendus ? 'fait' : jours > 0 ? 'encours' : 'arret';
-  return `<div class="info">⏱ <span class="pastille ${etat}">${j1(jours)} / ${vendus ? j1(vendus) : '?'} j vendu(s)</span> · ${esc(noms)}</div>`;
+  return `<div class="info">⏱ <span class="pastille ${etat}">${j1(jours)} / ${vendus ? j1(vendus) : '?'} j vendu(s)</span> · ${esc(noms)}</div>
+    <details class="ficheMission"><summary>▸ Voir / vérifier les affectations (fiche mission)</summary>${ficheMission(e.id)}</details>`;
 }
+
+// Fiche mission (reprise de src/planning-missions, onglet « 2 · Fiche mission ») pour UNE évaluation :
+// une carte par personne affectée, ses jours bloqués et leur jalon, + ajout de jour/évaluateur.
+function ficheMission(evId) {
+  const blocs = (D.blocsParEval.get(evId) || []).slice().sort((a, b) => a.d.localeCompare(b.d));
+  const parTri = new Map();
+  for (const b of blocs) { if (!parTri.has(b.tri)) parTri.set(b.tri, []); parTri.get(b.tri).push(b); }
+  const gens = [...parTri.keys()].map(tri => D.evaluateursTous.find(e => e.tri === tri)).filter(Boolean)
+    .sort((a, b) => (b.ct - a.ct) || a.tri.localeCompare(b.tri, 'fr'));
+  const ouvertId = fmEditAff.get(evId);
+  const cartes = gens.map(g => {
+    const mes = parTri.get(g.tri);
+    const total = mes.reduce((s, b) => s + b.p, 0);
+    const role = (mes.find(b => b.fonction) || {}).fonction || '';
+    const eb = mes.find(b => b.id === ouvertId);
+    return `<div class="fm-carte ${g.ct ? '' : 'fm-ext'}">
+      <div class="fm-ent"><span class="fm-tri">${esc(g.tri)}</span>
+        <span class="fm-q"><b>${esc(g.nom)}</b><small>${esc(g.ct ? 'Certi-Trust' : g.emp)}</small></span>
+        <span class="fm-j">${fmNb(total)} j bloqués</span></div>
+      <div class="fm-roles">${FM_ROLES.map(r =>
+        `<button class="${role === r ? 'on' : ''}" data-act="fm-role" data-ev="${evId}" data-tri="${esc(g.tri)}" data-role="${r}">${r}</button>`).join('')}</div>
+      <div class="fm-jours">${mes.map(b => { const bj = fmJal(b.jal);
+        return `<button class="fm-jr ${bj ? '' : 'fm-libre'} ${b.id === ouvertId ? 'fm-editing' : ''}" data-act="fm-aff" data-ev="${evId}" data-bloc="${b.id}"
+          style="${bj ? 'background:' + bj.c : ''}"
+          title="${b.verrouille ? '🔒 UO partagée avec d’autres personnes — le jalon reste modifiable, pas le partage/fusion' : (bj ? esc(bj.id) : 'aucun jalon')}">
+          ${b.verrouille ? '🔒 ' : ''}${fmFrc(b.d)}${b.p < 1 ? ' ½' : ''}<small>${bj ? esc(bj.court) : 'à définir'}</small></button>`;
+      }).join('') || '<span class="info">Aucun jour bloqué pour cette personne.</span>'}
+      <label class="fm-jrplus" title="Ajouter un jour bloqué pour ${esc(g.nom)} à une date au choix">
+        <span>+</span><input type="date" data-act="fm-plus" data-ev="${evId}" data-tri="${esc(g.tri)}">
+      </label></div>
+      ${eb ? `<div class="fm-affpop">
+        <span class="info">Jalon pour ${fmFrc(eb.d)}${eb.p < 1 ? ' ½' : ''} :
+          ${!eb.verrouille ? `<button class="fm-jalchip" style="--c:var(--ko);margin-left:6px" data-act="fm-supprimer" data-ev="${evId}" data-bloc="${eb.id}">🗑 supprimer ce jour</button>` : ''}</span>
+        ${eb.verrouille ? `<p class="fm-diviser">🔒 UO partagée avec d’autres personnes (créée ailleurs) : le jalon se change ici, mais partage/fusion en 2 × ½ j reste réservé aux UO à une seule personne — à faire depuis le planning existant si besoin.</p>`
+          : (() => {
+            const soeur = mes.find(z => z.id !== eb.id && z.d === eb.d);
+            if (eb.p === 1 && !soeur) return `<p class="fm-diviser"><button class="fm-jalchip" data-act="fm-diviser" data-ev="${evId}" data-bloc="${eb.id}">partager la journée en 2 × ½ j</button><small>utile si lancement ou clôture tombe le même jour qu’un autre jalon</small></p>`;
+            if (soeur) return `<p class="fm-diviser"><button class="fm-jalchip" data-act="fm-fusionner" data-ev="${evId}" data-bloc="${eb.id}">fusionner les deux ½ journées en 1 jour</button></p>`;
+            return '';
+          })()}
+        <div class="fm-jalrow">${FM_JALONS.map(j => `<span class="fm-jalitem">
+            <button class="fm-jalchip ${eb.jal === j.id ? 'on' : ''}" style="--c:${j.c}" data-act="fm-setjal" data-ev="${evId}" data-bloc="${eb.id}" data-jal="${esc(j.id)}">${esc(j.court)}</button>
+          </span>`).join('')}
+          <button class="fm-jalchip clr" data-act="fm-setjal" data-ev="${evId}" data-bloc="${eb.id}" data-jal="">aucun</button></div>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+
+  const disponibles = D.evaluateursTous.filter(e => !gens.some(g => g.tri === e.tri));
+  const carteAjout = `<div class="fm-carte fm-plus">
+    <div class="fm-ent"><span class="fm-q"><b>+ Ajouter un évaluateur</b></span></div>
+    <div class="fm-ajoutEval">
+      <select data-fmsel="${evId}"><option value="">évaluateur…</option>
+        ${disponibles.map(e => `<option value="${e.id}">${esc(e.tri)} — ${esc(e.nom)}</option>`).join('')}
+      </select>
+      <input type="date" data-fmdate="${evId}">
+      <button class="fm-btn-ajouter" data-act="fm-ajouter-eval" data-ev="${evId}">Ajouter</button>
+    </div>
+  </div>`;
+
+  return `<div class="fm-cartes">${!gens.length ? `<p class="info" style="width:100%">Aucun jour n’est encore bloqué pour cette évaluation.</p>` : ''}${cartes}${carteAjout}</div>`;
+}
+
+// Bascule le statut de l'évaluation entre « à planifier » et « En cours » selon qu'elle a des jours
+// bloqués — même règle que planning-missions (ajusterStatut).
+async function fmApplyEtStatut(actions, msg, evId) {
+  if (!(await apply(actions, msg))) return;
+  await reload();
+  const e = D.evRows.find(x => x.id === evId);
+  const bloques = (D.blocsParEval.get(evId) || []).length > 0;
+  if (!e) return;
+  if (bloques && e.Statut === 'à planifier') { if (await apply([['UpdateRecord', T.EV, evId, { Statut: 'En cours' }]], 'Statut de la mission → En cours')) await reload(); }
+  else if (!bloques && e.Statut === 'En cours') { if (await apply([['UpdateRecord', T.EV, evId, { Statut: 'à planifier' }]], 'Statut de la mission → à planifier')) await reload(); }
+}
+async function fmAjouterJour(evId, evrId, tri, ds, role) {
+  if (!fmOuvre(ds)) { status('Jour non travaillé (week-end ou férié).', 'error'); return; }
+  if ((D.blocsParEval.get(evId) || []).some(b => b.tri === tri && b.d === ds)) { status('Un jour est déjà bloqué ce jour-là pour cette personne.', 'error'); return; }
+  await fmApplyEtStatut([['AddRecord', T.UO, null, { Evaluation: evId, date_debut_incluse: fmSecDeIso(ds), Jours: 1, Unite_d_oeuvre: null, ...fmChampsRole(role, evrId) }]],
+    `${fmFrc(ds)} ajouté pour ${tri}`, evId);
+}
+function fmAjouterJourFiche(evId, tri, ds) {
+  const role = ((D.blocsParEval.get(evId) || []).find(b => b.tri === tri && b.fonction) || {}).fonction || FM_ROLE_DEFAUT;
+  const g = D.evaluateursTous.find(e => e.tri === tri); if (!g) return;
+  return fmAjouterJour(evId, g.id, tri, ds, role);
+}
+function fmAjouterEvaluateur(evId, evrId, ds) {
+  const g = D.evaluateursTous.find(e => e.id === evrId); if (!g) return;
+  return fmAjouterJour(evId, evrId, g.tri, ds, FM_ROLE_DEFAUT);
+}
+async function fmChangerRole(evId, tri, role) {
+  const mes = (D.blocsParEval.get(evId) || []).filter(b => b.tri === tri);
+  const roleActuel = (mes.find(b => b.fonction) || {}).fonction || '';
+  const nouveau = roleActuel === role ? FM_ROLE_DEFAUT : role;
+  const idsAModifier = mes.filter(b => !b.verrouille).map(b => b.id);
+  const g = D.evaluateursTous.find(e => e.tri === tri);
+  if (!idsAModifier.length || !g) return;
+  await fmApplyEtStatut(idsAModifier.map(id => ['UpdateRecord', T.UO, id, fmChampsRole(nouveau, g.id)]), 'Fonction mise à jour', evId);
+}
+async function fmSetJalon(evId, blocId, jalId) {
+  const b = (D.blocsParEval.get(evId) || []).find(z => z.id === blocId); if (!b) return;
+  await fmApplyEtStatut([['UpdateRecord', T.UO, b.id, { Unite_d_oeuvre: jalId || null }]],
+    jalId ? `${fmFrc(b.d)} → ${fmJal(jalId).court}` : `${fmFrc(b.d)} libéré`, evId);
+}
+async function fmSupprimerJour(evId, blocId) {
+  const b = (D.blocsParEval.get(evId) || []).find(z => z.id === blocId); if (!b || b.verrouille) return;
+  fmEditAff.delete(evId);
+  await fmApplyEtStatut([['RemoveRecord', T.UO, b.id]], `${fmFrc(b.d)} supprimé`, evId);
+}
+async function fmDiviser(evId, blocId) {
+  const b = (D.blocsParEval.get(evId) || []).find(z => z.id === blocId); if (!b || b.p !== 1 || b.verrouille) return;
+  await fmApplyEtStatut([
+    ['UpdateRecord', T.UO, b.id, { Jours: 0.5 }],
+    ['AddRecord', T.UO, null, { Evaluation: evId, date_debut_incluse: fmSecDeIso(b.d), Jours: 0.5, Unite_d_oeuvre: null, ...fmChampsRole(b.fonction, b.evr) }],
+  ], `${fmFrc(b.d)} partagé en 2 × ½ j`, evId);
+}
+async function fmFusionner(evId, blocId) {
+  const blocs = D.blocsParEval.get(evId) || [];
+  const b = blocs.find(z => z.id === blocId); if (!b || b.verrouille) return;
+  const soeur = blocs.find(z => z !== b && z.evr === b.evr && z.d === b.d && !z.verrouille);
+  if (!soeur) return;
+  if (b.jal && soeur.jal && b.jal !== soeur.jal) { status('Impossible : les deux moitiés ont des jalons différents.', 'error'); return; }
+  await fmApplyEtStatut([
+    ['UpdateRecord', T.UO, b.id, { Jours: 1, Unite_d_oeuvre: b.jal || soeur.jal }],
+    ['RemoveRecord', T.UO, soeur.id],
+  ], `${fmFrc(b.d)} refusionné en 1 jour`, evId);
+}
+
 function champDate(col, val, titre) {
   return `<label class="lbl">${esc(titre)}</label><input type="date" data-act="rev-date" data-col="${col}" value="${toDateInput(val)}">`;
 }
@@ -966,6 +1202,22 @@ main.addEventListener('click', async ev => {
   if (act === 'valider-devis') return validerDevis(+b.dataset.pl);
   if (act === 'signer-devis') return signerDevis(+b.dataset.pl);
   if (act === 'ajouter-lis12') return ajouterLis12();
+  if (act === 'fm-role') return fmChangerRole(+b.dataset.ev, b.dataset.tri, b.dataset.role);
+  if (act === 'fm-aff') {
+    const evId = +b.dataset.ev, blocId = +b.dataset.bloc;
+    fmEditAff.set(evId, fmEditAff.get(evId) === blocId ? null : blocId);
+    return render();
+  }
+  if (act === 'fm-setjal') return fmSetJalon(+b.dataset.ev, +b.dataset.bloc, b.dataset.jal);
+  if (act === 'fm-supprimer') return fmSupprimerJour(+b.dataset.ev, +b.dataset.bloc);
+  if (act === 'fm-diviser') return fmDiviser(+b.dataset.ev, +b.dataset.bloc);
+  if (act === 'fm-fusionner') return fmFusionner(+b.dataset.ev, +b.dataset.bloc);
+  if (act === 'fm-ajouter-eval') {
+    const evId = +b.dataset.ev, carte = b.closest('.fm-carte');
+    const evrId = +(carte.querySelector('[data-fmsel]')?.value || 0), ds = carte.querySelector('[data-fmdate]')?.value;
+    if (!evrId || !ds) { status('Choisis un évaluateur et une date.', 'error'); return; }
+    return fmAjouterEvaluateur(evId, evrId, ds);
+  }
   if (act === 'creer-eval') return creerEval(+b.dataset.ch);
   if (act === 'courrier') return ouvrirCourrier();
   if (act === 'cour-prog' || act === 'cour-civ') {
@@ -1011,6 +1263,7 @@ main.addEventListener('change', async ev => {
     return setPoint(+tr.dataset.pt, { Date_verif: v }, false);
   }
   if (act === 'com' && tr) return setPoint(+tr.dataset.pt, { Commentaire: el.value }, false);
+  if (act === 'fm-plus') { const ds = el.value; el.value = ''; if (ds) return fmAjouterJourFiche(+el.dataset.ev, el.dataset.tri, ds); return; }
   if (act === 'rev-date') return setRev({ [el.dataset.col]: dateToSec(el.value) });
   if (act === 'rev-txt') return setRev({ [el.dataset.col]: el.value });
   if (act === 'rev-cert') return setRev({ Certificat: +el.value || 0 }, 'Certificat rattaché');
