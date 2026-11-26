@@ -1171,11 +1171,21 @@ async function creerEval(chId) {
 
 const main = document.getElementById('main');
 
+// L'événement 'toggle' ne bulle pas et ev.target est toujours le <details> qui vient de
+// basculer lui-même (jamais un descendant) : on doit tester cet élément précis avec matches(),
+// pas closest(). Une ficheMission est imbriquée dans un details.sec parent — avec closest(),
+// le toggle de la ficheMission se faisait à tort attraper par la branche .sec (qui remonte
+// jusqu'à l'ancêtre), et fmOuvert n'était donc jamais mis à jour : la fiche mission se
+// refermait au moindre clic à l'intérieur provoquant un render() (ex. affecter un jour).
 main.addEventListener('toggle', ev => {
-  const d = ev.target.closest?.('details.sec');
-  if (d && ouverts) { if (d.open) ouverts.add(d.dataset.j); else ouverts.delete(d.dataset.j); return; }
-  const fm = ev.target.closest?.('details.ficheMission');
-  if (fm) { const id = Number(fm.dataset.ev); if (fm.open) fmOuvert.add(id); else fmOuvert.delete(id); }
+  const t = ev.target;
+  if (t.matches?.('details.sec')) {
+    if (ouverts) { if (t.open) ouverts.add(t.dataset.j); else ouverts.delete(t.dataset.j); }
+    return;
+  }
+  if (t.matches?.('details.ficheMission')) {
+    const id = Number(t.dataset.ev); if (t.open) fmOuvert.add(id); else fmOuvert.delete(id);
+  }
 }, true);
 
 main.addEventListener('click', async ev => {

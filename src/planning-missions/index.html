@@ -134,6 +134,9 @@ table.grid { border-collapse: separate; border-spacing: 0; }
 .carte .ent .q b { display: block; font-size: 12.5px; line-height: 1.2; }
 .carte .ent .q small { font-size: 10px; color: var(--texte-doux); }
 .carte .ent .j { font-size: 11px; color: var(--texte-doux); white-space: nowrap; }
+.btn-retirer { border: none; background: transparent; color: var(--texte-pale); font-family: inherit;
+               font-size: 14px; font-weight: 700; line-height: 1; cursor: pointer; padding: 2px 3px; }
+.btn-retirer:hover { color: var(--alerte); }
 .roles { display: flex; gap: 3px; margin-top: 7px; }
 .roles button { flex: 1 1 auto; border: 1px solid var(--bord); background: var(--surface); color: var(--texte-doux);
                 font-family: inherit; font-size: 10.5px; font-weight: 600; border-radius: 5px; padding: 3px; cursor: pointer; }
@@ -700,6 +703,26 @@ async function ajouterEvaluateur(evId, ds) {
   await ajouterJourPourEvaluateur(evId, g.tri, ds, ROLE_DEFAUT);
 }
 
+/* Retire une personne de la mission : supprime tous ses jours bloqués en UO à elle seule.
+   Les UO partagées avec d'autres personnes ne sont jamais touchées ici (même règle que
+   basculerBloc/cycler) — elles doivent être démêlées depuis le planning existant. Confirmation
+   demandée car c'est la seule action du widget qui peut supprimer plusieurs jours d'un coup. */
+async function supprimerEvaluateur(tri) {
+  const mes = blocsDe(S.ev).filter(b => b.tri === tri);
+  const libres = mes.filter(b => !b.verrouille), partagees = mes.filter(b => b.verrouille);
+  const nom = (EVALUATEURS.find(e => e.tri === tri) || {}).nom || tri;
+  if (!libres.length) {
+    toast('rien à retirer : tous les jours de cette personne sont dans des UO partagées'); return;
+  }
+  const msg = `Retirer ${nom} de cette mission ? ${libres.length} jour(s) bloqué(s) seront supprimés.`
+    + (partagees.length ? `\n${partagees.length} jour(s) en UO partagée resteront (à modifier depuis le planning existant).` : '');
+  if (!confirm(msg)) return;
+  await app(libres.map(b => ['RemoveRecord', T_UO, b.id]));
+  await recharger();
+  if (await ajusterStatut(S.ev)) await recharger();
+  toast(`${nom} retiré de la mission`);
+}
+
 /* Copier une affectation déjà faite (bloc existant, quelle que soit sa mission ou son
    ancienneté) vers un autre jour et/ou un autre consultant, sans toucher à l'original ni à
    son éventuel verrouillage. Le mode copie reste actif après un collage pour en faire
@@ -761,7 +784,8 @@ function vueFiche() {
     return `<div class="carte ${g.ct ? '' : 'ext'}">
       <div class="ent"><span class="tri">${esc(g.tri)}</span>
         <span class="q"><b>${esc(g.nom)}</b><small>${esc(g.ct ? 'Certi-Trust' : g.emp)}</small></span>
-        <span class="j">${nbj(total)} j bloqués</span></div>
+        <span class="j">${nbj(total)} j bloqués</span>
+        <button class="btn-retirer" data-retirer="${esc(g.tri)}" title="Retirer ${esc(g.nom)} de cette mission">✕</button></div>
       <div class="roles">${ROLES.map(r =>
         `<button class="${role === r ? 'on' : ''}" data-role="${esc(g.tri)}|${r}">${r}</button>`).join('')}</div>
       <div class="jours">${mes.map(b => { const bj = jal(b.jal);
@@ -863,6 +887,10 @@ function vueFiche() {
     const evId = +($('selNouvelEval').value || 0), ds = $('dateNouvelEval').value;
     if (!evId || !ds) { toast('choisis un évaluateur et une date'); return; }
     await ajouterEvaluateur(evId, ds);
+  };
+  for (const x of $('droite').querySelectorAll('[data-retirer]')) x.onclick = e => {
+    e.stopPropagation();
+    supprimerEvaluateur(x.dataset.retirer);
   };
   for (const x of $('droite').querySelectorAll('[data-setjal]')) x.onclick = async () => {
     const i = x.dataset.setjal.indexOf('|');
