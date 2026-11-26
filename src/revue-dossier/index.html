@@ -139,6 +139,10 @@ const JALONS = [
 const BLOCS_TYPE = { Initiale: 'Initiale', Surveillance: 'Surveillance', Renouvellement: 'Renouvellement' };
 const ETATS = { fait: 'fait', encours: 'en cours', avenir: 'à venir', arret: 'arrêté' };
 const PL_VALIDEES = new Set(['En cours', 'Envoyée', 'Signée']);
+// Décisions qui donnent lieu à un certificat (LIS-12) actif pour le prestataire
+const FAVORABLES = new Set(['Certification/qualification initiale immédiate', 'Maintien de la qualification',
+  'Renouvellement de la qualification', 'Rétablissement de la qualification']);
+const NIVEAU_LIS = { substantiel: 'Substantiel', 'élevé': 'Elevé', 'eleve': 'Elevé' };
 const nomPL = p => p.Libelle_PL || `Brouillon non numéroté${p.Date_modification ? ' du ' + new Intl.DateTimeFormat('fr-FR').format(new Date(p.Date_modification * 1000)) : ''}`;
 
 let docUrl = '';
@@ -513,7 +517,14 @@ function blocCertificat() {
     ${!D.certs.length ? `<div class="info">Aucune ligne LIS-12 pour ${D.entId ? 'cette entreprise' : 'une entreprise inconnue'}${D.progIds.size ? ' sur ce programme' : ''}.</div>` : ''}
     ${c ? `<div class="ligne info">N° de certificat : <b>${esc(c.numero_attestation || 'à attribuer')}</b>
       · Décision ANSSI : ${c.N_decision_ANSSI ? esc(String(c.N_decision_ANSSI)) : 'à renseigner'}
-      · Validité : ${c.Date_Delivrance ? fmtD(c.Date_Delivrance) : '?'} → ${c.Date_Fin ? fmtD(c.Date_Fin) : '?'}</div>` : ''}`;
+      · Validité : ${c.Date_Delivrance ? fmtD(c.Date_Delivrance) : '?'} → ${c.Date_Fin ? fmtD(c.Date_Fin) : '?'}</div>` : ''}
+    <div class="ligne"><button class="btn" data-act="ajouter-lis12" ${boutonLis12Desactive()}>➕ Ajouter le prestataire au LIS-12 (certificats émis)</button>
+      <span class="info">Crée une ligne par programme (entreprise, programme, niveau, portées, validité 3 ans) ; n° d'attestation et référentiel restent à compléter dans le LIS-12.</span></div>`;
+}
+function boutonLis12Desactive() {
+  if (!FAVORABLES.has(D.rev.Proposition)) return `disabled title="Décision non favorable : choisir d’abord une proposition de certification/maintien/renouvellement/rétablissement"`;
+  if (!D.entId || !D.progIds.size) return `disabled title="Entreprise ou programme inconnu pour cette revue"`;
+  return '';
 }
 
 // ── Courrier de recevabilité ───────────────────────────────────────────────
@@ -835,6 +846,33 @@ async function validerDevis(plId) {
   if (await apply([['UpdateRecord', T.PL, plId, { Statut: 'En cours' }]], 'Devis validé — en attente d’envoi/signature')) await reload();
 }
 
+// Crée une ligne LIS-12 par programme de la revue à partir d'une décision favorable : reprend
+// entreprise/programme/niveau/portées connus ; n° d'attestation, référentiel et sécurité
+// nationale restent à compléter à la main dans le LIS-12 (pas de règle fiable pour les déduire).
+async function ajouterLis12() {
+  if (!FAVORABLES.has(D.rev.Proposition) || !D.entId || !D.progIds.size) return;
+  const j = jsonTem(), auj = today(), TROIS_ANS = 3 * 365 * 86400;
+  const actions = [], noms = [];
+  for (const progId of D.progIds) {
+    const cle = progCle(progId);
+    const niveau = cle ? val(j[`b.${cle}.niveau`]) : '';
+    const existant = D.certs.find(c => c.Programme === progId);
+    const qualifs = [...new Set(D.evalsLiees.filter(e => e.Programme === progId).flatMap(e => ids(e.Activites_)))];
+    const fields = {
+      Denomination: D.entId, Programme: progId, Date_Delivrance: auj, Date_Fin: auj + TROIS_ANS,
+      Debut_Cycle_Actuel: auj, Qualifie_depuis_le: existant?.Qualifie_depuis_le || auj, Statut: 'active',
+      ...(NIVEAU_LIS[niveau.toLowerCase()] ? { Niveau: NIVEAU_LIS[niveau.toLowerCase()] } : {}),
+      ...(qualifs.length ? { Qualifications: ['L', ...qualifs] } : {}),
+    };
+    actions.push(['AddRecord', T.LIS, null, fields]);
+    noms.push(D.prog.get(progId) || '?');
+  }
+  const res = await apply(actions, `Certificat(s) LIS-12 créé(s) pour ${noms.join(', ')} — à compléter : n° d'attestation, référentiel, sécurité nationale`);
+  const newId = res?.retValues?.[0];
+  if (newId && !D.rev.Certificat) await apply([['UpdateRecord', T.REV, revId, { Certificat: newId }]], 'Certificat rattaché à la revue');
+  await reload();
+}
+
 // Libellé EV repris de la CH (2026CH0006_PASIRENO_ADVENS → 2026EV0113_PASIRENO_ADVENS),
 // numéro = dernier numéro d'évaluation + 1
 function libelleEval(ch) {
@@ -920,6 +958,7 @@ main.addEventListener('click', async ev => {
   }
   if (act === 'rapport-auj') return setRev({ Date_livraison_rapport: today() }, 'Rapport marqué livré');
   if (act === 'valider-devis') return validerDevis(+b.dataset.pl);
+  if (act === 'ajouter-lis12') return ajouterLis12();
   if (act === 'creer-eval') return creerEval(+b.dataset.ch);
   if (act === 'courrier') return ouvrirCourrier();
   if (act === 'cour-prog' || act === 'cour-civ') {
