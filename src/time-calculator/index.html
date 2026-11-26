@@ -133,6 +133,7 @@
   <label>Entreprise <select id="sel-entreprise"></select></label>
   <label>TEM-404 <select id="sel-tem"></select></label>
   <label>Proposition <select id="sel-prop"></select></label>
+  <button id="btn-del-prop" class="btn btn-danger" disabled title="Supprimer définitivement cette proposition (brouillon ou en cours uniquement)">🗑 Supprimer</button>
   <span class="spacer"></span>
   <button id="btn-refresh" class="btn btn-light" title="Relire les tables Grist">↻</button>
   <button id="btn-settings" class="btn btn-light">⚙ Paramètres</button>
@@ -316,6 +317,7 @@ $('btn-save').addEventListener('click', saveSettings);
 $('sel-entreprise').addEventListener('change', () => { fillTemSelect(); const t = $('sel-tem').value; selectTem(t ? Number(t) : null); });
 $('sel-tem').addEventListener('change', () => selectTem($('sel-tem').value ? Number($('sel-tem').value) : null));
 $('sel-prop').addEventListener('change', () => selectProposition(Number($('sel-prop').value) || null));
+$('btn-del-prop').addEventListener('click', () => supprimerProposition());
 $('btn-copy-text').addEventListener('click', e => copier(texteDevis(), 'Devis copié dans le presse-papiers.', e.currentTarget));
 $('btn-copy-json').addEventListener('click', e => copier(JSON.stringify(jsonClient(), null, 2), 'Json_client copié dans le presse-papiers.', e.currentTarget));
 $('btn-create').addEventListener('click', validerProposition);
@@ -1075,6 +1077,8 @@ function majBoutons() {
   $('btn-create').textContent = brouillon ? 'Valider la proposition' : 'Créer une nouvelle proposition';
   $('btn-update').style.display = brouillon ? 'none' : '';
   $('btn-update').disabled = !ok;
+  const statutSrc = etat?.source?.statut;
+  $('btn-del-prop').disabled = !(etat?.source?.plId && (!statutSrc || statutSrc === BROUILLON || statutSrc === EN_COURS));
 }
 
 /* ──────────────────────────────────────────
@@ -1614,6 +1618,42 @@ async function enregistrerProposition(statut = null) {
     setStatus(`${lib.pl} ${statut ? `validée, statut « ${statut} »` : 'enregistrée'}${ajouts.length ? `, ${ajouts.length} CH ajoutée(s)` : ''}${annulees.length ? `, ${annulees.length} CH annulée(s)` : ''}.`, 'ok');
   } catch (err) {
     setStatus(`Échec de l’enregistrement : ${err.message || err}`, 'error');
+  } finally {
+    majBoutons();
+  }
+}
+
+// Supprime définitivement une proposition en Brouillon ou En cours (pas Envoyée/Signée/Annulée),
+// avec ses CH liées — bloqué si une évaluation a déjà été créée à partir de l'une d'elles.
+async function supprimerProposition() {
+  const src = etat?.source;
+  if (!src?.plId) return;
+  if (src.statut && src.statut !== BROUILLON && src.statut !== EN_COURS) return;
+  const plId = src.plId, nom = src.libelle || 'ce brouillon', temId = etat.temId;
+  $('btn-del-prop').disabled = true;
+  try {
+    await lirePropositions();
+    const chs = data.pp.filter(r => refId(r.Proposition_commerciale) === plId && r.Statut !== ANNULEE);
+    const evTable = await lireTable('Evaluations');
+    const evRows = evTable ? rows(evTable) : [];
+    const bloquantes = chs.filter(ch => evRows.some(e => e.PO === ch.id));
+    if (bloquantes.length) {
+      setStatus(`Suppression impossible : une évaluation existe déjà pour ${bloquantes.map(c => c.Libelle_CH || '#' + c.id).join(', ')} — annule-la depuis la revue de dossier d'abord.`, 'error');
+      return;
+    }
+    if (!window.confirm(`Supprimer définitivement la proposition « ${nom} » ?`
+      + (chs.length ? `\n${chs.length} prestation(s) liée(s) seront aussi supprimée(s).` : ''))) return;
+    await grist.docApi.applyUserActions([
+      ...(chs.length ? [['BulkRemoveRecord', TABLE_CH, chs.map(c => c.id)]] : []),
+      ['RemoveRecord', TABLE_PL, plId],
+    ]);
+    await lirePropositions();
+    etat = etatDepuisTem(data.tem.find(t => t.id === temId));
+    fillPropSelect();
+    renderDevis();
+    setStatus(`Proposition « ${nom} » supprimée.`, 'ok');
+  } catch (err) {
+    setStatus(`Échec de la suppression : ${err.message || err}`, 'error');
   } finally {
     majBoutons();
   }
