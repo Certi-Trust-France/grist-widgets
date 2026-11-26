@@ -619,6 +619,7 @@ function calculer(id) {
     set('CRIT_REFERENTIEL', l.map(doc), 'Programmes.Referentiel' + (choisi.length ? ` (version ${vTem} du TEM-404)` : ''));
   }
   set('CRIT_TRAME', doc(T.Documents_Referentiel.par.get(refId(prog.Trame))), 'Programmes.Trame');
+  set('CRIT_REGLEMENT', doc(T.Documents_Referentiel.par.get(refId(prog.Reglement))), 'Programmes.Reglement');
   const modele = MODELE_PROGRAMME[progNom] || {};
   for (const [k, v] of Object.entries(modele)) if (!B[k]) set(k, v, 'Modèle de plan ' + progNom, 'modele');
   const types = liste(ev.Type_d_evaluation);
