@@ -75,6 +75,7 @@ h4:first-child { margin-top: 0; }
 .verdict { margin-top: 7px; font-size: 11.5px; font-weight: 600; padding: 5px 7px; border-radius: 6px; line-height: 1.4; }
 .verdict.ok { background: var(--ok-fond); color: var(--ok); }
 .verdict.ko { background: var(--alerte-fond); color: var(--alerte); }
+.verdict.manque { background: #fffbeb; color: var(--attente); }
 
 /* ---------- grille planning ---------- */
 .droite { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
@@ -160,6 +161,26 @@ table.grid { border-collapse: separate; border-spacing: 0; }
 .btn-ajouter { border: none; background: var(--bleu); color: #fff; font-family: inherit; font-size: 11px;
   font-weight: 600; border-radius: 5px; padding: 4px 10px; cursor: pointer; }
 .btn-ajouter:hover { background: var(--bleu-clair); }
+.jalonsMission { background: var(--surface); border-radius: 8px; box-shadow: var(--ombre); padding: 8px 10px; margin-bottom: 10px; }
+.jmligne { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px solid var(--surface-2); }
+.jmligne:last-child { border-bottom: none; }
+.jmlabel { flex: 0 0 90px; font-size: 11px; font-weight: 700; color: var(--texte); display: flex; align-items: center; gap: 4px; }
+.jmhide { border: none; background: transparent; color: var(--texte-pale); font-size: 11px; cursor: pointer; padding: 0; }
+.jmhide:hover { color: var(--alerte); }
+.jmchips { flex: 1 1 200px; display: flex; flex-wrap: wrap; gap: 4px; }
+.jmchip { display: inline-flex; align-items: center; gap: 4px; background: var(--surface-2);
+          border-left: 3px solid var(--bord2); border-radius: 4px; padding: 1px 6px; font-size: 10.5px; }
+.jmx { border: none; background: transparent; color: var(--texte-doux); font-size: 11px; cursor: pointer; padding: 0 1px; line-height: 1; }
+.jmx:hover { color: var(--alerte); }
+.jmvide { font-size: 10.5px; color: var(--texte-pale); font-style: italic; }
+.jmajout { flex: 0 0 auto; display: flex; gap: 4px; align-items: center; }
+.jmajout select, .jmajout input[type=date] { border: 1px solid var(--bord); border-radius: 5px; padding: 2px 5px;
+  font-family: inherit; font-size: 10.5px; color: var(--texte); background: var(--surface); }
+.jmajout button { border: none; background: var(--bleu); color: #fff; font-family: inherit; font-size: 11px;
+  font-weight: 700; border-radius: 5px; width: 20px; height: 20px; cursor: pointer; line-height: 1; }
+.jmajout button:hover { background: var(--bleu-clair); }
+.jmreset { border: none; background: transparent; color: var(--bleu-clair); font-family: inherit; font-size: 10.5px;
+  cursor: pointer; padding: 4px 0 0; }
 .jr.pose { color: #fff; border-color: transparent; }
 .vide-l { padding: 24px 10px; color: var(--texte-doux); font-size: 12px; line-height: 1.6; }
 
@@ -263,7 +284,7 @@ const PALETTE = ['#2563eb', '#60a5fa', '#7c3aed', '#c2410c', '#0891b2', '#b45309
 let EVALUATEURS = [], CYCLES = [], EVS = {};
 const S = { D: null, onglet: 'planning', ev: null, jal: 'Évaluation documentaire', editAff: null,
             blocs: [], compte: Object.fromEntries(JALONS.map(j => [j.id, j.compte])), autres: true,
-            copie: null, filtrePlanning: { aPlanifier: true, enCours: true } };
+            copie: null, filtrePlanning: { aPlanifier: true, enCours: true }, jmMasques: new Set() };
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -464,7 +485,7 @@ function barreConv(e) {
     <div class="lgn"><span class="l">Affectés</span>
       <span class="t"><i style="width:${pct(cp)};background:var(--ok)"></i><i style="width:${pct(hf)};background:var(--texte-pale)"></i></span>
       <span class="v">${nbj(af)} j</span></div>
-    <div class="verdict ${ecart === 0 ? 'ok' : 'ko'}">
+    <div class="verdict ${ecart === 0 ? 'ok' : ecart < 0 ? 'manque' : 'ko'}">
       ${ecart === 0 ? '✓ le blocage couvre exactement les jours vendus'
         : ecart < 0 ? `il manque ${nbj(-ecart)} j à bloquer`
                     : `${nbj(ecart)} j bloqués en trop`}
@@ -677,16 +698,17 @@ async function basculerBloc(blocId, tri) {
 /* Ajout d'un jour plein (1 j), depuis la fiche mission plutôt que depuis la grille du planning —
    que ce soit pour une personne déjà présente sur la mission (ajouterJourFiche) ou pour en faire
    entrer une nouvelle (ajouterEvaluateur) : même garde-fous que cycler (jour ouvré, pas de doublon). */
-async function ajouterJourPourEvaluateur(evId, tri, ds, role) {
+async function ajouterJourPourEvaluateur(evId, tri, ds, role, jalonId = null) {
   if (!ouvre(ds)) { toast('jour non travaillé (week-end ou férié)'); return; }
   if (S.blocs.find(x => x.ev === S.ev && x.tri === tri && x.d === ds)) {
     toast('un jour est déjà bloqué ce jour-là pour cette personne sur cette mission'); return;
   }
   await app([['AddRecord', T_UO, null,
-    { Evaluation: S.ev, date_debut_incluse: secDeIso(ds), Jours: 1, Unite_d_oeuvre: null, ...champsRole(role, evId) }]]);
+    { Evaluation: S.ev, date_debut_incluse: secDeIso(ds), Jours: 1, Unite_d_oeuvre: jalonId, ...champsRole(role, evId) }]]);
   await recharger();
   if (await ajusterStatut(S.ev)) await recharger();
-  toast(`${frc(ds)} ajouté pour ${tri}`);
+  const j = jal(jalonId);
+  toast(`${frc(ds)} ajouté pour ${tri}` + (j ? ` — ${j.court}` : ''));
 }
 
 async function ajouterJourFiche(tri, ds) {
@@ -721,6 +743,53 @@ async function supprimerEvaluateur(tri) {
   await recharger();
   if (await ajusterStatut(S.ev)) await recharger();
   toast(`${nom} retiré de la mission`);
+}
+
+/* Modèle « jalons de la mission » : une ligne par jalon standard, affichée au niveau de la
+   mission (avant même de regarder qui est affecté). Chaque ligne liste les jours déjà posés
+   pour ce jalon (tous évaluateurs confondus) et propose d'en ajouter un autre directement avec
+   ce jalon déjà choisi — un jalon qu'on duplique (ex. un 2e jour de site) reste juste une ligne
+   avec plusieurs puces. Une ligne vide peut être masquée pour cette session si elle ne sert
+   jamais sur cette mission (ex. prestation témoin) ; elle réapparaît dès qu'un jour lui est posé. */
+function jalonsMission() {
+  const blocs = blocsDe(S.ev).filter(b => b.jal);
+  const lignes = JALONS.filter(j => blocs.some(b => b.jal === j.id) || !S.jmMasques.has(j.id)).map(j => {
+    const mes = blocs.filter(b => b.jal === j.id).sort((a, b) => a.d.localeCompare(b.d));
+    const chips = mes.map(b => `<span class="jmchip" style="border-left-color:${j.c}">
+        ${b.verrouille ? '🔒 ' : ''}${esc(b.tri)} · ${frc(b.d)}${b.p < 1 ? ' ½' : ''}
+        ${b.verrouille ? '' : `<button class="jmx" data-jm-suppr="${b.id}" title="Supprimer ce jour">✕</button>`}
+      </span>`).join('') || '<span class="jmvide">aucun jour</span>';
+    return `<div class="jmligne">
+      <span class="jmlabel">${esc(j.court)}${!mes.length
+        ? `<button class="jmhide" data-jm-masquer="${esc(j.id)}" title="Masquer ce jalon pour cette mission">✕</button>` : ''}</span>
+      <span class="jmchips">${chips}</span>
+      <span class="jmajout">
+        <select data-jmsel="${esc(j.id)}"><option value="">évaluateur…</option>
+          ${EVALUATEURS.map(e => `<option value="${e.id}">${esc(e.tri)} — ${esc(e.nom)}</option>`).join('')}</select>
+        <input type="date" data-jmdate="${esc(j.id)}">
+        <button data-jm-ajouter="${esc(j.id)}" title="Ajouter un jour pour ce jalon">+</button>
+      </span>
+    </div>`;
+  }).join('');
+  return `<div class="jalonsMission">${lignes}
+    ${S.jmMasques.size ? `<button class="jmreset" id="btnJmReset">↺ réafficher les ${S.jmMasques.size} jalon(s) masqué(s)</button>` : ''}
+  </div>`;
+}
+
+async function jmAjouter(jalonId, evId, ds) {
+  const g = EVALUATEURS.find(e => e.id === evId); if (!g) return;
+  const role = (blocsDe(S.ev).find(b => b.tri === g.tri && b.fonction) || {}).fonction || ROLE_DEFAUT;
+  await ajouterJourPourEvaluateur(evId, g.tri, ds, role, jalonId);
+}
+
+async function jmSupprimer(blocId) {
+  const b = S.blocs.find(x => x.id === blocId);
+  if (!b || b.verrouille) return;
+  const ev = b.ev, d = b.d;
+  await app([['RemoveRecord', T_UO, b.id]]);
+  await recharger();
+  if (await ajusterStatut(ev)) await recharger();
+  toast(`${frc(d)} supprimé`);
 }
 
 /* Copier une affectation déjà faite (bloc existant, quelle que soit sa mission ou son
@@ -846,11 +915,15 @@ function vueFiche() {
       <span class="sep">·</span>${esc(p.CRIT_REFERENTIEL || '—')}
       <span class="sep">·</span>contact ${esc(p.CONTACT_NOM || '—')}
       <button class="genplan" data-o="plan" style="margin:0 0 0 8px">voir le plan d’évaluation complet → onglet 3</button></div>
-    <div class="fiche">${!gens.length ? `<p class="aide" style="margin-bottom:8px">Aucun jour n’est
+    <div class="fiche">${jalonsMission()}
+      ${!gens.length ? `<p class="aide" style="margin-bottom:8px">Aucun jour n’est
         encore bloqué pour cette évaluation : ajoute directement un premier évaluateur ci-dessous,
         ou passe par l’onglet « Planning ».</p>` : ''}
       <div class="cartes">${cartes}${carteAjout}</div>
-      <p class="aide" style="margin-top:10px">Chaque bouton est un jour bloqué dans le planning.
+      <p class="aide" style="margin-top:10px">En haut, une ligne par jalon standard (tous évaluateurs
+        confondus) : choisis un évaluateur et une date puis « + » pour ajouter directement un jour sur ce
+        jalon ; « ✕ » sur une puce supprime ce jour ; « ✕ » à côté d'un jalon vide le masque pour cette
+        mission (un lien permet de le réafficher). Chaque bouton ci-dessous est un jour bloqué dans le planning.
         Un clic l’ouvre et affiche juste en dessous les jalons possibles ; un clic sur un jalon l’affecte,
         la fenêtre reste ouverte pour continuer sur un autre jour. Un jour entier peut se partager en deux
         demi-journées pour loger deux jalons (ex. lancement le matin, documentaire l’après-midi).
@@ -892,6 +965,21 @@ function vueFiche() {
     e.stopPropagation();
     supprimerEvaluateur(x.dataset.retirer);
   };
+  for (const x of $('droite').querySelectorAll('[data-jm-ajouter]')) x.onclick = async () => {
+    const jalonId = x.dataset.jmAjouter, row = x.closest('.jmligne');
+    const evId = +(row.querySelector('[data-jmsel]')?.value || 0), ds = row.querySelector('[data-jmdate]')?.value;
+    if (!evId || !ds) { toast('choisis un évaluateur et une date'); return; }
+    await jmAjouter(jalonId, evId, ds);
+  };
+  for (const x of $('droite').querySelectorAll('[data-jm-suppr]')) x.onclick = e => {
+    e.stopPropagation();
+    jmSupprimer(+x.dataset.jmSuppr);
+  };
+  for (const x of $('droite').querySelectorAll('[data-jm-masquer]')) x.onclick = () => {
+    S.jmMasques.add(x.dataset.jmMasquer); rendre();
+  };
+  const btnJmReset = $('btnJmReset');
+  if (btnJmReset) btnJmReset.onclick = () => { S.jmMasques.clear(); rendre(); };
   for (const x of $('droite').querySelectorAll('[data-setjal]')) x.onclick = async () => {
     const i = x.dataset.setjal.indexOf('|');
     const id = x.dataset.setjal.slice(0, i), jid = x.dataset.setjal.slice(i + 1);

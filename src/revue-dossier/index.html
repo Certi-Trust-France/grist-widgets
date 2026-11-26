@@ -112,6 +112,26 @@
   .fm-q b { display: block; font-size: 12px; line-height: 1.2; }
   .fm-q small { font-size: 10px; color: var(--gris); }
   .fm-j { font-size: 10.5px; color: var(--gris); white-space: nowrap; }
+  .fm-btn-retirer { border: none; background: transparent; color: var(--bord); font-size: 13px; font-weight: 700;
+    line-height: 1; cursor: pointer; padding: 2px 3px; }
+  .fm-btn-retirer:hover { color: var(--ko); }
+  .fm-jalonsMission { background: #fff; border: 1px solid var(--bord); border-radius: 8px; padding: 7px 9px; margin: 6px 0 8px; }
+  .fm-jmligne { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 4px 0; border-bottom: 1px solid var(--pale); }
+  .fm-jmligne:last-child { border-bottom: none; }
+  .fm-jmlabel { flex: 0 0 85px; font-size: 10.5px; font-weight: 700; color: var(--txt); display: flex; align-items: center; gap: 4px; }
+  .fm-jmhide { border: none; background: transparent; color: var(--bord); font-size: 10.5px; cursor: pointer; padding: 0; }
+  .fm-jmhide:hover { color: var(--ko); }
+  .fm-jmchips { flex: 1 1 180px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .fm-jmchip { display: inline-flex; align-items: center; gap: 4px; background: var(--pale); border-left: 3px solid var(--bord);
+    border-radius: 4px; padding: 1px 6px; font-size: 10px; }
+  .fm-jmx { border: none; background: transparent; color: var(--gris); font-size: 10.5px; cursor: pointer; padding: 0 1px; line-height: 1; }
+  .fm-jmx:hover { color: var(--ko); }
+  .fm-jmvide { font-size: 10px; color: var(--bord); font-style: italic; }
+  .fm-jmajout { flex: 0 0 auto; display: flex; gap: 4px; align-items: center; }
+  .fm-jmajout select, .fm-jmajout input[type=date] { border: 1px solid var(--bord); border-radius: 5px; padding: 2px 4px; font-size: 10px; }
+  .fm-jmajout button { border: none; background: var(--marine); color: #fff; font-size: 10.5px; font-weight: 700;
+    border-radius: 5px; width: 19px; height: 19px; cursor: pointer; line-height: 1; }
+  .fm-jmreset { border: none; background: transparent; color: var(--marine); font-size: 10px; cursor: pointer; padding: 4px 0 0; }
   .fm-roles { display: flex; gap: 3px; margin-top: 6px; }
   .fm-roles button { flex: 1 1 auto; border: 1px solid var(--bord); background: #fff; color: var(--gris);
     border-radius: 4px; padding: 2px 0; font-size: 10.5px; font-weight: 600; }
@@ -214,6 +234,7 @@ const fmChampsRole = (role, evr) => ({ RE: role === 'RE' ? evr : null, ETA: role
   ETM: role === 'ETM' ? ['L', evr] : ['L'], OBS: role === 'OBS' ? ['L', evr] : ['L'] });
 const fmCompte = Object.fromEntries(FM_JALONS.map(j => [j.id, j.compte]));  // bascule compte/hors forfait, par session
 const fmEditAff = new Map();  // evalId -> blocId de la popup jalon actuellement ouverte
+const fmJmMasques = new Map(); // evalId -> Set des jalons masqués (modèle « jalons de la mission »)
 const fmOuvert = new Set();   // evalId -> la fiche mission reste dépliée après un re-rendu
 
 const JALONS = [
@@ -529,7 +550,10 @@ function ligneBlocage(e) {
   const b = D.blocageParEval.get(e.id);
   const jours = b ? b.jours : 0, vendus = Number(e.JH_vendus) || 0;
   const noms = b && b.evaluateurs.size ? [...b.evaluateurs].map(D.nomEvr).sort().join(', ') : 'aucun évaluateur bloqué';
-  const etat = !vendus ? 'avenir' : jours >= vendus ? 'fait' : jours > 0 ? 'encours' : 'arret';
+  // Comparé à 1 décimale près (comme l'affichage j1) pour ne pas afficher « dépassé » sur un
+  // écart d'arrondi : orange = pas assez, vert = pile, rouge = dépasse.
+  const j10 = Math.round(jours * 10), v10 = Math.round(vendus * 10);
+  const etat = !vendus ? 'avenir' : j10 > v10 ? 'arret' : j10 === v10 ? 'fait' : 'encours';
   return `<div class="info">⏱ <span class="pastille ${etat}">${j1(jours)} / ${vendus ? j1(vendus) : '?'} j vendu(s)</span> · ${esc(noms)}</div>
     <details class="ficheMission" data-ev="${e.id}"${fmOuvert.has(e.id) ? ' open' : ''}><summary>▸ Voir / vérifier les affectations (fiche mission)</summary>${ficheMission(e.id)}</details>`;
 }
@@ -551,7 +575,8 @@ function ficheMission(evId) {
     return `<div class="fm-carte ${g.ct ? '' : 'fm-ext'}">
       <div class="fm-ent"><span class="fm-tri">${esc(g.tri)}</span>
         <span class="fm-q"><b>${esc(g.nom)}</b><small>${esc(g.ct ? 'Certi-Trust' : g.emp)}</small></span>
-        <span class="fm-j">${fmNb(total)} j bloqués</span></div>
+        <span class="fm-j">${fmNb(total)} j bloqués</span>
+        <button class="fm-btn-retirer" data-act="fm-retirer" data-ev="${evId}" data-tri="${esc(g.tri)}" title="Retirer ${esc(g.nom)} de cette mission">✕</button></div>
       <div class="fm-roles">${FM_ROLES.map(r =>
         `<button class="${role === r ? 'on' : ''}" data-act="fm-role" data-ev="${evId}" data-tri="${esc(g.tri)}" data-role="${r}">${r}</button>`).join('')}</div>
       <div class="fm-jours">${mes.map(b => { const bj = fmJal(b.jal);
@@ -593,7 +618,7 @@ function ficheMission(evId) {
     </div>
   </div>`;
 
-  return `<div class="fm-cartes">${!gens.length ? `<p class="info" style="width:100%">Aucun jour n’est encore bloqué pour cette évaluation.</p>` : ''}${cartes}${carteAjout}</div>`;
+  return `${fmJalonsMission(evId)}<div class="fm-cartes">${!gens.length ? `<p class="info" style="width:100%">Aucun jour n’est encore bloqué pour cette évaluation.</p>` : ''}${cartes}${carteAjout}</div>`;
 }
 
 // Bascule le statut de l'évaluation entre « à planifier » et « En cours » selon qu'elle a des jours
@@ -607,11 +632,12 @@ async function fmApplyEtStatut(actions, msg, evId) {
   if (bloques && e.Statut === 'à planifier') { if (await apply([['UpdateRecord', T.EV, evId, { Statut: 'En cours' }]], 'Statut de la mission → En cours')) await reload(); }
   else if (!bloques && e.Statut === 'En cours') { if (await apply([['UpdateRecord', T.EV, evId, { Statut: 'à planifier' }]], 'Statut de la mission → à planifier')) await reload(); }
 }
-async function fmAjouterJour(evId, evrId, tri, ds, role) {
+async function fmAjouterJour(evId, evrId, tri, ds, role, jalonId = null) {
   if (!fmOuvre(ds)) { status('Jour non travaillé (week-end ou férié).', 'error'); return; }
   if ((D.blocsParEval.get(evId) || []).some(b => b.tri === tri && b.d === ds)) { status('Un jour est déjà bloqué ce jour-là pour cette personne.', 'error'); return; }
-  await fmApplyEtStatut([['AddRecord', T.UO, null, { Evaluation: evId, date_debut_incluse: fmSecDeIso(ds), Jours: 1, Unite_d_oeuvre: null, ...fmChampsRole(role, evrId) }]],
-    `${fmFrc(ds)} ajouté pour ${tri}`, evId);
+  const j = fmJal(jalonId);
+  await fmApplyEtStatut([['AddRecord', T.UO, null, { Evaluation: evId, date_debut_incluse: fmSecDeIso(ds), Jours: 1, Unite_d_oeuvre: jalonId, ...fmChampsRole(role, evrId) }]],
+    `${fmFrc(ds)} ajouté pour ${tri}` + (j ? ` — ${j.court}` : ''), evId);
 }
 function fmAjouterJourFiche(evId, tri, ds) {
   const role = ((D.blocsParEval.get(evId) || []).find(b => b.tri === tri && b.fonction) || {}).fonction || FM_ROLE_DEFAUT;
@@ -621,6 +647,54 @@ function fmAjouterJourFiche(evId, tri, ds) {
 function fmAjouterEvaluateur(evId, evrId, ds) {
   const g = D.evaluateursTous.find(e => e.id === evrId); if (!g) return;
   return fmAjouterJour(evId, evrId, g.tri, ds, FM_ROLE_DEFAUT);
+}
+// Retire une personne de la mission : supprime ses jours en UO à elle seule (les UO partagées
+// restent, à démêler depuis le planning existant) — même règle que planning-missions.
+async function fmRetirerEvaluateur(evId, tri) {
+  const mes = (D.blocsParEval.get(evId) || []).filter(b => b.tri === tri);
+  const libres = mes.filter(b => !b.verrouille), partagees = mes.filter(b => b.verrouille);
+  const nom = (D.evaluateursTous.find(e => e.tri === tri) || {}).nom || tri;
+  if (!libres.length) { status('Rien à retirer : tous les jours de cette personne sont dans des UO partagées.', 'error'); return; }
+  const msg = `Retirer ${nom} de cette mission ? ${libres.length} jour(s) bloqué(s) seront supprimés.`
+    + (partagees.length ? `\n${partagees.length} jour(s) en UO partagée resteront (à modifier depuis le planning existant).` : '');
+  if (!confirm(msg)) return;
+  await fmApplyEtStatut(libres.map(b => ['RemoveRecord', T.UO, b.id]), `${nom} retiré de la mission`, evId);
+}
+// Modèle « jalons de la mission » (reprise de src/planning-missions) : une ligne par jalon
+// standard, au niveau de la mission, pour ajouter/retirer un jour sans passer par une personne.
+function fmJalonsMission(evId) {
+  const blocs = (D.blocsParEval.get(evId) || []).filter(b => b.jal);
+  const masques = fmJmMasques.get(evId) || new Set();
+  const lignes = FM_JALONS.filter(j => blocs.some(b => b.jal === j.id) || !masques.has(j.id)).map(j => {
+    const mes = blocs.filter(b => b.jal === j.id).sort((a, b) => a.d.localeCompare(b.d));
+    const chips = mes.map(b => `<span class="fm-jmchip" style="border-left-color:${j.c}">
+        ${b.verrouille ? '🔒 ' : ''}${esc(b.tri)} · ${fmFrc(b.d)}${b.p < 1 ? ' ½' : ''}
+        ${b.verrouille ? '' : `<button class="fm-jmx" data-act="fm-jm-suppr" data-ev="${evId}" data-bloc="${b.id}" title="Supprimer ce jour">✕</button>`}
+      </span>`).join('') || '<span class="fm-jmvide">aucun jour</span>';
+    return `<div class="fm-jmligne">
+      <span class="fm-jmlabel">${esc(j.court)}${!mes.length
+        ? `<button class="fm-jmhide" data-act="fm-jm-masquer" data-ev="${evId}" data-jal="${esc(j.id)}" title="Masquer ce jalon pour cette mission">✕</button>` : ''}</span>
+      <span class="fm-jmchips">${chips}</span>
+      <span class="fm-jmajout">
+        <select data-fmjmsel="${evId}|${esc(j.id)}"><option value="">évaluateur…</option>
+          ${D.evaluateursTous.map(e => `<option value="${e.id}">${esc(e.tri)} — ${esc(e.nom)}</option>`).join('')}</select>
+        <input type="date" data-fmjmdate="${evId}|${esc(j.id)}">
+        <button data-act="fm-jm-ajouter" data-ev="${evId}" data-jal="${esc(j.id)}" title="Ajouter un jour pour ce jalon">+</button>
+      </span>
+    </div>`;
+  }).join('');
+  return `<div class="fm-jalonsMission">${lignes}
+    ${masques.size ? `<button class="fm-jmreset" data-act="fm-jm-reset" data-ev="${evId}">↺ réafficher les ${masques.size} jalon(s) masqué(s)</button>` : ''}
+  </div>`;
+}
+function fmJmAjouter(evId, jalonId, evrId, ds) {
+  const g = D.evaluateursTous.find(e => e.id === evrId); if (!g) return;
+  const role = ((D.blocsParEval.get(evId) || []).find(b => b.tri === g.tri && b.fonction) || {}).fonction || FM_ROLE_DEFAUT;
+  return fmAjouterJour(evId, evrId, g.tri, ds, role, jalonId);
+}
+function fmJmSupprimer(evId, blocId) {
+  const b = (D.blocsParEval.get(evId) || []).find(z => z.id === blocId); if (!b || b.verrouille) return;
+  return fmApplyEtStatut([['RemoveRecord', T.UO, b.id]], `${fmFrc(b.d)} supprimé`, evId);
 }
 async function fmChangerRole(evId, tri, role) {
   const mes = (D.blocsParEval.get(evId) || []).filter(b => b.tri === tri);
@@ -1235,6 +1309,21 @@ main.addEventListener('click', async ev => {
     if (!evrId || !ds) { status('Choisis un évaluateur et une date.', 'error'); return; }
     return fmAjouterEvaluateur(evId, evrId, ds);
   }
+  if (act === 'fm-retirer') return fmRetirerEvaluateur(+b.dataset.ev, b.dataset.tri);
+  if (act === 'fm-jm-ajouter') {
+    const evId = +b.dataset.ev, jalId = b.dataset.jal, ligne = b.closest('.fm-jmligne');
+    const evrId = +(ligne.querySelector('[data-fmjmsel]')?.value || 0), ds = ligne.querySelector('[data-fmjmdate]')?.value;
+    if (!evrId || !ds) { status('Choisis un évaluateur et une date.', 'error'); return; }
+    return fmJmAjouter(evId, jalId, evrId, ds);
+  }
+  if (act === 'fm-jm-suppr') return fmJmSupprimer(+b.dataset.ev, +b.dataset.bloc);
+  if (act === 'fm-jm-masquer') {
+    const evId = +b.dataset.ev;
+    if (!fmJmMasques.has(evId)) fmJmMasques.set(evId, new Set());
+    fmJmMasques.get(evId).add(b.dataset.jal);
+    return render();
+  }
+  if (act === 'fm-jm-reset') { fmJmMasques.delete(+b.dataset.ev); return render(); }
   if (act === 'creer-eval') return creerEval(+b.dataset.ch);
   if (act === 'courrier') return ouvrirCourrier();
   if (act === 'cour-prog' || act === 'cour-civ') {
