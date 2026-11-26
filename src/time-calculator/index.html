@@ -202,9 +202,10 @@ const ROLES_JSON = [
 ];
 
 const LOTS = [
-  { n: 1, lib: 'Lot 1 – Gestion et revue documentaire', court: 'gestion et revue documentaire' },
-  { n: 2, lib: 'Lot 2 – Évaluation site', court: 'évaluation site' },
-  { n: 3, lib: 'Lot 3 – Prestations témoin et rapport', court: 'prestations témoin et rapport' },
+  { n: 1, lib: 'Lot 1 – Gestion et organisation', court: 'gestion et organisation' },
+  { n: 2, lib: 'Lot 2 – Évaluation documentaire', court: 'évaluation documentaire' },
+  { n: 3, lib: 'Lot 3 – Évaluation site', court: 'évaluation site' },
+  { n: 4, lib: 'Lot 4 – Prestations témoin et rapport', court: 'prestations témoin et rapport' },
 ];
 
 // Ordre = priorité du programme principal (spec § 3.5).
@@ -234,7 +235,8 @@ const MODULATEURS = [
 // Catalogue des UO (1 ligne de la grille TEM-402 = 1 UO). Le rattachement suit la spec § 3.5 :
 // commune → prestation principale ; programme → une UO par programme ; partagee → JH sur la principale,
 // UO à 0 JH dans les autres ; site → une UO par site évalué ; portee → une UO par portée retenue.
-// Lot 1 = gestion et tout le documentaire, lot 2 = tout ce qui se fait sur site, lot 3 = prestations témoin et rapports.
+// Lot 1 = gestion et organisation (tout ce qui n'est pas évaluation), lot 2 = évaluation documentaire,
+// lot 3 = tout ce qui se fait sur site, lot 4 = prestations témoin et rapports.
 const CATALOGUE = [
   { id: 'recevabilite', lot: 1, type: 'commune', lib: 'Étude de recevabilité' },
   { id: 'suivi', lot: 1, type: 'commune', lib: 'Suivi de la prestation' },
@@ -242,17 +244,17 @@ const CATALOGUE = [
   { id: 'pilotage', lot: 1, type: 'commune', lib: 'Réunion de lancement' },
   { id: 'comite', lot: 1, type: 'commune', lib: 'Comité de certification et émission du ou des certificats' },
   { id: 'plan', lot: 1, type: 'programme', lib: 'Plan d’évaluation' },
-  { id: 'doc_prestataire', lot: 1, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire applicable au prestataire' },
-  { id: 'doc_prestation', lot: 1, type: 'programme', lib: 'Évaluation documentaire applicable à la prestation' },
-  { id: 'si_doc', lot: 1, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire technique du système d’information' },
-  { id: 'metier_doc', lot: 1, type: 'portee', niveaux: true, lib: 'Évaluation documentaire métier' },
-  { id: 'site_prestataire', lot: 2, type: 'partagee', cond: 'toujours', lib: 'Évaluation sur site applicable au prestataire' },
-  { id: 'secu_physique', lot: 2, type: 'site', lib: 'Évaluation sécurité physique' },
-  { id: 'si_ii901', lot: 2, type: 'partagee', cond: 'eleve', lib: 'Évaluation SI DR II901' },
-  { id: 'si_ghy_renforce', lot: 2, type: 'partagee', cond: 'eleve', lib: 'Évaluation SI DR GHY renforcé' },
-  { id: 'si_ghy_standard', lot: 2, type: 'partagee', cond: 'non_eleve', lib: 'Évaluation SI GHY standard' },
-  { id: 'metier_temoin', lot: 3, type: 'portee', niveaux: true, lib: 'Évaluation métier applicabilité (prestation témoin)' },
-  { id: 'livrables', lot: 3, type: 'programme', lib: 'Rapport' },
+  { id: 'doc_prestataire', lot: 2, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire applicable au prestataire' },
+  { id: 'doc_prestation', lot: 2, type: 'programme', lib: 'Évaluation documentaire applicable à la prestation' },
+  { id: 'si_doc', lot: 2, type: 'partagee', cond: 'toujours', lib: 'Évaluation documentaire technique du système d’information' },
+  { id: 'metier_doc', lot: 2, type: 'portee', niveaux: true, lib: 'Évaluation documentaire métier' },
+  { id: 'site_prestataire', lot: 3, type: 'partagee', cond: 'toujours', lib: 'Évaluation sur site applicable au prestataire' },
+  { id: 'secu_physique', lot: 3, type: 'site', lib: 'Évaluation sécurité physique' },
+  { id: 'si_ii901', lot: 3, type: 'partagee', cond: 'eleve', lib: 'Évaluation SI DR II901' },
+  { id: 'si_ghy_renforce', lot: 3, type: 'partagee', cond: 'eleve', lib: 'Évaluation SI DR GHY renforcé' },
+  { id: 'si_ghy_standard', lot: 3, type: 'partagee', cond: 'non_eleve', lib: 'Évaluation SI GHY standard' },
+  { id: 'metier_temoin', lot: 4, type: 'portee', niveaux: true, lib: 'Évaluation métier applicabilité (prestation témoin)' },
+  { id: 'livrables', lot: 4, type: 'programme', lib: 'Rapport' },
 ];
 
 const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -837,7 +839,7 @@ function genererJustification(res) {
     ? '\n- un système d’information de diffusion restreinte homologué, évalué au regard de l’II901 et du guide d’hygiène renforcé ;'
     : '\n- un système d’information évalué au regard du guide d’hygiène de l’ANSSI, niveau standard ;';
   if (amenage) t += '\n- une organisation et un système d’information déclarés non complexes au sens du chapitre 3 de la note n°2905, condition d’éligibilité au processus aménagé.';
-  t += '\n\nLa prestation est décomposée en trois lots : gestion et revue documentaire, évaluation site, prestations témoin et rapport.';
+  t += '\n\nLa prestation est décomposée en quatre lots : gestion et organisation, évaluation documentaire, évaluation site, prestations témoin et rapport.';
   t += (init.length ? ' Elle couvre la revue de la demande de certification, ' : ' Elle couvre ')
     + 'les travaux d’évaluation, la production et la revue des livrables, la décision de certification et sa transmission à l’ANSSI, ainsi que le suivi du service certifié.\n';
   t += 'Ne sont pas couverts : les examens de compétence, facturés distinctement ; les travaux complémentaires demandés au jalon J2 ; les évaluations liées à une modification substantielle, une réclamation ou une demande de l’ANSSI ; les prestations témoins supplémentaires si celles présentées ne couvrent pas les portées retenues.\n\n';
