@@ -93,6 +93,13 @@
   .config label { display:block; margin:6px 0 2px; color:var(--gris); }
   .config input { width:100%; font:inherit; padding:4px 6px; border:1px solid var(--bord); border-radius:4px; }
   .config .act-cfg { margin-top:8px; display:flex; gap:6px; }
+  .prep { max-width:860px; margin:10px auto 0; background:#fff; border:1px solid var(--bord); border-radius:6px; padding:10px 12px; font-size:12px; display:none; }
+  .prep label { display:block; margin:6px 0 2px; color:var(--gris); }
+  .prep .champ { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+  .prep .champ input { flex:1; font:inherit; padding:4px 6px; border:1px solid var(--bord); border-radius:4px; background:var(--pale); }
+  .prep .champ button { font-size:11px; padding:3px 8px; white-space:nowrap; }
+  .prep iframe { width:100%; height:340px; border:1px solid var(--bord); border-radius:4px; background:#fff; }
+  .prep .act-prep { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
   table.charge th, table.charge td { text-align:center; } table.charge td:first-child, table.charge th:first-child { text-align:left; }
   table.charge .dest { font-weight:700; background:#f3f6fc; }
   table.charge .plan { color:var(--gris); font-size:11px; }
@@ -109,14 +116,25 @@
   <button id="btn-config" title="Flux Power Automate et expéditeur">⚙ Configuration</button>
 </div>
 <div id="config" class="config">
-  <b>Configuration de l’envoi</b> — stockée dans le document Grist (options du widget), jamais dans le dépôt Git.
-  <label for="cfg-url">URL du flux Power Automate (même flux que les comptes rendus d’examen)</label>
-  <input id="cfg-url" type="text" placeholder="https://…invoke?api-version=1&sp=…&sv=1.0&sig=…">
-  <label for="cfg-from">Adresse d’expédition (from)</label>
+  <b>Configuration de l’email</b> — stockée dans le document Grist (options du widget), jamais dans le dépôt Git.
+  <label for="cfg-from">Adresse d’expédition (affichée en « De » dans l’email préparé)</label>
   <input id="cfg-from" type="text" placeholder="ex. evaluation@certi-trust.com">
   <label for="cfg-cc">Copie systématique (cc, séparées par des virgules) — le RE est toujours mis en copie</label>
   <input id="cfg-cc" type="text" placeholder="ex. planification@certi-trust.com">
   <div class="act-cfg"><button id="cfg-ok" class="prim">Enregistrer</button><button id="cfg-annuler">Annuler</button></div>
+</div>
+<div id="prep" class="prep">
+  <b>Email pour l’évaluateur</b> — à copier-coller dans votre messagerie, puis à envoyer manuellement.
+  <div class="champ"><label>À</label><input id="prep-to" readonly><button data-copier="to">Copier</button></div>
+  <div class="champ"><label>Cc</label><input id="prep-cc" readonly><button data-copier="cc">Copier</button></div>
+  <div class="champ"><label>Objet</label><input id="prep-objet" readonly><button data-copier="objet">Copier</button></div>
+  <label>Corps</label>
+  <iframe id="prep-corps"></iframe>
+  <div class="act-prep">
+    <button id="prep-copier-corps" class="prim">Copier le corps (mise en forme conservée)</button>
+    <button id="prep-marquer">✅ Marquer comme envoyé</button>
+    <button id="prep-fermer">Fermer</button>
+  </div>
 </div>
 <div id="alerte"></div>
 <div id="msgs" class="msgs"></div>
@@ -648,7 +666,7 @@ function pdfTableChamps(titre, champs, total) {
 }
 const CHARGES = ['CHARGE_PILOTAGE', 'CHARGE_LANCEMENT', 'CHARGE_DOC', 'CHARGE_SIEGE', 'CHARGE_SI', 'CHARGE_TEMOIN', 'CHARGE_LIVRABLES', 'CHARGE_SOUTENANCE'];
 const COL_ENVOI = 'Envoi_ODM';      // case à cocher de la page 48, cochée quand toute l'équipe a reçu son ODM
-let config = { webhookUrl: '', from: '', cc: '' };
+let config = { from: '', cc: '' };
 let dest = null;                    // trigramme de l'évaluateur affiché
 let colEnvoi = false;
 let confirmer = null;               // envoi malgré des cases vides : second clic
@@ -781,7 +799,6 @@ function statut(m) {
 }
 function messages(eq) {
   const err = [], warn = [];
-  if (!config.webhookUrl) warn.push('URL du flux Power Automate non configurée : cliquez sur ⚙ Configuration.');
   if (!config.from) warn.push('Adresse d’expédition non configurée : cliquez sur ⚙ Configuration.');
   if (!eq.length) err.push('Aucun évaluateur : positionnez l’équipe au planning (page 63) ou dans le plan d’évaluation.');
   const sansMail = eq.filter(m => vide(m.mail)).map(cle); if (sansMail.length) warn.push(`Sans email (à corriger dans le plan d’évaluation ou dans Evaluateurs) : ${sansMail.join(', ')}.`);
@@ -808,12 +825,12 @@ function rendre() {
   h += '<table class="equipe-odm"><thead><tr><th class="bar" colspan="6">Équipe de la mission — un ordre de mission par évaluateur</th></tr>'
     + '<tr class="sous"><th style="width:26%">Évaluateur</th><th style="width:22%">Qualité</th><th style="width:8%">Jours</th><th style="width:20%">Email</th><th style="width:14%">Statut</th><th></th></tr></thead><tbody>';
   for (const x of eq) {
-    const t = cle(x), ok = !vide(x.mail) && config.webhookUrl && config.from && totalDe(t) > 0 && !ms.err.length;
+    const t = cle(x), ok = !vide(x.mail) && totalDe(t) > 0 && !ms.err.length;
     h += `<tr class="${t === dest ? 'sel' : ''}"><td><a href="#" data-act="dest" data-t="${esc(t)}">${esc(x.nom)}${x.tri ? ` (${esc(x.tri)})` : ''}</a></td>`
       + `<td>${esc(qualite(x)).replace(/\n/g, '<br>') || '<span class="vide-txt">à compléter</span>'}</td><td>${esc(nombre(totalDe(t)))}</td>`
       + `<td>${x.mail ? esc(x.mail) : '<span class="vide-txt">manquant</span>'}</td><td>${statut(x)}</td>`
       + `<td class="btns"><button data-act="dest" data-t="${esc(t)}">Voir</button> <button data-act="pdf" data-t="${esc(t)}">PDF</button> `
-      + `<button class="prim" data-act="envoyer" data-t="${esc(t)}" ${ok ? '' : 'disabled'} title="Envoyer l’ODM par email via Power Automate">✉ Envoyer</button></td></tr>`;
+      + `<button class="prim" data-act="preparer" data-t="${esc(t)}" ${ok ? '' : 'disabled'} title="Préparer l’email de l’ODM à copier-coller pour l’évaluateur">✉ Préparer l’email</button></td></tr>`;
   }
   h += '</tbody></table>';
   if (m) h += rendreOdm(m, eq);
@@ -900,7 +917,7 @@ async function action(d) {
   if (d.act === 'cc-fermer') { ouvert = null; rendre(); return; }
   if (d.act === 'dest') { dest = d.t; rendre(); return; }
   if (d.act === 'pdf') { exporterPdf(d.t); return; }
-  if (d.act === 'envoyer') { envoyer(d.t); return; }
+  if (d.act === 'preparer') { preparerEmail(d.t); return; }
   await muter(() => {
     if (d.act === 'raz') delete P.champs[d.k];
     else if (d.act === 'raz-odm') {
@@ -980,30 +997,61 @@ function signature(m) {
   return (h >>> 0).toString(16);
 }
 
-/* ═════════ Envoi via Power Automate (même charge utile que cr-oral / cr-ecrit) ═════════ */
-async function envoyer(t) {
+/* ═════════ Préparation de l’email (copier-coller manuel, pas d’envoi automatique) ═════════ */
+let prep = null; // { t, m, cc, corps, sig }
+function preparerEmail(t) {
   const eq = equipeOdm(), m = eq.find(x => cle(x) === t);
-  if (!m || vide(m.mail) || !config.webhookUrl || !config.from) return;
+  if (!m || vide(m.mail)) return;
   const re = eq.find(x => /Responsable/.test(qualite(x)));
   const cc = [...new Set([...(re && cle(re) !== t && re.mail ? [re.mail] : []), ...config.cc.split(/[,;\s]+/).filter(Boolean)])];
   const manque = champsOdm().filter(c => etat(c.k, c.opt) === 'manque').length;
-  if (manque && confirmer !== t) { confirmer = t; toast(`${manque} case(s) encore à compléter : cliquez de nouveau sur ✉ Envoyer pour envoyer quand même.`, 5000); setTimeout(() => { if (confirmer === t) confirmer = null; }, 8000); return; }
+  if (manque && confirmer !== t) { confirmer = t; toast(`${manque} case(s) encore à compléter : cliquez de nouveau sur ✉ Préparer l’email pour continuer quand même.`, 5000); setTimeout(() => { if (confirmer === t) confirmer = null; }, 8000); return; }
   confirmer = null;
   const corps = htmlEmail(m, eq), sig = signature(m);
-  toast('Envoi en cours…', 8000);
+  prep = { t, m, cc, corps, sig };
+  $('prep-to').value = m.mail;
+  $('prep-cc').value = cc.join(', ');
+  $('prep-objet').value = objet(m);
+  $('prep-corps').srcdoc = corps;
+  $('prep').style.display = 'block';
+  $('prep').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+async function copier(texte, libelle) {
+  try { await navigator.clipboard.writeText(texte); toast(`${libelle} copié`); }
+  catch { toast(`Impossible de copier automatiquement : sélectionnez le champ « ${libelle} ».`, 4000); }
+}
+async function copierCorps() {
+  if (!prep) return;
+  const texte = $('prep-corps').contentDocument ? $('prep-corps').contentDocument.body.innerText : '';
   try {
-    const r = await fetch(config.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: config.from, to: m.mail, cc, objet: objet(m), corps_html: corps }) });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-  } catch (e) { toast('❌ Échec de l’envoi : ' + (e.message || e), 6000); return; }
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([prep.corps], { type: 'text/html' }),
+        'text/plain': new Blob([texte], { type: 'text/plain' }),
+      })]);
+      toast('Corps de l’email copié (mise en forme conservée)');
+    } else { await navigator.clipboard.writeText(texte); toast('Corps de l’email copié (texte brut)'); }
+  } catch { toast('Impossible de copier automatiquement : sélectionnez le contenu ci-dessus.', 4000); }
+}
+async function marquerEnvoye() {
+  if (!prep) return;
+  const { t, m, sig } = prep;
   await muter(() => { sous_('envois')[t] = { date: Math.floor(Date.now() / 1000), sig, jours: nombre(totalDe(t)), mail: m.mail }; });
   // Case de la page 48 : cochée quand chaque évaluateur ayant des jours a reçu son ODM
   const tous = equipeOdm().filter(x => totalDe(cle(x)) > 0).every(x => P.odm.envois && P.odm.envois[cle(x)]);
   if (colEnvoi && tous && !ctx.ev[COL_ENVOI]) {
     try { await grist.docApi.applyUserActions([['UpdateRecord', 'Evaluations', evalId, { [COL_ENVOI]: true }]]); ctx.ev[COL_ENVOI] = true; } catch { /* trace déjà dans le plan */ }
   }
-  toast(`✅ Ordre de mission envoyé à ${m.nom}${tous ? ' — toute l’équipe a reçu son ODM' : ''}`, 4000);
+  $('prep').style.display = 'none'; prep = null;
+  toast(`✅ Ordre de mission marqué envoyé à ${m.nom}${tous ? ' — toute l’équipe a reçu son ODM' : ''}`, 4000);
 }
+$('prep-fermer').onclick = () => { $('prep').style.display = 'none'; prep = null; };
+$('prep-copier-corps').onclick = copierCorps;
+$('prep-marquer').onclick = marquerEnvoye;
+document.querySelectorAll('[data-copier]').forEach(b => b.onclick = () => {
+  const champ = b.dataset.copier, libelles = { to: 'Destinataire', cc: 'Cc', objet: 'Objet' };
+  copier($('prep-' + champ).value, libelles[champ]);
+});
 
 /* ═════════ PDF ═════════ */
 function exporterPdf(t) {
@@ -1043,11 +1091,11 @@ function exporterPdf(t) {
 }
 
 /* ═════════ Configuration (options du widget, côté document Grist) ═════════ */
-function ouvrirConfig() { $('cfg-url').value = config.webhookUrl; $('cfg-from').value = config.from; $('cfg-cc').value = config.cc; $('config').style.display = 'block'; }
+function ouvrirConfig() { $('cfg-from').value = config.from; $('cfg-cc').value = config.cc; $('config').style.display = 'block'; }
 $('btn-config').onclick = ouvrirConfig;
 $('cfg-annuler').onclick = () => { $('config').style.display = 'none'; };
 $('cfg-ok').onclick = async () => {
-  config = { webhookUrl: $('cfg-url').value.trim(), from: $('cfg-from').value.trim(), cc: $('cfg-cc').value.trim() };
+  config = { from: $('cfg-from').value.trim(), cc: $('cfg-cc').value.trim() };
   try { await grist.setOptions(config); } catch { for (const [k, v] of Object.entries(config)) await grist.setOption(k, v); }
   $('config').style.display = 'none'; rendre();
 };
@@ -1067,7 +1115,7 @@ function preparer() {
   dernierEnr = brut || '';
 }
 grist.ready({ requiredAccess: 'full', onEditOptions: ouvrirConfig });
-grist.onOptions(o => { config = { webhookUrl: (o && o.webhookUrl) || '', from: (o && o.from) || '', cc: (o && o.cc) || '' }; if (ctx.ev) rendre(); });
+grist.onOptions(o => { config = { from: (o && o.from) || '', cc: (o && o.cc) || '' }; if (ctx.ev) rendre(); });
 grist.onRecord(async rec => {
   if (!rec || !rec.id) return;
   if (T && rec.id === evalId && (enEdition || !(COL in rec) || (rec[COL] || '') === (dernierEnr || ''))) return;
