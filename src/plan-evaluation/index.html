@@ -534,7 +534,7 @@ const CHARGES = DOCS.plan.blocs[3].champs.map(c => c.k).filter(k => k !== 'CHARG
 
 /* ═════════ Lecture Grist ═════════ */
 async function chargerTables() {
-  const noms = ['Evaluations', 'Entreprises', 'Sites', 'Contacts', 'Programmes', 'Documents_Referentiel',
+  const noms = ['Evaluations', 'Entreprises', 'Sites', 'Contacts', 'Programmes', 'Documents_Referentiel', 'Trames',
     'Qualifications_List', 'Unites_d_oeuvre', 'Evaluateurs', 'TEM_404', 'Systemes_Information', 'Propositions_prestation'];
   const res = await Promise.all(noms.map(n => grist.docApi.fetchTable(n).then(rows).catch(() => [])));
   T = {};
@@ -620,7 +620,13 @@ function calculer(id) {
     if (l.length === 1) refDoc = l[0];
     set('CRIT_REFERENTIEL', l.map(doc), 'Programmes.Referentiel' + (choisi.length ? ` (version ${vTem} du TEM-404)` : ''));
   }
-  set('CRIT_TRAME', doc(T.Documents_Referentiel.par.get(refId(prog.Trame))), 'Programmes.Trame');
+  const trame = r => r ? [r.Nom_fichier || r.Nom, r.Version && 'v' + r.Version].filter(Boolean).join(' – ') : '';
+  const trEv = T.Trames.par.get(refId(ev.Trame));
+  const trRef = refDoc && T.Trames.par.get(liste(refDoc.Trame)[0]);
+  const trProg = liste(prog.Trame).map(i => T.Trames.par.get(i)).filter(Boolean);
+  const trDoc = trEv || trRef;
+  if (trDoc) set('CRIT_TRAME', trame(trDoc), trEv ? 'Evaluations.Trame' : 'Documents_Referentiel.Trame');
+  else set('CRIT_TRAME', trProg.map(trame), 'Programmes.Trame');
   set('CRIT_REGLEMENT', doc(T.Documents_Referentiel.par.get(refId(prog.Reglement))), 'Programmes.Reglement');
   const modele = MODELE_PROGRAMME[progNom] || {};
   for (const [k, v] of Object.entries(modele)) if (!B[k]) set(k, v, 'Modèle de plan ' + progNom, 'modele');

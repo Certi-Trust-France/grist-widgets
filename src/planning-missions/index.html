@@ -670,11 +670,13 @@ function champsRole(role, evr) {
 async function cycler(tri, d) {
   if (!ouvre(d)) { toast('jour non travaillé'); return; }
   const evr = (EVALUATEURS.find(x => x.tri === tri) || {}).id; if (!evr) return;
-  const b = S.blocs.find(x => x.ev === S.ev && x.tri === tri && x.d === d);
-  if (b && b.verrouille) { toast('ce jour est déjà planifié dans une UO partagée — à modifier depuis le planning existant'); return; }
   const ev = S.ev;
+  if (!ev) { toast('aucune évaluation sélectionnée'); return; }
+  const b = S.blocs.find(x => x.ev === ev && x.tri === tri && x.d === d);
+  if (b && b.verrouille) { toast('ce jour est déjà planifié dans une UO partagée — à modifier depuis le planning existant'); return; }
   if (!b) await app([['AddRecord', T_UO, null,
-    { Evaluation: ev, date_debut_incluse: secDeIso(d), Jours: 0.5, Unite_d_oeuvre: null, ...champsRole(ROLE_DEFAUT, evr) }]]);
+    { Evaluation: ev, date_debut_incluse: secDeIso(d), Jours: 0.5, Unite_d_oeuvre: null, ...champsRole(ROLE_DEFAUT, evr) }],
+    ...statutEnCours(ev)]);
   else if (b.p === 0.5) await app([['UpdateRecord', T_UO, b.id, { Jours: 1 }]]);
   else await app([['RemoveRecord', T_UO, b.id]]);
   await recharger();
@@ -700,13 +702,16 @@ async function basculerBloc(blocId, tri) {
    entrer une nouvelle (ajouterEvaluateur) : même garde-fous que cycler (jour ouvré, pas de doublon). */
 async function ajouterJourPourEvaluateur(evId, tri, ds, role, jalonId = null) {
   if (!ouvre(ds)) { toast('jour non travaillé (week-end ou férié)'); return; }
-  if (S.blocs.find(x => x.ev === S.ev && x.tri === tri && x.d === ds)) {
+  const ev = S.ev;
+  if (!ev) { toast('aucune évaluation sélectionnée'); return; }
+  if (S.blocs.find(x => x.ev === ev && x.tri === tri && x.d === ds)) {
     toast('un jour est déjà bloqué ce jour-là pour cette personne sur cette mission'); return;
   }
   await app([['AddRecord', T_UO, null,
-    { Evaluation: S.ev, date_debut_incluse: secDeIso(ds), Jours: 1, Unite_d_oeuvre: jalonId, ...champsRole(role, evId) }]]);
+    { Evaluation: ev, date_debut_incluse: secDeIso(ds), Jours: 1, Unite_d_oeuvre: jalonId, ...champsRole(role, evId) }],
+    ...statutEnCours(ev)]);
   await recharger();
-  if (await ajusterStatut(S.ev)) await recharger();
+  if (await ajusterStatut(ev)) await recharger();
   const j = jal(jalonId);
   toast(`${frc(ds)} ajouté pour ${tri}` + (j ? ` — ${j.court}` : ''));
 }
@@ -815,10 +820,22 @@ async function coller(tri, d) {
   }
   await app([['AddRecord', T_UO, null,
     { Evaluation: c.ev, date_debut_incluse: secDeIso(d), Jours: c.p, Unite_d_oeuvre: c.jal,
-      ...champsRole(c.fonction, evr) }]]);
+      ...champsRole(c.fonction, evr) }],
+    ...statutEnCours(c.ev)]);
   await recharger();
   if (await ajusterStatut(c.ev)) await recharger();
   toast(`copié sur ${frc(d)} — ${tri}`);
+}
+
+/* Bascule préventive « à planifier » → « En cours », à inclure dans le même lot que le tout
+   premier AddRecord d'une mission. Sans ça, recharger() (appelé juste après) recalcule l'onglet
+   fiche — qui ne liste que les missions « En cours » — avant qu'ajusterStatut() ait eu la main :
+   S.ev sort un instant de la liste, rendreGauche() le fait dériver vers une autre mission, et le
+   clic suivant écrit alors une Unites_d_oeuvre avec la mauvaise évaluation (ou aucune). */
+function statutEnCours(evId) {
+  const e = S.D.Evaluations.find(x => x.id === evId);
+  return (e && e.Statut === 'à planifier' && bloques(evId) === 0)
+    ? [['UpdateRecord', 'Evaluations', evId, { Statut: 'En cours' }]] : [];
 }
 
 /* La présence d'au moins un jour bloqué fait basculer Evaluations.Statut vers « En cours »,
