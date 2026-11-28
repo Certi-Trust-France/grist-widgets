@@ -183,8 +183,21 @@ const T = {
   REV: 'Revues_de_dossier', REF: 'Referentiels_revue', PTS: 'Revues_points', TEM: 'TEM_404',
   PL: 'Propositions_commerciales', CH: 'Propositions_prestation', EV: 'Evaluations',
   ENT: 'Entreprises', PROG: 'Programmes', QL: 'Qualifications_List', LIS: 'LIS_12',
-  UO: 'Unites_d_oeuvre', EVR: 'Evaluateurs',
+  UO: 'Unites_d_oeuvre', EVR: 'Evaluateurs', TRF: 'Transferts_qualification',
 };
+
+// Checklist TEM-95 (gabarit v3.1) : revue et décision préalable au transfert de qualification.
+// Réponses enregistrées dans Transferts_qualification.Checklist_json (une ligne par revue).
+const CHECKLIST_TRANSFERT = [
+  { id: 'perimetre_accredite', libelle: "La certification du client est dans le périmètre accrédité de l'organisme émetteur et de Certi-Trust" },
+  { id: 'perimetre_mla', libelle: "Le périmètre accrédité de l'organisme émetteur est dans le périmètre MLA de son organisme d'accréditation" },
+  { id: 'justification_client', libelle: "Le client a justifié les raisons de la demande de transfert" },
+  { id: 'certification_valide', libelle: "Le(s) site(s) concerné(s) détiennent une certification accréditée valide" },
+  { id: 'rapports_disponibles', libelle: "Les rapports d'audit (initial / dernière recertification), le dernier rapport de surveillance, le statut des non-conformités en cours et toute autre documentation pertinente sont disponibles" },
+  { id: 'reclamations', libelle: "Les réclamations reçues et les actions prises sont connues" },
+  { id: 'plan_audit', libelle: "Les éléments nécessaires à l'établissement du plan et du programme d'audit sont pris en compte" },
+  { id: 'conformite_reglementaire', libelle: "Les engagements en cours du client avec des autorités réglementaires pertinentes pour le périmètre de certification sont connus" },
+];
 // Pages du document vers lesquelles la fiche renvoie
 const PAGES = { tem400: 81, plan: 87, odm: 89, lis: 72 };
 const SECTION_LIS = 341;    // section LIS-12 de la page 72 (lien vers le certificat)
@@ -326,6 +339,7 @@ function build(t) {
     recevable: has(t.REV, 'Recevable'), dateRecev: has(t.REV, 'Date_recevabilite'),
     dateRapport: has(t.REV, 'Date_livraison_rapport'), lienRapport: has(t.REV, 'Lien_rapport'),
     certificat: has(t.REV, 'Certificat'),
+    transfert: has(t.REV, 'Transfert_qualification'), transfertTable: !!t.TRF,
   };
   const ent  = t.ENT  ? new Map(rowsOf(t.ENT).map(r => [r.id, r])) : new Map();
   const prog = t.PROG ? new Map(rowsOf(t.PROG).map(r => [r.id, String(r.Nom_du_programme || '')])) : new Map();
@@ -388,7 +402,10 @@ function build(t) {
     const f = fonctionUO(u);
     if (f && f !== 'OBS') {
       const b = blocageParEval.get(u.Evaluation) || { jours: 0, evaluateurs: new Set() };
-      b.jours += Number(u.Jours) || 0;
+      // Lancement et clôture sont hors production réelle : ils comptent dans le plan d'évaluation
+      // mais pas dans ce comparatif jours bloqués / jours vendus.
+      const j = fmJal(u.Unite_d_oeuvre);
+      if (!j || j.compte !== false) b.jours += Number(u.Jours) || 0;
       (f === 'RE' ? [u.RE] : ids(u[f])).forEach(id => b.evaluateurs.add(id));
       blocageParEval.set(u.Evaluation, b);
     }
@@ -405,7 +422,9 @@ function build(t) {
     blocsParEval.set(u.Evaluation, l);
   }
 
-  return { rev, tem, ent, entId, cert, certs, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv, nomEvr, blocageParEval, evaluateursTous, blocsParEval };
+  const trf = t.TRF ? rowsOf(t.TRF).find(x => x.Revue === revId) ?? null : null;
+
+  return { rev, tem, ent, entId, cert, certs, prog, pls, chs, chById, qualifs, qlParCode, evals, evalsLiees, evRows, progIds, types, blocsConnus, refs, reponses, cols, lastEv, nomEvr, blocageParEval, evaluateursTous, blocsParEval, trf };
 }
 
 const BLOC_ORDRE = ['General', 'Initiale', 'Surveillance', 'Renouvellement', 'Rapport'];
@@ -743,6 +762,56 @@ function champTexte(col, val, titre, area = false) {
     : `<label class="lbl">${esc(titre)}</label><input type="text" data-act="rev-txt" data-col="${col}" value="${esc(val || '')}">`;
 }
 
+// ── Champs du formulaire de transfert (table Transferts_qualification) ─────
+function champTrfTexte(col, val_, titre, area = false) {
+  return area
+    ? `<label class="lbl">${esc(titre)}</label><textarea data-act="trf-txt" data-col="${col}">${esc(val_ || '')}</textarea>`
+    : `<label class="lbl">${esc(titre)}</label><input type="text" data-act="trf-txt" data-col="${col}" value="${esc(val_ || '')}">`;
+}
+function champTrfNombre(col, val_, titre) {
+  return `<label class="lbl">${esc(titre)}</label><input type="number" data-act="trf-nb" data-col="${col}" value="${val_ ?? ''}">`;
+}
+function champTrfDate(col, val_, titre) {
+  return `<label class="lbl">${esc(titre)}</label><input type="date" data-act="trf-date" data-col="${col}" value="${toDateInput(val_)}">`;
+}
+function trfChecklist() { try { return JSON.parse(D.trf?.Checklist_json || '[]'); } catch { return []; } }
+function trfItem(id) { return trfChecklist().find(x => x.id === id) || { id, documente: '', commentaire: '' }; }
+
+function panneauTransfert() {
+  if (!D.cols.transfertTable) return '<div class="warn">Table Transferts_qualification absente : à créer pour suivre le transfert (voir TEM-95).</div>';
+  const r = D.trf;
+  const rows = CHECKLIST_TRANSFERT.map(c => {
+    const it = trfItem(c.id);
+    return `<tr><td class="lib">${esc(c.libelle)}</td>
+      <td>${tog('trf-doc', it.documente, ['O', 'N'], `data-crit="${c.id}"`)}</td>
+      <td><input class="com" type="text" data-act="trf-com" data-crit="${c.id}" value="${esc(it.commentaire || '')}" placeholder="Preuve / commentaire"></td></tr>`;
+  }).join('');
+  return `<div class="livrable"><h3>🔁 Revue et décision préalable au transfert (TEM-95)</h3>
+    <div class="ligne">${champTrfTexte('Organisme', r?.Organisme, 'Organisme')}</div>
+    <div class="ligne">${champTrfTexte('Adresse', r?.Adresse, 'Adresse', true)}</div>
+    <div class="ligne">${champTrfNombre('Effectif_total', r?.Effectif_total, 'Effectif total')}
+      ${champTrfNombre('Effectif_perimetre', r?.Effectif_perimetre, 'Effectif dans le périmètre')}
+      ${champTrfNombre('Nb_sites', r?.Nb_sites, 'Nombre de sites')}</div>
+    <div class="ligne">${champTrfTexte('Referentiel', r?.Referentiel, 'Référentiel(s)')}
+      ${champTrfTexte('Code_technique', r?.Code_technique, 'Code technique')}</div>
+    <table class="pts"><thead><tr><th>Critère de la revue préalable</th><th>Documenté</th><th>Commentaire / preuve</th></tr></thead><tbody>${rows}</tbody></table>
+    <h3 style="margin-top:16px">Transfert de certification</h3>
+    <div class="ligne">${champTrfTexte('NC_majeures', r?.NC_majeures, 'Non-conformités majeures')}</div>
+    <div class="ligne">${champTrfTexte('NC_mineures', r?.NC_mineures, 'Non-conformités mineures')}</div>
+    <div class="ligne"><label class="lbl">Visite pré-transfert nécessaire ?</label>${tog('trf-choix', r?.Visite_pretransfert, ['OUI', 'NON'], 'data-col="Visite_pretransfert"')}
+      <span class="info">La visite pré-transfert n'est pas un audit.</span></div>
+    <div class="ligne">${champTrfTexte('Responsable_revue', r?.Responsable_revue, 'Responsable de la revue')}
+      ${champTrfDate('Date_revue', r?.Date_revue, 'Date de la revue')}</div>
+    <h3 style="margin-top:16px">Décision</h3>
+    <div class="ligne"><label class="lbl">Décision</label>${tog('trf-choix', r?.Decision, ['Favorable', 'Defavorable'], 'data-col="Decision"', true)}</div>
+    ${r?.Decision === 'Defavorable' ? `<div class="ligne">${champTrfTexte('Justification_defavorable', r?.Justification_defavorable, 'Justification (à communiquer au client)', true)}</div>` : ''}
+    <div class="ligne">${champTrfTexte('Decideur', r?.Decideur, 'Décision émise par')}
+      ${champTrfDate('Date_decision', r?.Date_decision, 'Date de décision')}
+      ${champTrfTexte('Signature_decideur', r?.Signature_decideur, 'Signature')}</div>
+    <div class="ligne"><button class="btn" data-act="trf-pdf">📄 Générer le PDF (TEM-95)</button></div>
+  </div>`;
+}
+
 function panneau(j) {
   const r = D.rev, c = D.cols;
   if (j === 'Recevabilité') {
@@ -752,6 +821,9 @@ function panneau(j) {
         : '<div class="warn">Colonnes Recevable / Date_recevabilite à créer dans Revues_de_dossier.</div>'}
       <div class="ligne"><button class="btn${courrier ? ' sec2' : ''}" data-act="courrier" ${progsDemandes().length ? '' : 'disabled title="Aucun programme demandé lisible dans le TEM-404"'}>${courrier ? 'Fermer le courrier' : '✉ Préparer le courrier de recevabilité'}</button></div>
       ${courrier ? editeurCourrier() : ''}
+      ${c.transfert ? `<div class="ligne"><label class="lbl">Transfert de qualification ?</label>${tog('rev-choix', r.Transfert_qualification, ['OUI', 'NON'], 'data-col="Transfert_qualification"', true)}</div>`
+        : '<div class="warn">Colonne Transfert_qualification à créer dans Revues_de_dossier.</div>'}
+      ${c.transfert && r.Transfert_qualification === 'OUI' ? panneauTransfert() : ''}
     </div>`;
   }
   if (j === 'Proposition commerciale') {
@@ -1022,9 +1094,48 @@ function definitionAttest(a, res) {
   ] };
 }
 
+function trfDocPourPdf() {
+  const r = D.trf || {};
+  return {
+    organisme: r.Organisme, adresse: r.Adresse,
+    effectifTotal: r.Effectif_total, effectifPerimetre: r.Effectif_perimetre, nbSites: r.Nb_sites,
+    referentiel: r.Referentiel, codeTechnique: r.Code_technique,
+    checklist: CHECKLIST_TRANSFERT.map(c => { const it = trfItem(c.id); return { libelle: c.libelle, documente: it.documente, commentaire: it.commentaire }; }),
+    ncMajeures: r.NC_majeures, ncMineures: r.NC_mineures, visitePretransfert: r.Visite_pretransfert,
+    responsableRevue: r.Responsable_revue, dateRevue: fmtD(r.Date_revue),
+    decision: r.Decision, justificationDefavorable: r.Justification_defavorable,
+    decideur: r.Decideur, dateDecision: fmtD(r.Date_decision), signatureDecideur: r.Signature_decideur,
+  };
+}
+
+function definitionTransfert(doc, res) {
+  const section = titre => ({ text: titre, bold: true, color: BLEU, fontSize: 13, margin: [0, 16, 0, 6] });
+  const ligne = (label, valeur) => ({ columns: [{ width: 190, text: label, bold: true }, { width: '*', text: valeur || '—' }], margin: [0, 2, 0, 2] });
+  return { ...cadrePdf(res, 'TEM-95 — Revue et décision préalable au transfert'), content: [
+    { text: 'TEM-95 — REVUE ET DÉCISION PRÉALABLE AU TRANSFERT DE QUALIFICATION', alignment: 'center', bold: true, color: BLEU, fontSize: 12 },
+    section('Informations sur l’organisme'),
+    ligne('Organisme', doc.organisme), ligne('Adresse', doc.adresse),
+    ligne('Effectif total', doc.effectifTotal), ligne('Effectif dans le périmètre', doc.effectifPerimetre),
+    ligne('Nombre de sites', doc.nbSites), ligne('Référentiel(s)', doc.referentiel), ligne('Code technique', doc.codeTechnique),
+    section('Checklist de revue préalable au transfert'),
+    { table: { widths: ['*', 40, '*'], body: [
+      [{ text: 'Critère', bold: true }, { text: 'Doc.', bold: true }, { text: 'Conformité / preuve', bold: true }],
+      ...doc.checklist.map(c => [c.libelle, c.documente || '', c.commentaire || '']),
+    ] }, layout: 'lightHorizontalLines', fontSize: 9 },
+    section('Transfert de certification'),
+    ligne('Non-conformités majeures', doc.ncMajeures), ligne('Non-conformités mineures', doc.ncMineures),
+    ligne('Visite pré-transfert nécessaire', doc.visitePretransfert),
+    ligne('Responsable de la revue', doc.responsableRevue), ligne('Date de la revue', doc.dateRevue),
+    section('Décision'),
+    ligne('Décision', doc.decision === 'Defavorable' ? 'Défavorable' : doc.decision === 'Favorable' ? 'Favorable' : ''),
+    ...(doc.decision === 'Defavorable' ? [ligne('Justification', doc.justificationDefavorable)] : []),
+    ligne('Décideur', doc.decideur), ligne('Date de décision', doc.dateDecision), ligne('Signature', doc.signatureDecideur),
+  ] };
+}
+
 // Garde-fou : les champs entre crochets ([JJ/MM/AAAA], [Prénom NOM]…) restent à compléter
 async function genererPdf(kind, bouton) {
-  const doc = kind === 'attest' ? attest : courrier;
+  const doc = kind === 'attest' ? attest : kind === 'transfert' ? trfDocPourPdf() : courrier;
   if (!doc) return;
   const restes = [...new Set(Object.values(doc).filter(v => typeof v === 'string').flatMap(v => v.match(/\[[^\]\n]{2,40}\]/g) || []))];
   if (restes.length && !window.confirm(`Champs encore à compléter : ${restes.join(', ')}.\n\nGénérer quand même ?`)) return;
@@ -1037,8 +1148,10 @@ async function genererPdf(kind, bouton) {
     const jour = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}`;
     const nom = kind === 'attest'
       ? `${jour}_${code}_Attestation_deroulement_${PROG_NOMS[doc.prog] || 'EVAL'}.pdf`
+      : kind === 'transfert'
+      ? `${jour}_${code}_TEM-95_Transfert.pdf`
       : `${jour}_${code}_Courrier_Recevabilite_${doc.progs.map(p => PROG_NOMS[p]).join('-')}.pdf`;
-    const def = kind === 'attest' ? definitionAttest(doc, res) : definitionCourrier(doc, res);
+    const def = kind === 'attest' ? definitionAttest(doc, res) : kind === 'transfert' ? definitionTransfert(doc, res) : definitionCourrier(doc, res);
     const pdf = window.pdfMake.createPdf(def, null, res.fonts, res.vfs);
     try { pdf.download(nom); } catch { pdf.open(); }
     status(`Document généré : ${nom}`);
@@ -1156,6 +1269,22 @@ async function setPoint(ptId, fields, horodater = true) {
 
 async function setRev(fields, msg = 'Fiche enregistrée') {
   if (await apply([['UpdateRecord', T.REV, revId, fields]], msg)) await reload();
+}
+
+// Une ligne par revue dans Transferts_qualification ; créée au premier champ renseigné,
+// pré-remplie depuis le TEM-404 quand c'est possible.
+async function setTrf(fields, msg = 'Transfert enregistré') {
+  if (D.trf) { if (await apply([['UpdateRecord', T.TRF, D.trf.id, fields]], msg)) await reload(); return; }
+  const j = jsonTem();
+  const defaults = {
+    Revue: revId,
+    Organisme: val(j['demandeur.nom']) || String(D.ent.get(D.entId)?.Denomination || ''),
+    Adresse: [val(j['demandeur.adresse1']), val(j['demandeur.adresse2']),
+      [val(j['demandeur.code_postal']), val(j['demandeur.ville'])].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+    Referentiel: [...D.progIds].map(id => D.prog.get(id)).filter(Boolean).join(', '),
+    Checklist_json: JSON.stringify(CHECKLIST_TRANSFERT.map(c => ({ id: c.id, documente: '', commentaire: '' }))),
+  };
+  if (await apply([['AddRecord', T.TRF, null, { ...defaults, ...fields }]], msg)) await reload();
 }
 
 // Passe le devis de Brouillon à En cours (premier statut « validé » du TEM-400, PL_VALIDEES).
@@ -1351,6 +1480,18 @@ main.addEventListener('click', async ev => {
     await grist.setOption('signataire', signataire);
     return status('Signature mémorisée pour les prochains courriers.');
   }
+  if (act === 'trf-choix') {
+    const col = b.dataset.col, cur = D.trf?.[col] || '';
+    const v = cur === b.dataset.v ? '' : b.dataset.v;
+    return setTrf({ [col]: v });
+  }
+  if (act === 'trf-doc') {
+    const id = b.dataset.crit, cur = trfItem(id).documente || '';
+    const v = cur === b.dataset.v ? '' : b.dataset.v;
+    const arr = CHECKLIST_TRANSFERT.map(c => { const it = trfItem(c.id); return c.id === id ? { ...it, documente: v } : it; });
+    return setTrf({ Checklist_json: JSON.stringify(arr) });
+  }
+  if (act === 'trf-pdf') return genererPdf('transfert', b);
 });
 
 // Saisie dans le courrier : mémorisée sans re-rendu (le curseur reste en place)
@@ -1373,6 +1514,13 @@ main.addEventListener('change', async ev => {
   if (act === 'rev-date') return setRev({ [el.dataset.col]: dateToSec(el.value) });
   if (act === 'rev-txt') return setRev({ [el.dataset.col]: el.value });
   if (act === 'rev-cert') return setRev({ Certificat: +el.value || 0 }, 'Certificat rattaché');
+  if (act === 'trf-txt') return setTrf({ [el.dataset.col]: el.value });
+  if (act === 'trf-nb') return setTrf({ [el.dataset.col]: el.value === '' ? null : Number(el.value) });
+  if (act === 'trf-date') return setTrf({ [el.dataset.col]: dateToSec(el.value) });
+  if (act === 'trf-com') {
+    const arr = CHECKLIST_TRANSFERT.map(c => { const it = trfItem(c.id); return c.id === el.dataset.crit ? { ...it, commentaire: el.value } : it; });
+    return setTrf({ Checklist_json: JSON.stringify(arr) });
+  }
 });
 
 // ── Configuration ──────────────────────────────────────────────────────────
